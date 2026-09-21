@@ -3,6 +3,26 @@ import { IMAGE_SETS, archetypes, routeSources, routeTargets, sourceLabels, targe
 import { computeTargetState, NEUTRAL_TARGETS } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
 import { customMediaSources, loadCustomArchetypes, saveCustomArchetype } from './custom-archetypes.js';
+import { resolvePerformanceShortcut } from './shortcuts.js';
+import { applyPanicTargets } from './show-safety.js';
+
+const isShowMode=new URLSearchParams(location.search).get('show')==='1';
+document.body.classList.toggle('showMode',isShowMode);
+const showChannel='BroadcastChannel' in window?new BroadcastChannel('eyesforbeats-show-v1'):null;
+let remoteVisualState=null,lastShowPeerAt=0,showWindow=null,lastShowBroadcastAt=0;
+let blackoutActive=false,panicActive=false,panicReleaseStartedAt=null;
+if(isShowMode){
+ const status=document.createElement('div');status.id='showConnection';status.className='showConnection';status.textContent='WAITING FOR CONTROLLER';document.body.appendChild(status);
+ const announce=()=>showChannel?.postMessage({type:'show-ready'});announce();setInterval(announce,2000);
+ document.addEventListener('dblclick',()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{})});
+ document.addEventListener('keydown',event=>{if(event.key.toLowerCase()==='f'&&!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{})});
+}
+showChannel?.addEventListener('message',event=>{
+ const message=event.data||{};
+ if(isShowMode&&message.type==='frame'){remoteVisualState=message.state;document.getElementById('showConnection')?.classList.add('connected')}
+ if(isShowMode&&message.type==='library-changed')location.reload();
+ if(!isShowMode&&message.type==='show-ready')lastShowPeerAt=Date.now();
+});
 
 const builtInArchetypeCount=archetypes.length;
 try{
@@ -147,6 +167,20 @@ document.getElementById('presetDialogForm').onsubmit=e=>{
   musicPresets[target].push(captureMusicPreset(name));saveMusicPresets();renderPresetControls(musicPresets[target].length-1);presetDialog.close();
 };
 document.getElementById('presetSelect').onchange=e=>{const i=e.target.value;if(i!=='')applyMusicPreset(musicPresets[target][+i]);syncPresetActions()};
+function activatePreset(index){
+ const items=musicPresets[target]||[];
+ if(!items.length){showShortcutToast('NO PRESETS FOR THIS ARCHETYPE');return false}
+ if(index<0||index>=items.length){showShortcutToast('PRESET '+String(index+1).padStart(2,'0')+' NOT AVAILABLE');return false}
+ const select=document.getElementById('presetSelect');select.value=String(index);applyMusicPreset(items[index]);syncPresetActions();
+ showShortcutToast('PRESET '+String(index+1).padStart(2,'0')+' · '+items[index].name);return true;
+}
+function stepPreset(direction){
+ const items=musicPresets[target]||[];
+ if(!items.length){showShortcutToast('NO PRESETS FOR THIS ARCHETYPE');return}
+ const value=document.getElementById('presetSelect').value;
+ const index=value===''?(direction>0?0:items.length-1):(+value+direction+items.length)%items.length;
+ activatePreset(index);
+}
 document.getElementById('presetUpdate').onclick=()=>{
   const select=document.getElementById('presetSelect'),i=select.value;if(i==='')return;
   const name=musicPresets[target][+i].name;musicPresets[target][+i]=captureMusicPreset(name);saveMusicPresets();renderPresetControls(i);
@@ -398,6 +432,7 @@ document.getElementById('createArchetype').onclick=async()=>{
    defaultImageConfigs.push(JSON.parse(JSON.stringify(newConfig)));imageConfigs.push(newConfig);
    seqStates.push({current:0,next:Math.min(1,IMAGE_SETS[newIndex].length-1),blend:0,transitioning:false,loading:false,transStart:0,lastSwitch:performance.now(),lastMappedSignal:0});
    musicPresets.push([]);saveRoutingMaps();saveImageConfigs();saveMusicPresets();renderArchetypeBar();
+   showChannel?.postMessage({type:'library-changed'});
    closeArchetypeCreator();document.getElementById('customArchName').value='';await selectArchetype(newIndex);
  }catch(error){console.error(error);creatorStatus.textContent='Could not save this archetype in the browser.'}
  finally{button.disabled=false}
@@ -487,12 +522,13 @@ function refreshVideoTextures(){
 }
 async function requestImageChange(a,idx){
  const s=seqStates[a];
- if(s.loading||s.transitioning||idx===s.current||!imageConfigs[a].images[idx].enabled)return;
+ if(panicActive||s.loading||s.transitioning||idx===s.current||!imageConfigs[a].images[idx].enabled)return;
  s.loading=true;
  await uploadMediaToSlot(1,1,a,idx);
+ if(panicActive){s.loading=false;return}
  s.next=idx;s.blend=0;s.transStart=performance.now();s.transitioning=true;s.loading=false;
 }
-function updateImageSequence(now,Eff){
+function updateImageSequence(now,Eff,freezeAdvances=false){
  const a=target,s=seqStates[a],cfg=imageConfigs[a];
  if(s.transitioning){
    const dur=Math.max(.2,cfg.crossfade||2.2)*1000;
@@ -503,6 +539,7 @@ function updateImageSequence(now,Eff){
    }
    return;
  }
+ if(freezeAdvances)return;
  const enabled=enabledImages(a);if(enabled.length<2)return;
  if(cfg.mode==='auto'){
    const dwell=Math.max(2,cfg.images[s.current].duration||10)*1000;
@@ -527,6 +564,34 @@ async function loadArchetypeIntoRole(role,a){
  const s=seqStates[a],e=enabledImages(a),i0=e.includes(s.current)?s.current:(e[0]??0),i1=s.transitioning?s.next:i0;
  s.current=i0;s.next=i1;
  await Promise.all([uploadMediaToSlot(role,0,a,i0),uploadMediaToSlot(role,1,a,i1)]);
+}
+const remoteRoleSignatures=['',''],remoteRoleTokens=[0,0];
+function syncRemoteRole(role,a,state){
+ if(!state||!IMAGE_SETS[a])return;
+ const i0=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.current||0));
+ const i1=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.next??i0));
+ const signature=`${a}:${i0}:${i1}`;
+ if(remoteRoleSignatures[role]===signature)return;
+ remoteRoleSignatures[role]=signature;const token=++remoteRoleTokens[role];
+ Promise.all([uploadMediaToSlot(role,0,a,i0),uploadMediaToSlot(role,1,a,i1)]).then(()=>{
+   if(token!==remoteRoleTokens[role])return;
+   const seq=seqStates[a];seq.current=i0;seq.next=i1;
+ }).catch(error=>console.error('Unable to synchronize show media',error));
+}
+function applyRemoteVisualState(state){
+ if(!state||!archetypes[state.current]||!archetypes[state.target])return;
+ setBlackout(!!state.blackout);
+ FinalG={...NEUTRAL_TARGETS,...state.finalG};
+ current=state.current;target=state.target;archMix=Number.isFinite(state.archMix)?state.archMix:1;transitioning=!!state.transitioning;
+ syncRemoteRole(0,current,state.seqA);syncRemoteRole(1,target,state.seqB);
+ if(state.seqA&&seqStates[current])Object.assign(seqStates[current],{current:state.seqA.current,next:state.seqA.next,blend:state.seqA.blend||0,transitioning:!!state.seqA.transitioning});
+ if(state.seqB&&seqStates[target])Object.assign(seqStates[target],{current:state.seqB.current,next:state.seqB.next,blend:state.seqB.blend||0,transitioning:!!state.seqB.transitioning});
+}
+function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next:s.next,blend:s.blend,transitioning:s.transitioning}}
+function broadcastShowFrame(now,Eff){
+ if(!showChannel||now-lastShowBroadcastAt<40)return;
+ lastShowBroadcastAt=now;
+ showChannel.postMessage({type:'frame',state:{finalG:{...FinalG},eff:{...Eff},current,target,archMix,transitioning,blackout:blackoutActive,seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
 }
 Promise.all([loadArchetypeIntoRole(0,0),loadArchetypeIntoRole(1,0)]).then(()=>start());
 
@@ -600,6 +665,48 @@ volumeControl.addEventListener('input',()=>{audio.volume=+volumeControl.value;if
 muteButton.onclick=()=>{audio.muted=!audio.muted;updateTransportState()};
 document.getElementById('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
 document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none'};
+const shortcutDialog=document.getElementById('shortcutDialog'),shortcutToast=document.getElementById('shortcutToast');
+let shortcutToastTimer=0;
+function showShortcutToast(message){
+ shortcutToast.textContent=message;shortcutToast.classList.add('show');clearTimeout(shortcutToastTimer);
+ shortcutToastTimer=setTimeout(()=>shortcutToast.classList.remove('show'),1100);
+}
+function openShortcutGuide(){if(!shortcutDialog.open)shortcutDialog.showModal()}
+document.getElementById('shortcutHelpBtn').onclick=openShortcutGuide;
+document.getElementById('closeShortcutDialog').onclick=()=>shortcutDialog.close();
+const blackoutOverlay=document.getElementById('blackoutOverlay'),blackoutButton=document.getElementById('blackoutBtn'),panicButton=document.getElementById('panicBtn');
+function updateSafetyUi(){
+ blackoutOverlay.classList.toggle('active',blackoutActive);blackoutButton.classList.toggle('active',blackoutActive);blackoutButton.setAttribute('aria-pressed',String(blackoutActive));
+ panicButton.classList.toggle('active',panicActive);panicButton.setAttribute('aria-pressed',String(panicActive));
+ document.getElementById('blackoutStatus').classList.toggle('active',blackoutActive);document.getElementById('panicStatus').classList.toggle('active',panicActive);
+}
+function setBlackout(value){blackoutActive=!!value;updateSafetyUi();return blackoutActive}
+function toggleBlackout(){return setBlackout(!blackoutActive)}
+function setPanic(value){
+ const next=!!value;if(next===panicActive)return panicActive;
+ panicActive=next;
+ if(panicActive){panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
+ else{panicReleaseStartedAt=performance.now();if(seqStates[target])seqStates[target].lastSwitch=performance.now()}
+ updateSafetyUi();return panicActive;
+}
+function togglePanic(){return setPanic(!panicActive)}
+blackoutButton.onclick=toggleBlackout;panicButton.onclick=togglePanic;
+window.EyesForBeatsSafety={toggleBlackout,togglePanic,setBlackout,setPanic};
+updateSafetyUi();
+const showModeButton=document.getElementById('showModeBtn');
+if(!showChannel){showModeButton.disabled=true;showModeButton.title='Show mode is not supported by this browser';if(isShowMode)document.getElementById('showConnection').textContent='BROADCAST CHANNEL NOT SUPPORTED'}
+showModeButton.onclick=()=>{
+ const url=new URL(location.href);url.searchParams.set('show','1');
+ if(showWindow&&!showWindow.closed){showWindow.focus();return}
+ showWindow=window.open(url,'eyesforbeats-show','popup,width=1280,height=720');
+ if(!showWindow){showModeButton.title='Allow pop-ups to open the show output';return}
+ showModeButton.title='Show output opened · move it to the projector and double-click for full screen';
+};
+setInterval(()=>{
+ const connected=Date.now()-lastShowPeerAt<4500;
+ showModeButton.classList.toggle('connected',connected);
+ showModeButton.title=connected?'Show output connected':'Open show output';
+},1000);
 
 function analyze(now){
  if(!analyser)return;
@@ -780,6 +887,7 @@ function analyze(now){
 }
 
 let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;
+let archetypeSelectionBusy=false,queuedArchetype=null;
 renderPresetControls();
 function renderArchetypeBar(){
  const bar=document.getElementById('archBar');bar.innerHTML='';
@@ -791,19 +899,30 @@ function renderArchetypeBar(){
  const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>＋ CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=openArchetypeCreator;bar.appendChild(createButton);
 }
 async function selectArchetype(a){
+ if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
  if(a===target)return;
+ if(archetypeSelectionBusy){queuedArchetype=a;return}
+ archetypeSelectionBusy=true;
  const previous=target;
- await Promise.all([loadArchetypeIntoRole(0,previous),loadArchetypeIntoRole(1,a)]);
- current=previous;target=a;
- document.querySelectorAll('.arch').forEach(x=>x.classList.toggle('active',+x.dataset.a===a));
- if(mode==='cut'){current=target;archMix=1;transitioning=false}
- else{transitioning=true;archMix=0;transitionStart=performance.now()}
- renderPresetControls();
- if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
- if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+ try{
+   await Promise.all([loadArchetypeIntoRole(0,previous),loadArchetypeIntoRole(1,a)]);
+   current=previous;target=a;
+   document.querySelectorAll('.arch').forEach(x=>x.classList.toggle('active',+x.dataset.a===a));
+   if(mode==='cut'||panicActive){current=target;archMix=1;transitioning=false}
+   else{transitioning=true;archMix=0;transitionStart=performance.now()}
+   renderPresetControls();
+   if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+   if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+ }finally{
+   archetypeSelectionBusy=false;
+   const queued=queuedArchetype;queuedArchetype=null;
+   if(queued!=null&&queued!==target)selectArchetype(queued);
+ }
 }
 renderArchetypeBar();
-const archBarToggle=document.getElementById('archBarToggle'),uiRoot=document.querySelector('.ui');
+const archBarToggle=document.getElementById('archBarToggle'),uiRoot=document.querySelector('.ui'),archBar=document.getElementById('archBar');
+function updateFooterMetrics(){uiRoot.style.setProperty('--footer-height',`${Math.ceil(archBar.getBoundingClientRect().height)}px`)}
+new ResizeObserver(updateFooterMetrics).observe(archBar);updateFooterMetrics();
 function setArchetypeBarCollapsed(collapsed){
  uiRoot.classList.toggle('footerCollapsed',collapsed);
  archBarToggle.setAttribute('aria-expanded',String(!collapsed));
@@ -814,8 +933,26 @@ let footerStartsCollapsed=false;
 try{footerStartsCollapsed=localStorage.getItem('eyesforbeats_footer_collapsed')==='1'}catch(e){}
 setArchetypeBarCollapsed(footerStartsCollapsed);
 archBarToggle.onclick=()=>setArchetypeBarCollapsed(!uiRoot.classList.contains('footerCollapsed'));
-document.getElementById('smooth').onclick=()=>{mode='smooth';smooth.classList.add('active');cut.classList.remove('active')};
-document.getElementById('cut').onclick=()=>{mode='cut';cut.classList.add('active');smooth.classList.remove('active')};
+const smoothButton=document.getElementById('smooth'),cutButton=document.getElementById('cut');
+function setTransitionMode(next){mode=next;smoothButton.classList.toggle('active',mode==='smooth');cutButton.classList.toggle('active',mode==='cut')}
+smoothButton.onclick=()=>setTransitionMode('smooth');
+cutButton.onclick=()=>setTransitionMode('cut');
+function shortcutTypingContext(element){return !!document.querySelector('dialog[open]')||element?.matches?.('input,textarea,select,[contenteditable="true"]')||!!element?.closest?.('[contenteditable="true"]')}
+document.addEventListener('keydown',event=>{
+ if(isShowMode||event.repeat||shortcutTypingContext(event.target))return;
+ const action=resolvePerformanceShortcut(event,archetypes.length);if(!action)return;
+ event.preventDefault();
+ if(action.type==='help'){openShortcutGuide();return}
+ if(action.type==='safety'){
+   const active=action.control==='blackout'?toggleBlackout():togglePanic();
+   showShortcutToast(action.control.toUpperCase()+' · '+(active?'ON':'OFF'));return;
+ }
+ if(action.type==='transition'){setTransitionMode(action.mode);showShortcutToast(action.mode.toUpperCase()+' TRANSITIONS');return}
+ if(action.type==='preset-select'){activatePreset(action.index);return}
+ if(action.type==='preset-step'){stepPreset(action.direction);return}
+ const index=action.type==='step'?(target+action.direction+archetypes.length)%archetypes.length:action.index;
+ showShortcutToast(String(index+1).padStart(2,'0')+' · '+archetypes[index].name+' — '+mode.toUpperCase());selectArchetype(index);
+});
 
 let particles=[];
 function resize(){
@@ -857,27 +994,33 @@ function smoothstep(x){return x*x*(3-2*x)}
 let t0=performance.now(),last=performance.now();
 function start(){requestAnimationFrame(frame)}
 function frame(now){
- resize(); analyze(now);
+ resize();
  const dt=Math.min(.05,(now-last)/1000);last=now;
-
- // Tempo-synced pulse is calculated every visual frame from the current beat clock.
- let beatPhase=0;
- if(BPM>0 && beatAnchorSec!==null){
-   const period=60/BPM;
-   const pos=(now/1000-beatAnchorSec)/period;
-   beatPhase=((pos%1)+1)%1;
-   BeatPulse=Math.exp(-beatPhase*8.5)*BPMConfidence;
- } else {
-   BeatPulse*=0.92;
- }
-
- const react=+document.getElementById('react').value;
- const Eff = getEffectiveState();
- computeGlobalMapping(Eff,now);
- updateImageSequence(now,Eff);
- if(transitioning){
-   let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
-   if(x>=1){current=target;archMix=1;transitioning=false}
+ let Eff;
+ if(isShowMode){
+   if(remoteVisualState){applyRemoteVisualState(remoteVisualState);BPM=remoteVisualState.bpm||0;BeatPulse=remoteVisualState.beat||0;KickFast=remoteVisualState.kick||0;SnareFast=remoteVisualState.snare||0}
+   Eff=remoteVisualState?.eff||neutralVals;
+ }else{
+   analyze(now);
+   // Tempo-synced pulse is calculated every visual frame from the current beat clock.
+   let beatPhase=0;
+   if(BPM>0 && beatAnchorSec!==null){
+     const period=60/BPM;
+     const pos=(now/1000-beatAnchorSec)/period;
+     beatPhase=((pos%1)+1)%1;
+     BeatPulse=Math.exp(-beatPhase*8.5)*BPMConfidence;
+   } else BeatPulse*=0.92;
+   Eff=getEffectiveState();
+   const routedTargets=computeGlobalMapping(Eff,now);
+   FinalG=applyPanicTargets(routedTargets,{panic:panicActive,releaseStartedAt:panicReleaseStartedAt,now,duration:300});
+   if(panicReleaseStartedAt!=null&&now-panicReleaseStartedAt>=300)panicReleaseStartedAt=null;
+   routeTargets.forEach(key=>{document.getElementById('gf-'+key).textContent=FinalG[key].toFixed(2)});
+   updateImageSequence(now,Eff,panicActive);
+   if(transitioning){
+     let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
+     if(x>=1){current=target;archMix=1;transitioning=false}
+   }
+   broadcastShowFrame(now,Eff);
  }
  gl.useProgram(prog);
  gl.uniform2f(U.uRes,canvas.width,canvas.height);

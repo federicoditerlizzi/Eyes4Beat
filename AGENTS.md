@@ -49,13 +49,21 @@ Everything runs on the main browser thread:
    - `Context`: rolling phrase-level averages (3–15 s depending on feature).
 6. The PERF/CTX slider blends `Fast` and `Context` into `S`.
 7. `getEffectiveState()` applies each continuous source's enable/solo state and amount; Beat, Kick, and Snare have the same source controls in the routing stage.
-8. `computeGlobalMapping()` is the only path from musical sources to visual motion. It routes sources through the current archetype's matrix into `FinalG` visual controls.
-9. `frame(now)` sends state to the GLSL shader, draws a full-screen triangle, updates the 2D particle canvas, and refreshes diagnostics.
+8. `computeGlobalMapping()` routes sources through the current archetype's matrix. `frame(now)` then passes the routed result through `applyPanicTargets()` before assigning the shader-facing `FinalG` controls.
+9. `frame(now)` advances or freezes image sequencing according to PANIC, sends the safe target state to GLSL, draws a full-screen triangle, updates the 2D particle canvas, broadcasts Show state, and refreshes diagnostics.
 
 The two rendering layers are:
 
 - WebGL2 canvas `#gl`: image sampling, crossfades, UV warp/parallax, grading, glow, saturation, luminance, zoom, pulse, and vignette.
 - Canvas 2D `#particles`: archetype-specific particle motion composited over WebGL.
+
+## Show output architecture
+
+`?show=1` starts a clean output window in which `.ui` is hidden and audio analysis/mapping/image sequencing are disabled. The controller remains authoritative and broadcasts `FinalG`, effective musical state, archetype transition state and image sequence snapshots over `eyesforbeats-show-v1`. The Show renderer keeps its own WebGL context, loads built-in or IndexedDB media into its own texture slots and applies the received state. Do not make the Show window analyze or play audio: that would introduce drift and duplicate sound output. `library-changed` reloads the Show window after a custom archetype is created.
+
+Controller-only live shortcuts are resolved in `src/shortcuts.js`: number-row direct archetype selection, arrows or A/D archetype navigation, Alt/Option plus the same number/navigation keys for presets, S/C transition mode and `?` help. They must stay disabled for repeated keydown events, editable controls, open dialogs and Show mode. Archetype loading is serialized in `selectArchetype()` so rapid commands resolve to the latest queued selection without racing GPU texture uploads.
+
+BLACKOUT and PANIC are latched live-safety controls. BLACKOUT is a DOM overlay independent of WebGL; PANIC uses the pure `src/show-safety.js` calculation to override routed targets without mutating configuration. While PANIC is active, archetype transitions resolve immediately and `updateImageSequence()` only finishes an already-running crossfade. B/P shortcuts follow the same typing, dialog, repeat and Show-mode guards as the other controller shortcuts. The controller broadcasts its blackout state and already-safe `FinalG` to an existing Show peer; no separate audio or safety calculation runs there.
 
 ## Musical feature model
 

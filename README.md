@@ -49,6 +49,20 @@ Archetypes define visual identity and image sequencing. Named presets contain on
 
 Audio files remain local to the browser and are never uploaded.
 
+## Show mode
+
+The header's **Show output** button opens a second same-origin browser window using `?show=1`. The controller window retains audio playback and the complete UI; the Show window renders only the WebGL and particle canvases. A `BroadcastChannel` sends the computed musical targets, active archetypes, transition progress and image-sequence state roughly 25 times per second. Audio is neither copied nor analyzed twice.
+
+Move the Show window to the projector and double-click it (or press `F`) to request full screen. The controller button indicates when a Show peer is connected. Custom archetypes are loaded independently from the shared origin's IndexedDB; creating a new one asks an open Show window to reload its local media library.
+
+## Live keyboard shortcuts
+
+The controller supports direct archetype selection with `1–9`, `0` for archetype 10 and `Shift+1–9` for archetypes 11–19. Arrow keys or `A`/`D` move backward and forward cyclically. `Alt/Option+1–9` selects presets 1–9 for the active archetype, `Alt/Option+0` selects preset 10, and `Alt/Option` combined with arrows or A/D cycles its presets. `S` selects smooth transitions and `C` selects cuts. `?` opens the same compact reference available from the header keyboard button. Shortcuts ignore key repeat and are disabled in form fields, dialogs and the Show window. Rapid archetype requests are serialized and the most recent queued selection wins.
+
+## Live safety controls
+
+`B` or the **BLACKOUT** button toggles a fast black DOM overlay above both render canvases while keeping the controller UI, audio analysis and rendering active. `P` or **PANIC** latches a non-destructive safe state: visual targets are forced to neutral, an archetype transition completes immediately and image sequencing stops after any active image crossfade finishes. Releasing PANIC eases from neutral back to the current routed targets over 300 ms and restarts the current image dwell period. Neither control writes to presets, routing, localStorage or IndexedDB. The four plain functions are available as `window.EyesForBeatsSafety` for a future MIDI adapter.
+
 ## Custom archetypes
 
 Use the creation button after the footer archetype list to build an archetype from local images and short videos. Videos play muted and loop through the same WebGL treatment as images. Choose a built-in visual language as the initial shader/particle vocabulary; routing and musical presets remain independent and editable. Custom media are stored locally in IndexedDB and restored on the same browser and origin. The creator limits videos to 25 MB each and the complete selection to 100 MB.

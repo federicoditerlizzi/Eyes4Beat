@@ -13,6 +13,7 @@
 <body>
 <canvas id="gl"></canvas>
 <canvas id="particles"></canvas>
+<div id="blackoutOverlay" class="blackoutOverlay" aria-hidden="true"></div>
 <audio id="audio"></audio>
 
 <div class="ui">
@@ -37,19 +38,25 @@
       <div class="contextControl" title="Performance to context balance">
         <span>PERF</span><input id="ctxPerf" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="Performance to context balance"><span>CTX</span><b id="ctxPerfVal">.72</b>
       </div>
+      <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="safetyBtn blackoutBtn" type="button" aria-pressed="false">BLACKOUT</button><button id="panicBtn" class="safetyBtn panicBtn" type="button" aria-pressed="false">PANIC</button></div>
       <button id="imageMgrBtn" class="iconBtn" title="Image manager" aria-label="Image manager">▧</button>
       <button id="diagBtn" class="iconBtn" title="Toggle diagnostics" aria-label="Toggle diagnostics">◉</button>
+      <button id="shortcutHelpBtn" class="iconBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">⌨</button>
+      <button id="showModeBtn" class="iconBtn" title="Open show output" aria-label="Open show output">▣</button>
       <button id="fullscreen" class="iconBtn" title="Full screen" aria-label="Full screen">⛶</button>
     </div>
   </div>
-  <button id="archBarToggle" class="archBarToggle" aria-expanded="true" aria-controls="archBar">⌄ HIDE ARCHETYPES</button>
-  <div class="bottom" id="archBar">
-    <button class="arch active" data-a="0"><b>1 · DEEP DRIFT</b><span>space / contemplation</span></button>
-    <button class="arch" data-a="1"><b>2 · FUNK ELASTIC</b><span>groove / elastic flow</span></button>
-    <button class="arch" data-a="2"><b>3 · ORGANIC BLOOM</b><span>growth / breath / living systems</span></button>
-    <button class="arch" data-a="3"><b>4 · DENSE PROPULSION</b><span>pressure / momentum</span></button>
-    <button class="arch" data-a="4"><b>5 · HEART PULSE</b><span>heart / visceral energy</span></button>
-    <button class="arch" data-a="5"><b>6 · CYBER HEART</b><span>living heart / neon anatomy</span></button>
+  <div id="safetyStatus" class="safetyStatus" aria-live="assertive"><span id="blackoutStatus">BLACKOUT</span><span id="panicStatus">PANIC · TARGETS NEUTRAL</span></div>
+  <div class="footerDock" id="footerDock">
+    <button id="archBarToggle" class="archBarToggle" aria-expanded="true" aria-controls="archBar">⌄ HIDE ARCHETYPES</button>
+    <div class="bottom" id="archBar">
+      <button class="arch active" data-a="0"><b>1 · DEEP DRIFT</b><span>space / contemplation</span></button>
+      <button class="arch" data-a="1"><b>2 · FUNK ELASTIC</b><span>groove / elastic flow</span></button>
+      <button class="arch" data-a="2"><b>3 · ORGANIC BLOOM</b><span>growth / breath / living systems</span></button>
+      <button class="arch" data-a="3"><b>4 · DENSE PROPULSION</b><span>pressure / momentum</span></button>
+      <button class="arch" data-a="4"><b>5 · HEART PULSE</b><span>heart / visceral energy</span></button>
+      <button class="arch" data-a="5"><b>6 · CYBER HEART</b><span>living heart / neon anatomy</span></button>
+    </div>
   </div>
 
   <div class="lab" id="lab">
@@ -123,6 +130,34 @@
       <div class="dialogActions"><button id="cancelPreset" type="button">CANCEL</button><button type="submit" class="primaryBtn">CREATE</button></div>
     </form>
   </dialog>
+
+  <dialog id="shortcutDialog" class="presetDialog shortcutDialog" aria-labelledby="shortcutDialogTitle">
+    <div class="shortcutDialogBody">
+      <div class="shortcutDialogHead"><h2 id="shortcutDialogTitle">LIVE KEYBOARD SHORTCUTS</h2><button id="closeShortcutDialog" class="iconBtn" type="button" aria-label="Close shortcuts">×</button></div>
+      <div class="shortcutList">
+        <h3>ARCHETYPES</h3>
+        <div><kbd>1–9</kbd><span>Select archetype 1–9</span></div>
+        <div><kbd>0</kbd><span>Select archetype 10</span></div>
+        <div><kbd>⇧ 1–9</kbd><span>Select archetype 11–19</span></div>
+        <div><kbd>←</kbd><kbd>A</kbd><span>Previous archetype</span></div>
+        <div><kbd>→</kbd><kbd>D</kbd><span>Next archetype</span></div>
+        <h3>PRESETS · ACTIVE ARCHETYPE</h3>
+        <div><kbd>Alt 1–9</kbd><span>Select preset 1–9</span></div>
+        <div><kbd>Alt 0</kbd><span>Select preset 10</span></div>
+        <div><kbd>Alt ←</kbd><kbd>Alt A</kbd><span>Previous preset</span></div>
+        <div><kbd>Alt →</kbd><kbd>Alt D</kbd><span>Next preset</span></div>
+        <h3>TRANSITIONS &amp; HELP</h3>
+        <div><kbd>B</kbd><span>Toggle blackout</span></div>
+        <div><kbd>P</kbd><span>Toggle panic safe state</span></div>
+        <div><kbd>S</kbd><span>Smooth transition</span></div>
+        <div><kbd>C</kbd><span>Cut transition</span></div>
+        <div><kbd>?</kbd><span>Open this guide</span></div>
+      </div>
+      <p>Shortcuts are disabled while typing in a field or using a dialog.</p>
+    </div>
+  </dialog>
+
+  <div id="shortcutToast" class="shortcutToast" role="status" aria-live="polite"></div>
 
 
   <div class="imagePanel" id="imagePanel">
