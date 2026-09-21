@@ -32,6 +32,7 @@ index.html                  Application shell
 src/main.js                 Runtime orchestration and UI bindings
 src/config.js               Archetypes, assets, labels and default routing
 src/routing.js              Pure musical source → visual target engine
+src/icons.js                Bundled Lucide subset and runtime icon helper
 src/shaders.js              WebGL2 vertex and fragment shaders
 src/custom-archetypes.js    IndexedDB persistence for user-created archetypes
 src/styles.css              Application styles

@@ -20,12 +20,12 @@
   <div class="top">
     <div class="brand"><img src="/assets/brand/eyesforbeats-mark.png" alt=""><span>EyesForBeats</span></div>
     <section class="audioPlayer" aria-label="Audio player">
-      <label class="filebtn iconAction headerIcon audioLoad" data-tooltip="Load audio file" aria-label="Load audio file">＋<input id="file" type="file" accept="audio/*"></label>
+      <label class="filebtn iconAction headerIcon audioLoad" data-tooltip="Load audio file" aria-label="Load audio file"><i data-lucide="file-audio"></i><input id="file" type="file" accept="audio/*"></label>
       <div class="trackInfo"><span class="trackLabel">NOW PLAYING</span><strong id="trackName">No track loaded</strong></div>
-      <button id="play" class="iconAction headerIcon transportBtn" data-tooltip="Play" aria-label="Play" disabled>▶</button>
+      <button id="play" class="iconAction headerIcon transportBtn" data-tooltip="Play" aria-label="Play" disabled><i data-lucide="play" class="playIcon"></i><i data-lucide="pause" class="pauseIcon"></i></button>
       <input id="seek" class="seek" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Track position">
       <span id="timeDisplay" class="timeDisplay">0:00 / 0:00</span>
-      <button id="mute" class="iconAction headerIcon muteBtn" data-tooltip="Mute" aria-label="Mute" disabled>🔊</button>
+      <button id="mute" class="iconAction headerIcon muteBtn" data-tooltip="Mute" aria-label="Mute" disabled><i data-lucide="volume-2" class="volumeOnIcon"></i><i data-lucide="volume-x" class="volumeOffIcon"></i></button>
       <input id="volume" class="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
     </section>
     <div class="headerTools">
@@ -38,18 +38,18 @@
       <div class="contextControl" title="Performance to context balance">
         <span>PERF</span><input id="ctxPerf" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="Performance to context balance"><span>CTX</span><b id="ctxPerfVal">.72</b>
       </div>
-      <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="iconAction headerIcon safetyBtn blackoutBtn" type="button" aria-label="Blackout" data-tooltip="Blackout (B)" aria-pressed="false">■</button><button id="panicBtn" class="iconAction headerIcon safetyBtn panicBtn" type="button" aria-label="Panic" data-tooltip="Panic safe state (P)" aria-pressed="false">!</button></div>
-      <button id="audioInputBtn" class="iconAction headerIcon audioInputBtn" type="button" aria-label="Audio input" data-tooltip="Audio input">≋</button>
-      <button id="imageMgrBtn" class="iconAction headerIcon" data-tooltip="Image manager" aria-label="Image manager">▧</button>
-      <button id="diagBtn" class="iconAction headerIcon" data-tooltip="Toggle diagnostics" aria-label="Toggle diagnostics">◉</button>
-      <button id="shortcutHelpBtn" class="iconAction headerIcon" data-tooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">⌨</button>
-      <button id="showModeBtn" class="iconAction headerIcon" data-tooltip="Open show output" aria-label="Open show output">▣</button>
-      <button id="fullscreen" class="iconAction headerIcon" data-tooltip="Full screen" aria-label="Full screen">⛶</button>
+      <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="iconAction headerIcon safetyBtn blackoutBtn" type="button" aria-label="Blackout" data-tooltip="Blackout (B)" aria-pressed="false"><i data-lucide="monitor-off"></i></button><button id="panicBtn" class="iconAction headerIcon safetyBtn panicBtn" type="button" aria-label="Panic" data-tooltip="Panic safe state (P)" aria-pressed="false"><i data-lucide="octagon-alert"></i></button></div>
+      <button id="audioInputBtn" class="iconAction headerIcon audioInputBtn" type="button" aria-label="Audio input" data-tooltip="Audio input"><i data-lucide="audio-lines"></i></button>
+      <button id="imageMgrBtn" class="iconAction headerIcon" data-tooltip="Image manager" aria-label="Image manager"><i data-lucide="images"></i></button>
+      <button id="diagBtn" class="iconAction headerIcon" data-tooltip="Toggle diagnostics" aria-label="Toggle diagnostics"><i data-lucide="activity"></i></button>
+      <button id="shortcutHelpBtn" class="iconAction headerIcon" data-tooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><i data-lucide="keyboard"></i></button>
+      <button id="showModeBtn" class="iconAction headerIcon" data-tooltip="Open show output" aria-label="Open show output"><i data-lucide="screen-share"></i></button>
+      <button id="fullscreen" class="iconAction headerIcon" data-tooltip="Full screen" aria-label="Full screen"><i data-lucide="maximize" class="maximizeIcon"></i><i data-lucide="minimize" class="minimizeIcon"></i></button>
     </div>
   </div>
   <div id="safetyStatus" class="safetyStatus" aria-live="assertive"><span id="blackoutStatus">BLACKOUT</span><span id="panicStatus">PANIC · TARGETS NEUTRAL</span></div>
   <div class="footerDock" id="footerDock">
-    <button id="archBarToggle" class="archBarToggle" aria-expanded="true" aria-controls="archBar">⌄ HIDE ARCHETYPES</button>
+    <button id="archBarToggle" class="archBarToggle" aria-expanded="true" aria-controls="archBar"><i data-lucide="chevron-down" class="chevronDownIcon"></i><i data-lucide="chevron-up" class="chevronUpIcon"></i><span>HIDE ARCHETYPES</span></button>
     <div class="bottom" id="archBar">
       <button class="arch active" data-a="0"><b>1 · DEEP DRIFT</b><span>space / contemplation</span></button>
       <button class="arch" data-a="1"><b>2 · FUNK ELASTIC</b><span>groove / elastic flow</span></button>
@@ -61,10 +61,10 @@
   </div>
 
   <div class="lab" id="lab">
-    <div class="presetRow presetDock"><div class="presetToolbar"><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><div class="presetActions"><button id="presetSave" class="iconAction" aria-label="Create new preset" data-tooltip="Create new preset">＋</button><button id="presetUpdate" class="iconAction" aria-label="Update current preset" data-tooltip="Update current preset" disabled>↻</button><button id="presetDelete" class="iconAction danger" aria-label="Delete current preset" data-tooltip="Delete current preset">×</button></div></div></div>
+    <div class="presetRow presetDock"><div class="presetToolbar"><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><div class="presetActions"><button id="presetSave" class="iconAction" aria-label="Create new preset" data-tooltip="Create new preset"><i data-lucide="plus"></i></button><button id="presetUpdate" class="iconAction" aria-label="Update current preset" data-tooltip="Update current preset" disabled><i data-lucide="save"></i></button><button id="presetDelete" class="iconAction danger" aria-label="Delete current preset" data-tooltip="Delete current preset"><i data-lucide="trash-2"></i></button></div></div></div>
     <details class="labAccordion" open>
       <summary>MODULATION LAB</summary>
-      <button class="infoTip accordionInfo" aria-label="About modulation" data-tooltip="Archetypes define the visual world and media sequence. Musical presets store source controls, target controls and routing. Without a routed signal, musical motion returns to neutral.">i</button>
+      <button class="infoTip accordionInfo" aria-label="About modulation" data-tooltip="Archetypes define the visual world and media sequence. Musical presets store source controls, target controls and routing. Without a routed signal, musical motion returns to neutral."><i data-lucide="info"></i></button>
       <div class="accordionBody">
     <button class="mapOpen" id="openMatrix">OPEN SOURCE → TARGET MAPPING MATRIX</button>
 
@@ -85,7 +85,7 @@
 
     <details class="labAccordion" open>
       <summary>MUSICAL TARGETS</summary>
-      <button class="infoTip accordionInfo" aria-label="About musical targets" data-tooltip="Intensity sets maximum visual strength. Reactivity scales the routed musical signal. LIVE shows the resulting value; without a routed signal the effect stays neutral.">i</button>
+      <button class="infoTip accordionInfo" aria-label="About musical targets" data-tooltip="Intensity sets maximum visual strength. Reactivity scales the routed musical signal. LIVE shows the resulting value; without a routed signal the effect stays neutral."><i data-lucide="info"></i></button>
       <div class="accordionBody targetBody">
       <div class="gRow gHead"><span></span><span>INTENS.</span><span>REACT.</span><span>LIVE</span></div>
       <div class="gRow"><span>Pulse</span><input type="range" id="g-pulse" min="0" max="1.5" step="0.01" value="0.90"><input type="range" id="ga-pulse" min="0" max="1.5" step="0.01" value="0.90"><span id="gf-pulse">0.00</span></div>
@@ -101,8 +101,8 @@
 
   <div class="creatorPanel" id="creatorPanel">
     <div class="imageTop">
-      <div class="sectionTitle"><h2>CREATE ARCHETYPE</h2><button class="infoTip" aria-label="About archetypes" data-tooltip="Build a visual world from images and short looping videos. Musical controls and routing remain independently editable.">i</button></div>
-      <button id="closeCreator" class="iconAction closeAction" type="button" aria-label="Close archetype creator" data-tooltip="Close">×</button>
+      <div class="sectionTitle"><h2>CREATE ARCHETYPE</h2><button class="infoTip" aria-label="About archetypes" data-tooltip="Build a visual world from images and short looping videos. Musical controls and routing remain independently editable."><i data-lucide="info"></i></button></div>
+      <button id="closeCreator" class="iconAction closeAction" type="button" aria-label="Close archetype creator" data-tooltip="Close"><i data-lucide="x"></i></button>
     </div>
     <div class="creatorGrid">
       <div class="creatorField"><label>NAME</label><input id="customArchName" maxlength="40" placeholder="e.g. Liquid Constellations"></div>
@@ -134,7 +134,7 @@
 
   <dialog id="shortcutDialog" class="presetDialog shortcutDialog" aria-labelledby="shortcutDialogTitle">
     <div class="shortcutDialogBody">
-      <div class="shortcutDialogHead"><h2 id="shortcutDialogTitle">LIVE KEYBOARD SHORTCUTS</h2><button id="closeShortcutDialog" class="iconAction closeAction" type="button" aria-label="Close shortcuts" data-tooltip="Close">×</button></div>
+      <div class="shortcutDialogHead"><h2 id="shortcutDialogTitle">LIVE KEYBOARD SHORTCUTS</h2><button id="closeShortcutDialog" class="iconAction closeAction" type="button" aria-label="Close shortcuts" data-tooltip="Close"><i data-lucide="x"></i></button></div>
       <div class="shortcutList">
         <h3>ARCHETYPES</h3>
         <div><kbd>1–9</kbd><span>Select archetype 1–9</span></div>
@@ -161,7 +161,7 @@
   <div id="shortcutToast" class="shortcutToast" role="status" aria-live="polite"></div>
 
   <div id="audioInputPanel" class="audioInputPanel" aria-labelledby="audioInputTitle">
-    <div class="imageTop"><div class="sectionTitle"><h2 id="audioInputTitle">AUDIO INPUT</h2><button class="infoTip" aria-label="About live input" data-tooltip="LIVE analyzes an external audio input without routing it to the speakers. Use an audio interface for line-level instruments.">i</button></div><button id="closeAudioInput" class="iconAction closeAction" type="button" aria-label="Close audio input" data-tooltip="Close">×</button></div>
+    <div class="imageTop"><div class="sectionTitle"><h2 id="audioInputTitle">AUDIO INPUT</h2><button class="infoTip" aria-label="About live input" data-tooltip="LIVE analyzes an external audio input without routing it to the speakers. Use an audio interface for line-level instruments."><i data-lucide="info"></i></button></div><button id="closeAudioInput" class="iconAction closeAction" type="button" aria-label="Close audio input" data-tooltip="Close"><i data-lucide="x"></i></button></div>
     <div class="inputModeSwitch" aria-label="Audio source mode"><button id="fileModeBtn" class="active" type="button">FILE</button><button id="liveModeBtn" type="button">LIVE INPUT</button></div>
     <div class="audioInputGrid">
       <div class="creatorField"><label>AUDIO INPUT DEVICE</label><select id="audioDevice"><option value="">No devices available</option></select><button id="startLiveInput" type="button">START / RECONNECT</button><span id="audioInputStatus">File playback mode.</span></div>
@@ -174,26 +174,26 @@
 
   <div class="imagePanel" id="imagePanel">
     <div class="imageTop">
-      <div class="sectionTitle"><h2>MEDIA MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and crossfade. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently.">i</button></div>
-      <button id="closeImageMgr" class="iconAction closeAction" type="button" aria-label="Close image manager" data-tooltip="Close">×</button>
+      <div class="sectionTitle"><h2>MEDIA MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and crossfade. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently."><i data-lucide="info"></i></button></div>
+      <button id="closeImageMgr" class="iconAction closeAction" type="button" aria-label="Close image manager" data-tooltip="Close"><i data-lucide="x"></i></button>
     </div>
     <div class="imageControls">
       <div class="ctlBox"><label>SEQUENCE MODE</label><select id="imageMode"><option value="auto">AUTO TIMER</option><option value="manual">MANUAL</option><option value="mapped">MAPPED LEVEL</option></select></div>
-      <div class="ctlBox"><label title="Continuous sources map levels to positions; Beat, Kick and Snare advance on events.">MAPPED SOURCE ⓘ</label><select id="imageSource"><option value="energy">Energy</option><option value="density">Density</option><option value="drive">Drive</option><option value="boombap">BoomBap</option><option value="tension">Tension</option><option value="bright">Brightness</option><option value="open">Openness</option><option value="beat">Beat</option><option value="kick">Kick</option><option value="snare">Snare</option></select></div>
-      <div class="ctlBox"><label>CROSSFADE (SEC)</label><input id="imageCrossfade" type="number" min="0.2" max="8" step="0.1" value="2.2"></div><div class="ctlBox"><label title="Used only with Beat, Kick and Snare.">EVENT THRESHOLD ⓘ</label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"></div>
-      <div class="ctlBox"><label>MANUAL NAVIGATION</label><div style="display:flex;gap:6px"><button id="imgPrev">◀ PREV</button><button id="imgNext">NEXT ▶</button></div></div>
+      <div class="ctlBox"><label title="Continuous sources map levels to positions; Beat, Kick and Snare advance on events.">MAPPED SOURCE <i data-lucide="info" class="inlineInfo"></i></label><select id="imageSource"><option value="energy">Energy</option><option value="density">Density</option><option value="drive">Drive</option><option value="boombap">BoomBap</option><option value="tension">Tension</option><option value="bright">Brightness</option><option value="open">Openness</option><option value="beat">Beat</option><option value="kick">Kick</option><option value="snare">Snare</option></select></div>
+      <div class="ctlBox"><label>CROSSFADE (SEC)</label><input id="imageCrossfade" type="number" min="0.2" max="8" step="0.1" value="2.2"></div><div class="ctlBox"><label title="Used only with Beat, Kick and Snare.">EVENT THRESHOLD <i data-lucide="info" class="inlineInfo"></i></label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"></div>
+      <div class="ctlBox"><label>MANUAL NAVIGATION</label><div style="display:flex;gap:6px"><button id="imgPrev"><i data-lucide="chevron-left"></i> PREV</button><button id="imgNext">NEXT <i data-lucide="chevron-right"></i></button></div></div>
     </div>
     <div id="imageManagerStatus" class="matrixLegend">Current image 1 / 5</div>
     <div class="imageGrid" id="imageGrid"></div>
   </div>
 
   <div class="matrixPanel" id="matrixPanel">
-    <div class="matrixTop"><div class="sectionTitle"><h2>SOURCE → TARGET ROUTING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Weights range from −1.50 to +1.50. Zero disconnects a source; positive weights increase a target and negative weights invert it. Values save automatically per archetype.">i</button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix" class="iconAction closeAction" type="button" aria-label="Close routing matrix" data-tooltip="Close">×</button></div></div>
+    <div class="matrixTop"><div class="sectionTitle"><h2>SOURCE → TARGET ROUTING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Weights range from −1.50 to +1.50. Zero disconnects a source; positive weights increase a target and negative weights invert it. Values save automatically per archetype."><i data-lucide="info"></i></button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix" class="iconAction closeAction" type="button" aria-label="Close routing matrix" data-tooltip="Close"><i data-lucide="x"></i></button></div></div>
     <div id="matrixHolder"></div>
   </div>
 
   <div class="diag" id="diag">
-    <div class="sectionTitle"><h3>MUSICAL CONTEXT STATE</h3><button class="infoTip tipLeft" aria-label="About musical context" data-tooltip="Main meters show contextual musical state. BoomBap measures groove strength. Beat, Kick and Snare remain isolated routable signals.">i</button></div>
+    <div class="sectionTitle"><h3>MUSICAL CONTEXT STATE</h3><button class="infoTip tipLeft" aria-label="About musical context" data-tooltip="Main meters show contextual musical state. BoomBap measures groove strength. Beat, Kick and Snare remain isolated routable signals."><i data-lucide="info"></i></button></div>
     <div class="row"><span>ENERGY</span><div class="meter"><div id="fE" class="fill"></div></div><span id="vE">0.00</span></div>
     <div class="row"><span>DENSITY</span><div class="meter"><div id="fD" class="fill"></div></div><span id="vD">0.00</span></div>
     <div class="row"><span>DRIVE</span><div class="meter"><div id="fR" class="fill"></div></div><span id="vR">0.00</span></div>

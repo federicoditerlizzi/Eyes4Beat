@@ -7,13 +7,15 @@ import { resolvePerformanceShortcut } from './shortcuts.js';
 import { applyPanicTargets } from './show-safety.js';
 import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
 import { averageNoiseFloor, computeDbfsMeter, spectralSubtract, subtractRmsNoise } from './input-calibration.js';
+import { icon, initIcons } from './icons.js';
 
 const isShowMode=new URLSearchParams(location.search).get('show')==='1';
 document.body.classList.toggle('showMode',isShowMode);
+initIcons();
 function ensureButtonTooltip(button){
  if(button.title||button.dataset.tooltip)return;
- const text=button.textContent.trim().replace(/\s+/g,' '),symbolLabel=text==='▲'?'Move image earlier':text==='▼'?'Move image later':'';
- const label=button.getAttribute('aria-label')||(button.dataset.solo?`Solo ${button.dataset.solo}`:symbolLabel||text);
+ const text=button.textContent.trim().replace(/\s+/g,' ');
+ const label=button.getAttribute('aria-label')||(button.dataset.solo?`Solo ${button.dataset.solo}`:text);
  if(label)button.title=label;
 }
 function applyButtonTooltips(root=document){if(root.matches?.('button'))ensureButtonTooltip(root);root.querySelectorAll?.('button').forEach(ensureButtonTooltip)}
@@ -314,7 +316,7 @@ function renderImageManager(){
    const im=cfg.images[i];
    let opts='';for(let p=0;p<cfg.images.length;p++)opts+='<option value="'+p+'" '+(p===pos?'selected':'')+'>'+(p+1)+'</option>';
    const source=IMAGE_SETS[a][i],preview=mediaIsVideo(source)?'<video class="imageThumb" src="'+mediaUrl(source)+'" muted loop playsinline autoplay></video>':'<img class="imageThumb" src="'+mediaUrl(source)+'">';
-   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+'> ON</label></div><div class="cardLine"><span>Dwell sec</span><input type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'"></div><div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'">▲</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'">▼</button></div></div></div>';
+   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+'> ON</label></div><div class="cardLine"><span>Dwell sec</span><input type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'"></div><div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
  });
  document.getElementById('imageGrid').innerHTML=h;
  const active=enabledImages(a),orderPos=active.indexOf(s.current);
@@ -362,7 +364,7 @@ function renderCreatorPreview(){
    const card=document.createElement('div');card.className='creatorPreviewCard';
    const element=document.createElement(file.type.startsWith('video/')?'video':'img');element.src=url;element.title=file.name;
    if(element.tagName==='VIDEO'){element.muted=true;element.loop=true;element.playsInline=true;element.autoplay=true}
-   const remove=document.createElement('button');remove.type='button';remove.className='creatorRemoveMedia';remove.textContent='×';remove.title='Remove from archetype';remove.setAttribute('aria-label','Remove '+file.name);
+   const remove=document.createElement('button');remove.type='button';remove.className='creatorRemoveMedia';remove.innerHTML=icon('x');remove.title='Remove from archetype';remove.setAttribute('aria-label','Remove '+file.name);
    remove.onclick=()=>{pendingArchetypeFiles.splice(index,1);renderCreatorPreview();creatorStatus.textContent=pendingArchetypeFiles.length?'Ready to create.':'Select or generate at least one image.'};
    card.append(element,remove);creatorPreview.appendChild(card);
  });
@@ -639,11 +641,10 @@ function updateTimeDisplay(previewTime=audio.currentTime){
 function updateTransportState(){
  const fileMode=inputMode==='file';
  const isPaused=audio.paused;
- playButton.textContent=isPaused?'▶':'Ⅱ';
+ playButton.classList.toggle('playing',!isPaused);
  playButton.title=isPaused?'Play':'Pause';
  playButton.dataset.tooltip=isPaused?'Play':'Pause';
  playButton.setAttribute('aria-label',isPaused?'Play':'Pause');
- muteButton.textContent=audio.muted?'🔇':'🔊';
  muteButton.title=audio.muted?'Unmute':'Mute';
  muteButton.dataset.tooltip=audio.muted?'Unmute':'Mute';
  muteButton.setAttribute('aria-label',audio.muted?'Unmute':'Mute');
@@ -748,7 +749,9 @@ inputTrim.oninput=()=>{const value=+inputTrim.value;inputTrims[inputKey()]=value
 document.getElementById('calibrateNoise').onclick=beginNoiseCalibration;
 document.getElementById('clearCalibration').onclick=()=>{delete inputCalibrations[inputKey()];saveInputSettings();renderCalibrationStatus()};
 refreshInputDevices();updateInputModeUi();renderCalibrationStatus();
-document.getElementById('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+const fullscreenButton=document.getElementById('fullscreen');
+function updateFullscreenButton(){const active=!!document.fullscreenElement;fullscreenButton.classList.toggle('fullscreenActive',active);fullscreenButton.setAttribute('aria-label',active?'Exit full screen':'Full screen');fullscreenButton.dataset.tooltip=active?'Exit full screen':'Full screen'}
+fullscreenButton.onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();document.addEventListener('fullscreenchange',updateFullscreenButton);updateFullscreenButton();
 document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none'};
 const shortcutDialog=document.getElementById('shortcutDialog'),shortcutToast=document.getElementById('shortcutToast');
 let shortcutToastTimer=0;
@@ -984,7 +987,7 @@ function renderArchetypeBar(){
    const profile=visualProfileIndex(index),subtitle=arch.customId?'custom · '+archetypes[profile].name.toLowerCase():(['space / contemplation','groove / elastic flow','growth / breath / living systems','pressure / momentum','heart / visceral energy','living heart / neon anatomy'][index]||'visual archetype');
    button.innerHTML='<b>'+(index+1)+' · '+arch.name+'</b><span>'+subtitle+'</span>';button.onclick=()=>selectArchetype(index);bar.appendChild(button);
  });
- const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>＋ CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=openArchetypeCreator;bar.appendChild(createButton);
+ const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=openArchetypeCreator;bar.appendChild(createButton);
 }
 async function selectArchetype(a){
  if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
@@ -1013,8 +1016,8 @@ function updateFooterMetrics(){uiRoot.style.setProperty('--footer-height',`${Mat
 new ResizeObserver(updateFooterMetrics).observe(archBar);updateFooterMetrics();
 function setArchetypeBarCollapsed(collapsed){
  uiRoot.classList.toggle('footerCollapsed',collapsed);
- archBarToggle.setAttribute('aria-expanded',String(!collapsed));
- archBarToggle.textContent=collapsed?'⌃ ARCHETYPES':'⌄ HIDE ARCHETYPES';
+ archBarToggle.setAttribute('aria-expanded',String(!collapsed));archBarToggle.classList.toggle('collapsed',collapsed);
+ archBarToggle.querySelector('span').textContent=collapsed?'ARCHETYPES':'HIDE ARCHETYPES';
  try{localStorage.setItem('eyesforbeats_footer_collapsed',collapsed?'1':'0')}catch(e){}
 }
 let footerStartsCollapsed=false;

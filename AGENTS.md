@@ -180,6 +180,7 @@ The renderer uses four fragment samplers: current A/B and target A/B. Only the t
 - Panels, pages and dialogs use a borderless `×` icon for their close action. Keep text actions such as Create, Apply or Reset only when the wording represents a distinct decision, not merely dismissal.
 - Every button must expose a useful hover tooltip. Icon-only actions require both an accessible `aria-label` and a visible `data-tooltip`; text buttons receive a native title fallback at runtime. Tooltips must describe the action, not the glyph.
 - Reuse the global `.iconAction`, `.headerIcon` and `.closeAction` patterns. The preset action toolbar is the visual reference for compact utility controls.
+- Use Lucide for all interface icons; do not introduce Unicode glyphs or emoji as controls. Static icons use `<i data-lucide="…">` and are initialized through the explicit subset in `src/icons.js`; runtime-generated markup uses its `icon(name)` helper. Icon-only buttons always retain an explicit action-oriented `aria-label` and tooltip.
 
 ## Suggested refactor path
 

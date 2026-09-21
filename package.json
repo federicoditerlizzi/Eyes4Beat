@@ -13,5 +13,8 @@
   "devDependencies": {
     "vite": "^7.1.0",
     "wrangler": "^4.135.0"
+  },
+  "dependencies": {
+    "lucide": "^1.47.0"
   }
 }
