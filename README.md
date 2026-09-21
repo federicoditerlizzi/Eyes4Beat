@@ -1,6 +1,6 @@
 # Eyes4Beat
 
-Browser-based visual instrument for live music performances. Eyes4Beat analyzes a locally loaded audio track and maps musical features to WebGL image treatments and a 2D particle layer.
+Browser-based visual instrument for live music performances. Eyes4Beat analyzes a local audio file or a live audio input and maps musical features to WebGL image treatments and a 2D particle layer.
 
 ## Requirements
 
@@ -48,6 +48,14 @@ The audio analyzer produces continuous musical states (`energy`, `density`, `dri
 Archetypes define visual identity and image sequencing. Named presets contain only musical configuration. With no active routed signal, visual targets return to their neutral state while the image sequence continues.
 
 Audio files remain local to the browser and are never uploaded.
+
+## Live input
+
+Open **AUDIO INPUT**, choose **LIVE INPUT**, select the USB audio interface or built-in input, then start it. Live input is analyzed but is never routed to the browser speakers, avoiding feedback and duplicate monitoring; keep monitoring the instrument through the PA or audio interface. USB/line-level interfaces are listed before the built-in microphone.
+
+Set **Analysis trim** so normal performance peaks sit roughly between −18 and −6 dBFS without lighting **CLIP**. Trim changes analysis sensitivity only and never changes file playback volume. With the instrument silent, run **CALIBRATE NOISE (3 s)**; the stored noise profile is subtracted before the existing musical feature analysis. Recalibrate after changing trim or the physical gain staging. Device, per-input trim and per-input calibration are restored locally in the same browser.
+
+Browser audio capture requires HTTPS or `localhost`. The diagnostics panel reports the actual input settings returned by the browser. If echo cancellation, noise suppression or automatic gain control cannot be confirmed off, the UI warns that input dynamics may be compressed.
 
 ## Show mode
 

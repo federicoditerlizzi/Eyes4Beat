@@ -2,7 +2,7 @@
 
 ## Product intent
 
-Eyes4Beat is a browser-based visual instrument for live music performances. It analyzes a locally loaded audio file in real time and turns musical features into animated image treatments, particles, color/light changes, distortion, zoom, and rhythm accents. The current artifact is a prototype intended to be performed from a full-screen browser rather than a conventional multi-page web application.
+Eyes4Beat is a browser-based visual instrument for live music performances. It analyzes a locally loaded audio file or live audio input in real time and turns musical features into animated image treatments, particles, color/light changes, distortion, zoom, and rhythm accents. The current artifact is a prototype intended to be performed from a full-screen browser rather than a conventional multi-page web application.
 
 ## Repository status
 
@@ -11,6 +11,8 @@ Eyes4Beat is a browser-based visual instrument for live music performances. It a
 - `src/main.js` orchestrates the UI, audio analysis, sequencing and render frame.
 - `src/config.js` owns archetypes, image paths, routing labels and defaults.
 - `src/routing.js` is the pure, tested source-to-target calculation module.
+- `src/audio-input.js` owns the Web Audio graph, live capture, device enumeration and source switching.
+- `src/input-calibration.js` owns pure trim, meter and noise-floor math.
 - `src/shaders.js` owns the WebGL2 shader sources.
 - `src/custom-archetypes.js` persists user-created archetypes and image/video blobs in IndexedDB.
 - `public/assets/images/` contains the 30 visual source images.
@@ -39,17 +41,17 @@ Load an audio file through **LOAD AUDIO**; the app uses a blob URL and does not 
 
 Everything runs on the main browser thread:
 
-1. The user loads an audio file into the hidden `<audio>` element.
-2. `ensureAudio()` creates/resumes a Web Audio `AudioContext`.
-3. A `MediaElementAudioSourceNode` feeds an `AnalyserNode` and the audio destination.
-4. `analyze(now)` samples frequency and time-domain data at roughly 25 Hz.
+1. The user selects either a local file in the hidden `<audio>` element or a live `MediaStream` audio input.
+2. `AudioInputController` lazily creates/resumes an interactive-latency `AudioContext` and switches sources without recreating the shared analysis path.
+3. Both sources feed `trimGain → AnalyserNode → silent pull gain → destination`. In FILE mode the media element source also feeds the destination for normal playback; in LIVE mode no audible route is created.
+4. `analyze(now)` samples frequency and time-domain data at roughly 25 Hz, updates the post-trim meter, collects calibration samples when requested, then applies spectral and RMS noise-floor subtraction before the existing heuristics.
 5. Musical state is represented at three time scales:
    - `Raw`: instantaneous measurements.
    - `Fast`: smoothed performance response (roughly 0.3–1 s).
    - `Context`: rolling phrase-level averages (3–15 s depending on feature).
 6. The PERF/CTX slider blends `Fast` and `Context` into `S`.
 7. `getEffectiveState()` applies each continuous source's enable/solo state and amount; Beat, Kick, and Snare have the same source controls in the routing stage.
-8. `computeGlobalMapping()` routes sources through the current archetype's matrix. `frame(now)` then passes the routed result through `applyPanicTargets()` before assigning the shader-facing `FinalG` controls.
+8. `computeGlobalMapping()` routes sources through the current archetype's matrix only while `inputActive` is true: FILE requires active playback, LIVE requires a live stream track. `frame(now)` then passes the routed result through `applyPanicTargets()` before assigning the shader-facing `FinalG` controls.
 9. `frame(now)` advances or freezes image sequencing according to PANIC, sends the safe target state to GLSL, draws a full-screen triangle, updates the 2D particle canvas, broadcasts Show state, and refreshes diagnostics.
 
 The two rendering layers are:
@@ -93,7 +95,7 @@ Treat these as perceptual heuristics, not production-grade source separation or 
 - Per-archetype routing maps connect 10 sources to 7 targets. Weights range from -1.5 to +1.5.
 - Routing uses raw normalized source values plus a square-root response curve so quieter signals remain visible. Beat, kick, and snare are event-like values. Negative weights invert unipolar effects and move bipolar targets below neutral.
 - Resulting `FinalG` targets are `pulse`, `dist`, `luma`, `sat`, `glow`, `parts`, and `zoom`. Their neutral state is pulse/distortion/glow/particles = 0 and luminance/saturation/zoom = 1.
-- If audio is absent/paused, all sources are disabled, routing is zero, or target intensity/reactivity is zero, the corresponding musical effect is neutral. Image timers and crossfades remain independent.
+- If the selected input is inactive, all sources are disabled, routing is zero, or target intensity/reactivity is zero, the corresponding musical effect is neutral. FILE is active only during playback; LIVE is active only while its stream track is live. Image timers and crossfades remain independent.
 - Beat, Kick, and Snare are regular routable sources with On, Solo, and Amount controls; there is no hidden rhythm-to-shader path.
 - Reactivity is a coarse low/medium/high multiplier sent to both rendering layers.
 
@@ -138,6 +140,9 @@ Routing maps, image-manager settings, and named per-archetype musical presets pe
 - current keys: `arv_v043_routing_maps`, `arv_v043_image_configs`;
 - musical presets: `arv_v044_music_presets` (source controls, target intensity/reactivity, PERF/CTX, global reactivity, and routing; never image sequencing);
 - fallback migration keys: routing `v042`/`v041`, images `v042b`/`v042`.
+- audio input device: `eyes4beat_input_device`;
+- per-input analysis trim: `eyes4beat_input_trim`;
+- per-input noise-floor profiles: `eyes4beat_input_calibrations`.
 
 Most other UI settings reset on reload. Persistence is origin-specific, so `file://`, `localhost`, and a deployed host do not share configuration. If the schema changes, add normalization/migration rather than assuming saved data has the new shape.
 
@@ -150,7 +155,7 @@ The renderer uses four fragment samplers: current A/B and target A/B. Only the t
 - Shader compilation, program linking and required texture units are checked during startup. A user-facing recovery screen is still desirable for live use.
 - Audio analysis, DOM diagnostics, texture management, WebGL, and particles all share the main thread. Profile frame time on the actual performance machine.
 - The WebGL render resolution is fixed at 78% of the viewport, while particles use full viewport resolution.
-- Audio object URLs are revoked when replacing a file, and the media-element source/analyser graph is created only once.
+- Audio object URLs are revoked when replacing a file. The media-element source and shared trim/analyser path are created only once; leaving LIVE stops all stream tracks, and switching sources resets beat/BPM state.
 - Fullscreen requests can reject and currently have no error handling.
 - `src/main.js` still contains several runtime concerns; future extraction should prioritize audio analysis, persistence, image sequencing, renderer and UI controllers.
 - UI becomes reduced below 900 px: diagnostics and the modulation lab are hidden. This is primarily a desktop performance UI.
@@ -167,6 +172,14 @@ The renderer uses four fragment samplers: current A/B and target A/B. Only the t
 - When changing audio heuristics, test with quiet, dense, transient-heavy, and beatless material; a change that looks good on one track can destabilize another.
 - Preserve the separation between slow contextual motion and fast rhythmic accents: the code intentionally prevents micro-transients from driving the whole visual world.
 - Check `git diff --stat` after edits and keep functional changes focused.
+
+## Global UI style guide
+
+- Header utility actions use compact, borderless icon-only controls. Do not add boxed text buttons to the header unless a specific product requirement calls for an exception.
+- BLACKOUT, PANIC and AUDIO INPUT follow the same icon-only header pattern. Their active states must remain unmistakable through color, glow and the persistent safety badge rather than a permanent button outline.
+- Panels, pages and dialogs use a borderless `×` icon for their close action. Keep text actions such as Create, Apply or Reset only when the wording represents a distinct decision, not merely dismissal.
+- Every button must expose a useful hover tooltip. Icon-only actions require both an accessible `aria-label` and a visible `data-tooltip`; text buttons receive a native title fallback at runtime. Tooltips must describe the action, not the glyph.
+- Reuse the global `.iconAction`, `.headerIcon` and `.closeAction` patterns. The preset action toolbar is the visual reference for compact utility controls.
 
 ## Suggested refactor path
 

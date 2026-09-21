@@ -20,12 +20,12 @@
   <div class="top">
     <div class="brand"><img src="/assets/brand/eyesforbeats-mark.png" alt=""><span>EyesForBeats</span></div>
     <section class="audioPlayer" aria-label="Audio player">
-      <label class="filebtn iconBtn audioLoad" title="Load audio" aria-label="Load audio">＋<input id="file" type="file" accept="audio/*"></label>
+      <label class="filebtn iconAction headerIcon audioLoad" data-tooltip="Load audio file" aria-label="Load audio file">＋<input id="file" type="file" accept="audio/*"></label>
       <div class="trackInfo"><span class="trackLabel">NOW PLAYING</span><strong id="trackName">No track loaded</strong></div>
-      <button id="play" class="iconBtn transportBtn" title="Play" aria-label="Play" disabled>▶</button>
+      <button id="play" class="iconAction headerIcon transportBtn" data-tooltip="Play" aria-label="Play" disabled>▶</button>
       <input id="seek" class="seek" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Track position">
       <span id="timeDisplay" class="timeDisplay">0:00 / 0:00</span>
-      <button id="mute" class="iconBtn muteBtn" title="Mute" aria-label="Mute" disabled>🔊</button>
+      <button id="mute" class="iconAction headerIcon muteBtn" data-tooltip="Mute" aria-label="Mute" disabled>🔊</button>
       <input id="volume" class="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
     </section>
     <div class="headerTools">
@@ -38,12 +38,13 @@
       <div class="contextControl" title="Performance to context balance">
         <span>PERF</span><input id="ctxPerf" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="Performance to context balance"><span>CTX</span><b id="ctxPerfVal">.72</b>
       </div>
-      <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="safetyBtn blackoutBtn" type="button" aria-pressed="false">BLACKOUT</button><button id="panicBtn" class="safetyBtn panicBtn" type="button" aria-pressed="false">PANIC</button></div>
-      <button id="imageMgrBtn" class="iconBtn" title="Image manager" aria-label="Image manager">▧</button>
-      <button id="diagBtn" class="iconBtn" title="Toggle diagnostics" aria-label="Toggle diagnostics">◉</button>
-      <button id="shortcutHelpBtn" class="iconBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">⌨</button>
-      <button id="showModeBtn" class="iconBtn" title="Open show output" aria-label="Open show output">▣</button>
-      <button id="fullscreen" class="iconBtn" title="Full screen" aria-label="Full screen">⛶</button>
+      <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="iconAction headerIcon safetyBtn blackoutBtn" type="button" aria-label="Blackout" data-tooltip="Blackout (B)" aria-pressed="false">■</button><button id="panicBtn" class="iconAction headerIcon safetyBtn panicBtn" type="button" aria-label="Panic" data-tooltip="Panic safe state (P)" aria-pressed="false">!</button></div>
+      <button id="audioInputBtn" class="iconAction headerIcon audioInputBtn" type="button" aria-label="Audio input" data-tooltip="Audio input">≋</button>
+      <button id="imageMgrBtn" class="iconAction headerIcon" data-tooltip="Image manager" aria-label="Image manager">▧</button>
+      <button id="diagBtn" class="iconAction headerIcon" data-tooltip="Toggle diagnostics" aria-label="Toggle diagnostics">◉</button>
+      <button id="shortcutHelpBtn" class="iconAction headerIcon" data-tooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">⌨</button>
+      <button id="showModeBtn" class="iconAction headerIcon" data-tooltip="Open show output" aria-label="Open show output">▣</button>
+      <button id="fullscreen" class="iconAction headerIcon" data-tooltip="Full screen" aria-label="Full screen">⛶</button>
     </div>
   </div>
   <div id="safetyStatus" class="safetyStatus" aria-live="assertive"><span id="blackoutStatus">BLACKOUT</span><span id="panicStatus">PANIC · TARGETS NEUTRAL</span></div>
@@ -101,7 +102,7 @@
   <div class="creatorPanel" id="creatorPanel">
     <div class="imageTop">
       <div class="sectionTitle"><h2>CREATE ARCHETYPE</h2><button class="infoTip" aria-label="About archetypes" data-tooltip="Build a visual world from images and short looping videos. Musical controls and routing remain independently editable.">i</button></div>
-      <button id="closeCreator" class="primaryBtn">CLOSE</button>
+      <button id="closeCreator" class="iconAction closeAction" type="button" aria-label="Close archetype creator" data-tooltip="Close">×</button>
     </div>
     <div class="creatorGrid">
       <div class="creatorField"><label>NAME</label><input id="customArchName" maxlength="40" placeholder="e.g. Liquid Constellations"></div>
@@ -133,7 +134,7 @@
 
   <dialog id="shortcutDialog" class="presetDialog shortcutDialog" aria-labelledby="shortcutDialogTitle">
     <div class="shortcutDialogBody">
-      <div class="shortcutDialogHead"><h2 id="shortcutDialogTitle">LIVE KEYBOARD SHORTCUTS</h2><button id="closeShortcutDialog" class="iconBtn" type="button" aria-label="Close shortcuts">×</button></div>
+      <div class="shortcutDialogHead"><h2 id="shortcutDialogTitle">LIVE KEYBOARD SHORTCUTS</h2><button id="closeShortcutDialog" class="iconAction closeAction" type="button" aria-label="Close shortcuts" data-tooltip="Close">×</button></div>
       <div class="shortcutList">
         <h3>ARCHETYPES</h3>
         <div><kbd>1–9</kbd><span>Select archetype 1–9</span></div>
@@ -159,11 +160,22 @@
 
   <div id="shortcutToast" class="shortcutToast" role="status" aria-live="polite"></div>
 
+  <div id="audioInputPanel" class="audioInputPanel" aria-labelledby="audioInputTitle">
+    <div class="imageTop"><div class="sectionTitle"><h2 id="audioInputTitle">AUDIO INPUT</h2><button class="infoTip" aria-label="About live input" data-tooltip="LIVE analyzes an external audio input without routing it to the speakers. Use an audio interface for line-level instruments.">i</button></div><button id="closeAudioInput" class="iconAction closeAction" type="button" aria-label="Close audio input" data-tooltip="Close">×</button></div>
+    <div class="inputModeSwitch" aria-label="Audio source mode"><button id="fileModeBtn" class="active" type="button">FILE</button><button id="liveModeBtn" type="button">LIVE INPUT</button></div>
+    <div class="audioInputGrid">
+      <div class="creatorField"><label>AUDIO INPUT DEVICE</label><select id="audioDevice"><option value="">No devices available</option></select><button id="startLiveInput" type="button">START / RECONNECT</button><span id="audioInputStatus">File playback mode.</span></div>
+      <div class="creatorField"><label>ANALYSIS TRIM</label><div class="trimRow"><input id="inputTrim" type="range" min="-24" max="24" step="0.5" value="0"><output id="inputTrimValue">0.0 dB</output></div><span>Analysis path only. File playback volume is unchanged.</span></div>
+      <div class="creatorField"><label>POST-TRIM LEVEL</label><div class="inputMeter"><div class="inputTargetZone"></div><div id="inputLevelFill" class="inputLevelFill"></div></div><div class="meterReadout"><span id="inputRms">RMS −96.0 dBFS</span><span id="inputPeak">PEAK −96.0 dBFS</span><b id="inputClip">CLIP</b></div><span>Target peak zone: −18 to −6 dBFS.</span></div>
+      <div class="creatorField"><label>NOISE FLOOR</label><div class="calibrationActions"><button id="calibrateNoise" type="button">CALIBRATE NOISE (3 s)</button><button id="clearCalibration" type="button">CLEAR</button></div><strong id="calibrationStatus">NOT CALIBRATED</strong><span id="calibrationHint">Keep the instrument silent during calibration.</span></div>
+    </div>
+  </div>
+
 
   <div class="imagePanel" id="imagePanel">
     <div class="imageTop">
       <div class="sectionTitle"><h2>MEDIA MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and crossfade. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently.">i</button></div>
-      <button id="closeImageMgr" class="primaryBtn">CLOSE</button>
+      <button id="closeImageMgr" class="iconAction closeAction" type="button" aria-label="Close image manager" data-tooltip="Close">×</button>
     </div>
     <div class="imageControls">
       <div class="ctlBox"><label>SEQUENCE MODE</label><select id="imageMode"><option value="auto">AUTO TIMER</option><option value="manual">MANUAL</option><option value="mapped">MAPPED LEVEL</option></select></div>
@@ -173,13 +185,11 @@
     </div>
     <div id="imageManagerStatus" class="matrixLegend">Current image 1 / 5</div>
     <div class="imageGrid" id="imageGrid"></div>
-    <div class="imageFooter"><span></span><button id="applyCloseImageMgr" class="primaryBtn">APPLY & CLOSE</button></div>
   </div>
 
   <div class="matrixPanel" id="matrixPanel">
-    <div class="matrixTop"><div class="sectionTitle"><h2>SOURCE → TARGET ROUTING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Weights range from −1.50 to +1.50. Zero disconnects a source; positive weights increase a target and negative weights invert it. Values save automatically per archetype.">i</button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix">CLOSE</button></div></div>
+    <div class="matrixTop"><div class="sectionTitle"><h2>SOURCE → TARGET ROUTING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Weights range from −1.50 to +1.50. Zero disconnects a source; positive weights increase a target and negative weights invert it. Values save automatically per archetype.">i</button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix" class="iconAction closeAction" type="button" aria-label="Close routing matrix" data-tooltip="Close">×</button></div></div>
     <div id="matrixHolder"></div>
-    <div class="matrixFooter"><button class="applyClose" id="applyCloseMatrix">APPLY & CLOSE</button></div>
   </div>
 
   <div class="diag" id="diag">
@@ -194,6 +204,7 @@
     <div class="row"><span>BRIGHT</span><div class="meter"><div id="fB" class="fill"></div></div><span id="vB">0.00</span></div>
     <div class="row"><span>OPENNESS</span><div class="meter"><div id="fO" class="fill"></div></div><span id="vO">0.00</span></div>
     <div class="mini"><span id="microState">Micro layer · Energy 0.00 · Drive 0.00</span></div>
+    <div class="inputDiag"><b>AUDIO INPUT</b><span id="inputDiagnostics">Mode FILE · waiting for source</span><em id="inputWarning"></em></div>
   </div>
 </div>
 <script type="module" src="/src/main.js"></script>

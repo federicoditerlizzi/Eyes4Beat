@@ -5,9 +5,20 @@ import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
 import { customMediaSources, loadCustomArchetypes, saveCustomArchetype } from './custom-archetypes.js';
 import { resolvePerformanceShortcut } from './shortcuts.js';
 import { applyPanicTargets } from './show-safety.js';
+import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
+import { averageNoiseFloor, computeDbfsMeter, spectralSubtract, subtractRmsNoise } from './input-calibration.js';
 
 const isShowMode=new URLSearchParams(location.search).get('show')==='1';
 document.body.classList.toggle('showMode',isShowMode);
+function ensureButtonTooltip(button){
+ if(button.title||button.dataset.tooltip)return;
+ const text=button.textContent.trim().replace(/\s+/g,' '),symbolLabel=text==='▲'?'Move image earlier':text==='▼'?'Move image later':'';
+ const label=button.getAttribute('aria-label')||(button.dataset.solo?`Solo ${button.dataset.solo}`:symbolLabel||text);
+ if(label)button.title=label;
+}
+function applyButtonTooltips(root=document){if(root.matches?.('button'))ensureButtonTooltip(root);root.querySelectorAll?.('button').forEach(ensureButtonTooltip)}
+applyButtonTooltips();
+new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)applyButtonTooltips(node)}))).observe(document.body,{childList:true,subtree:true});
 const showChannel='BroadcastChannel' in window?new BroadcastChannel('eyesforbeats-show-v1'):null;
 let remoteVisualState=null,lastShowPeerAt=0,showWindow=null,lastShowBroadcastAt=0;
 let blackoutActive=false,panicActive=false,panicReleaseStartedAt=null;
@@ -68,12 +79,12 @@ function renderMatrixEditor(){
 function closeMappingMatrix(){saveRoutingMaps();document.getElementById('matrixPanel').classList.remove('open')}
 document.getElementById('openMatrix').onclick=()=>{closeImageManager();renderMatrixEditor();document.getElementById('matrixPanel').classList.add('open')};
 document.getElementById('closeMatrix').onclick=closeMappingMatrix;
-document.getElementById('applyCloseMatrix').onclick=closeMappingMatrix;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){
    if(document.getElementById('matrixPanel').classList.contains('open'))closeMappingMatrix();
    if(document.getElementById('imagePanel').classList.contains('open'))closeImageManager();
    if(document.getElementById('creatorPanel').classList.contains('open'))closeArchetypeCreator();
+   if(document.getElementById('audioInputPanel').classList.contains('open'))document.getElementById('audioInputPanel').classList.remove('open');
  }
 });
 document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();renderMatrixEditor()};
@@ -210,7 +221,7 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
 function computeGlobalMapping(Eff,now){
   const map=routingMaps[target];
-  const live=!!analyser&&!audio.paused;
+  const live=!!inputController?.inputActive;
   const amount=k=>+(document.getElementById('amt-'+k)?.value||0);
   const continuous={energy:Eff.energy,density:Eff.density,drive:Eff.drive,boombap:Eff.boombap,tension:Eff.tension,bright:Eff.bright,open:Eff.open};
   const rawSrc={},activeSrc={};
@@ -325,7 +336,6 @@ function renderImageManager(){
 function closeImageManager(){saveImageConfigs();document.getElementById('imagePanel').classList.remove('open')}
 document.getElementById('imageMgrBtn').onclick=()=>{closeMappingMatrix();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
 document.getElementById('closeImageMgr').onclick=closeImageManager;
-document.getElementById('applyCloseImageMgr').onclick=closeImageManager;
 document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].lastMappedSignal=0;saveImageConfigs();renderImageManager()};
 document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;seqStates[target].lastMappedSignal=0;saveImageConfigs()};
 document.getElementById('imageCrossfade').onchange=e=>{imageConfigs[target].crossfade=clamp(parseFloat(e.target.value)||2.2,.2,8);e.target.value=imageConfigs[target].crossfade;saveImageConfigs()};
@@ -595,7 +605,7 @@ function broadcastShowFrame(now,Eff){
 }
 Promise.all([loadArchetypeIntoRole(0,0),loadArchetypeIntoRole(1,0)]).then(()=>start());
 
-let audioCtx=null,analyser=null,source=null,F=null,T=null,audioObjectUrl=null;
+let analyser=null,F=null,T=null,audioObjectUrl=null;
 const audio=document.getElementById('audio');
 const playButton=document.getElementById('play');
 const seekControl=document.getElementById('seek');
@@ -603,7 +613,20 @@ const volumeControl=document.getElementById('volume');
 const muteButton=document.getElementById('mute');
 const trackName=document.getElementById('trackName');
 const timeDisplay=document.getElementById('timeDisplay');
-let seeking=false;
+const audioDevice=document.getElementById('audioDevice'),inputTrim=document.getElementById('inputTrim');
+const inputController=new AudioInputController(audio,{onDeviceChange:handleDeviceChange,onTrackEnded:handleInputLost});
+let seeking=false,inputMode='file',inputLostDevice='',currentInputDiagnostics=null,clipHoldUntil=0,calibrationRun=null;
+const INPUT_TRIM_KEY='eyes4beat_input_trim',INPUT_CALIBRATION_KEY='eyes4beat_input_calibrations';
+let inputTrims={},inputCalibrations={};
+try{inputTrims=JSON.parse(localStorage.getItem(INPUT_TRIM_KEY)||'{}')||{};inputCalibrations=JSON.parse(localStorage.getItem(INPUT_CALIBRATION_KEY)||'{}')||{}}catch{}
+
+function inputKey(){return inputMode==='live'?(inputController.deviceId||audioDevice.value||'default'):'file'}
+function saveInputSettings(){try{localStorage.setItem(INPUT_TRIM_KEY,JSON.stringify(inputTrims));localStorage.setItem(INPUT_CALIBRATION_KEY,JSON.stringify(inputCalibrations))}catch{}}
+function currentTrimDb(){return Number(inputTrims[inputKey()]??0)}
+function currentCalibration(){const item=inputCalibrations[inputKey()];return item&&Number(item.trimDb)===currentTrimDb()?item:null}
+function syncAnalysisNodes(){analyser=inputController.analyser;if(analyser&&(!F||F.length!==analyser.frequencyBinCount)){F=new Uint8Array(analyser.frequencyBinCount);T=new Uint8Array(analyser.fftSize)}}
+function applyStoredTrim(immediate=true){const value=currentTrimDb();inputTrim.value=String(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';inputController.setTrimDb(value,immediate);renderCalibrationStatus()}
+function resetBeatTracking(){beatHistory.length=0;BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;lastBpmEstimateAt=0;prevLow=0;prevSnare=0}
 
 function formatTime(seconds){
  if(!Number.isFinite(seconds)||seconds<0)return '0:00';
@@ -614,14 +637,18 @@ function updateTimeDisplay(previewTime=audio.currentTime){
  timeDisplay.textContent=formatTime(previewTime)+' / '+formatTime(audio.duration);
 }
 function updateTransportState(){
+ const fileMode=inputMode==='file';
  const isPaused=audio.paused;
  playButton.textContent=isPaused?'▶':'Ⅱ';
  playButton.title=isPaused?'Play':'Pause';
+ playButton.dataset.tooltip=isPaused?'Play':'Pause';
  playButton.setAttribute('aria-label',isPaused?'Play':'Pause');
  muteButton.textContent=audio.muted?'🔇':'🔊';
  muteButton.title=audio.muted?'Unmute':'Mute';
+ muteButton.dataset.tooltip=audio.muted?'Unmute':'Mute';
  muteButton.setAttribute('aria-label',audio.muted?'Unmute':'Mute');
  muteButton.classList.toggle('active',audio.muted);
+ playButton.disabled=!fileMode||!audio.src;seekControl.disabled=!fileMode||!audio.src;muteButton.disabled=!fileMode||!audio.src;volumeControl.disabled=!fileMode||!audio.src;
 }
 let Raw={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
 let Fast={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
@@ -631,26 +658,20 @@ let prevEnergy=0,driveMem=0,lastAnalysisAt=0, prevLow=0, prevSnare=0, boomMem=0,
 let BPM=0, BPMConfidence=0, beatAnchorSec=null, BeatPulse=0, lastBpmEstimateAt=0;
 const beatHistory=[];
 const history=[];
+function neutralizeInputState(){resetBeatTracking();Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals};history.length=0;prevEnergy=0;driveMem=0;boomMem=0}
 async function ensureAudio(){
- if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
- if(audioCtx.state==='suspended') await audioCtx.resume();
+ await inputController.ensureContext();syncAnalysisNodes();applyStoredTrim();
 }
 document.getElementById('file').onchange=async e=>{
  const f=e.target.files[0]; if(!f)return;
  if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
  audioObjectUrl=URL.createObjectURL(f);audio.src=audioObjectUrl;
- trackName.textContent=f.name.replace(/\.[^.]+$/,'');
- playButton.disabled=false;muteButton.disabled=false;volumeControl.disabled=false;
- await ensureAudio();
- if(!source){
-   source=audioCtx.createMediaElementSource(audio);
-   analyser=audioCtx.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=.56;
-   source.connect(analyser);analyser.connect(audioCtx.destination);
-   F=new Uint8Array(analyser.frequencyBinCount);T=new Uint8Array(analyser.fftSize);
- }
- await audio.play();
+ inputMode='file';resetBeatTracking();await inputController.activateFile();syncAnalysisNodes();applyStoredTrim();
+ trackName.dataset.fileName=f.name.replace(/\.[^.]+$/,'');trackName.textContent=trackName.dataset.fileName;
+ updateInputModeUi();updateInputDiagnostics(inputController.diagnostics());updateTransportState();
+ try{await audio.play()}catch(error){document.getElementById('audioInputStatus').textContent='File loaded. Press play to start.'}
 };
-playButton.onclick=async()=>{await ensureAudio();audio.paused?audio.play():audio.pause()};
+playButton.onclick=async()=>{if(inputMode!=='file')return;await ensureAudio();audio.paused?audio.play():audio.pause()};
 audio.addEventListener('loadedmetadata',()=>{seekControl.disabled=false;seekControl.value='0';updateTimeDisplay(0)});
 audio.addEventListener('timeupdate',()=>{
  if(!seeking&&Number.isFinite(audio.duration)&&audio.duration>0)seekControl.value=String(Math.round(audio.currentTime/audio.duration*1000));
@@ -663,6 +684,70 @@ seekControl.addEventListener('input',()=>{seeking=true;const preview=Number.isFi
 seekControl.addEventListener('change',()=>{if(Number.isFinite(audio.duration))audio.currentTime=(+seekControl.value/1000)*audio.duration;seeking=false;updateTimeDisplay()});
 volumeControl.addEventListener('input',()=>{audio.volume=+volumeControl.value;if(audio.volume>0&&audio.muted)audio.muted=false;updateTransportState()});
 muteButton.onclick=()=>{audio.muted=!audio.muted;updateTransportState()};
+function updateInputModeUi(){
+ document.getElementById('fileModeBtn').classList.toggle('active',inputMode==='file');document.getElementById('liveModeBtn').classList.toggle('active',inputMode==='live');
+ document.getElementById('audioInputBtn').classList.toggle('active',inputMode==='live');audioDevice.disabled=inputMode!=='live';document.getElementById('startLiveInput').disabled=inputMode!=='live';updateTransportState();
+}
+function updateInputDiagnostics(info){
+ currentInputDiagnostics=info;const flag=value=>value===true?'ON':value===false?'OFF':'UNSUPPORTED';
+ const latency=typeof info?.baseLatency==='number'?(info.baseLatency*1000).toFixed(1)+' ms':String(info?.baseLatency??'—');
+ document.getElementById('inputDiagnostics').textContent=info?`${info.mode.toUpperCase()} · ${info.label} · ${info.sampleRate} Hz · ${info.channelCount} ch · EC ${flag(info.echoCancellation)} · NS ${flag(info.noiseSuppression)} · AGC ${flag(info.autoGainControl)} · latency ${latency}`:'Waiting for source';
+ const warning=document.getElementById('inputWarning');warning.textContent=info?.warning||'';warning.classList.toggle('active',!!info?.warning);
+}
+async function refreshInputDevices(){
+ try{
+   const devices=await inputController.enumerateInputs(),previous=audioDevice.value,stored=localStorage.getItem(INPUT_DEVICE_KEY)||'';audioDevice.innerHTML='';
+   devices.forEach(device=>{const option=document.createElement('option');option.value=device.deviceId;option.textContent=device.label+(device.builtIn?' · built-in':'');audioDevice.appendChild(option)});
+   const available=devices.map(device=>device.deviceId),wanted=available.includes(previous)?previous:available.includes(stored)?stored:(available[0]||'');audioDevice.value=wanted;
+   if(!devices.length){const option=document.createElement('option');option.value='';option.textContent='No audio inputs found';audioDevice.appendChild(option)}
+   return devices;
+ }catch(error){document.getElementById('audioInputStatus').textContent=readableInputError(error);return []}
+}
+async function startLiveInput(deviceId=audioDevice.value){
+ inputMode='live';audio.pause();updateInputModeUi();document.getElementById('audioInputStatus').textContent='Requesting audio input…';resetBeatTracking();
+ try{
+   const info=await inputController.activateLive(deviceId||undefined);syncAnalysisNodes();inputLostDevice='';
+   const selected=deviceId||info.deviceId;if(selected)try{localStorage.setItem(INPUT_DEVICE_KEY,selected)}catch{}
+   await refreshInputDevices();if(selected&&[...audioDevice.options].some(option=>option.value===selected))audioDevice.value=selected;
+   trackName.textContent='LIVE: '+info.label;document.getElementById('audioInputStatus').textContent='Live input active · not routed to speakers.';applyStoredTrim();updateInputDiagnostics(info);updateTransportState();
+ }catch(error){document.getElementById('audioInputStatus').textContent=readableInputError(error);trackName.textContent='LIVE INPUT UNAVAILABLE';updateInputDiagnostics(inputController.diagnostics())}
+}
+async function activateFileMode(){
+ inputMode='file';inputLostDevice='';resetBeatTracking();
+ try{await inputController.activateFile();syncAnalysisNodes();applyStoredTrim();updateInputDiagnostics(inputController.diagnostics());document.getElementById('audioInputStatus').textContent=audio.src?'File mode ready.':'Choose an audio file.';trackName.textContent=audio.src?(trackName.dataset.fileName||'Audio file'):'No track loaded'}catch(error){document.getElementById('audioInputStatus').textContent=readableInputError(error)}
+ updateInputModeUi();
+}
+async function handleDeviceChange(){
+ const devices=await refreshInputDevices();
+ if(inputMode==='live'&&inputLostDevice&&devices.some(device=>device.deviceId===inputLostDevice))startLiveInput(inputLostDevice);
+}
+function handleInputLost(deviceId){inputLostDevice=deviceId;neutralizeInputState();trackName.textContent='LIVE: INPUT LOST';document.getElementById('audioInputStatus').textContent='Input lost. Waiting for the same device to reconnect…';updateInputDiagnostics(inputController.diagnostics())}
+function renderCalibrationStatus(){
+ const status=document.getElementById('calibrationStatus'),record=inputCalibrations[inputKey()],valid=currentCalibration();
+ if(valid){status.textContent='CALIBRATED';status.classList.add('calibrated');document.getElementById('calibrationHint').textContent='Noise floor is active for this input and trim.'}
+ else{status.textContent=record?'STALE · RECALIBRATE':'NOT CALIBRATED';status.classList.remove('calibrated');document.getElementById('calibrationHint').textContent=record?'Trim changed. Recalibrate with the instrument silent.':'Keep the instrument silent during calibration.'}
+}
+function beginNoiseCalibration(){
+ if(!inputController.inputActive){document.getElementById('audioInputStatus').textContent='Start playback or live input before calibrating.';return}
+ calibrationRun={endsAt:performance.now()+3000,samples:[]};document.getElementById('calibrateNoise').disabled=true;document.getElementById('calibrationStatus').classList.remove('calibrated');
+}
+function finishNoiseCalibration(){
+ if(!calibrationRun?.samples.length){calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;document.getElementById('audioInputStatus').textContent='Calibration failed: no audio samples received.';renderCalibrationStatus();return}
+ const result=averageNoiseFloor(calibrationRun.samples);inputCalibrations[inputKey()]={rms:result.rms,bins:[...result.bins],trimDb:currentTrimDb(),createdAt:Date.now()};saveInputSettings();calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;renderCalibrationStatus();
+}
+function renderInputMeter(meter,now){
+ document.getElementById('inputLevelFill').style.width=(Math.max(0,Math.min(100,(meter.peakDb+60)/60*100)))+'%';document.getElementById('inputRms').textContent='RMS '+meter.rmsDb.toFixed(1)+' dBFS';document.getElementById('inputPeak').textContent='PEAK '+meter.peakDb.toFixed(1)+' dBFS';
+ if(meter.peakDb>=-1)clipHoldUntil=now+1000;document.getElementById('inputClip').classList.toggle('active',now<clipHoldUntil);
+ if(calibrationRun){const remaining=Math.max(0,calibrationRun.endsAt-now);document.getElementById('calibrationStatus').textContent='SILENCE · '+(remaining/1000).toFixed(1)+' s';if(remaining<=0)finishNoiseCalibration()}
+}
+document.getElementById('audioInputBtn').onclick=async()=>{closeImageManager();closeMappingMatrix();document.getElementById('creatorPanel').classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');await refreshInputDevices();renderCalibrationStatus()};
+document.getElementById('closeAudioInput').onclick=()=>document.getElementById('audioInputPanel').classList.remove('open');
+document.getElementById('fileModeBtn').onclick=activateFileMode;document.getElementById('liveModeBtn').onclick=()=>startLiveInput();document.getElementById('startLiveInput').onclick=()=>startLiveInput();
+audioDevice.onchange=()=>{try{localStorage.setItem(INPUT_DEVICE_KEY,audioDevice.value)}catch{}if(inputMode==='live')startLiveInput(audioDevice.value)};
+inputTrim.oninput=()=>{const value=+inputTrim.value;inputTrims[inputKey()]=value;saveInputSettings();inputController.setTrimDb(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';if(calibrationRun){calibrationRun=null;document.getElementById('calibrateNoise').disabled=false}renderCalibrationStatus()};
+document.getElementById('calibrateNoise').onclick=beginNoiseCalibration;
+document.getElementById('clearCalibration').onclick=()=>{delete inputCalibrations[inputKey()];saveInputSettings();renderCalibrationStatus()};
+refreshInputDevices();updateInputModeUi();renderCalibrationStatus();
 document.getElementById('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
 document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none'};
 const shortcutDialog=document.getElementById('shortcutDialog'),shortcutToast=document.getElementById('shortcutToast');
@@ -715,6 +800,11 @@ function analyze(now){
  lastAnalysisAt=now;
 
  analyser.getByteFrequencyData(F); analyser.getByteTimeDomainData(T);
+ const meter=computeDbfsMeter(T);
+ if(calibrationRun)calibrationRun.samples.push({rms:meter.rms,bins:Uint8Array.from(F)});
+ renderInputMeter(meter,now);
+ const calibration=currentCalibration();
+ if(calibration)F.set(spectralSubtract(F,calibration.bins,2));
  let low=0,mid=0,high=0,all=0,n=F.length;
  for(let i=0;i<n;i++){
    let v=F[i]/255; all+=v;
@@ -724,9 +814,7 @@ function analyze(now){
  }
  low/=n*.10; mid/=n*.28; high/=n*.62; all/=n;
 
- let rms=0;
- for(let i=0;i<T.length;i++){let x=(T[i]-128)/128;rms+=x*x}
- rms=Math.sqrt(rms/T.length);
+ let rms=calibration?subtractRmsNoise(meter.rms,calibration.rms,1.5):meter.rms;
 
  // Raw instantaneous layer: useful only as micro-detail.
  let energy=Math.min(1,rms*4.0);
