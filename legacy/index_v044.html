@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Audio Reactive Visuals — V0.43.1 Five Archetypes / Image Manager / Zoom Engine</title>
+<style>
+  :root{--panel:rgba(6,9,14,.72);--line:rgba(255,255,255,.14);--txt:#f2f7fb;--muted:#aab6c2}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:Inter,system-ui,-apple-system,Arial,sans-serif;color:var(--txt)}
+  #gl,#particles{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #particles{pointer-events:none}
+  .ui{position:fixed;inset:0;pointer-events:none}
+  .top,.bottom,.diag{position:absolute;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);box-shadow:0 14px 35px rgba(0,0,0,.22)}
+  .top{left:16px;right:16px;top:16px;border-radius:18px;padding:11px 12px;display:flex;align-items:center;gap:8px;pointer-events:auto}
+  .brand{font-size:12px;font-weight:800;letter-spacing:.08em;margin-right:auto;white-space:nowrap}
+  .sub{font-size:10px;color:var(--muted);margin-left:8px;font-weight:500;letter-spacing:.04em}
+  button,label{font:inherit}
+  button,.filebtn{border:1px solid var(--line);background:rgba(255,255,255,.07);color:var(--txt);padding:9px 11px;border-radius:11px;font-size:10px;cursor:pointer}
+  button:hover,.filebtn:hover{background:rgba(255,255,255,.12)}
+  button.active{background:#f4f6f8;color:#10141a}
+  input[type=file]{display:none}
+  .bottom{left:16px;bottom:16px;border-radius:17px;padding:10px;display:flex;gap:7px;pointer-events:auto}
+  .arch{min-width:130px;text-align:left}
+  .arch b{display:block;font-size:10px;letter-spacing:.06em}
+  .arch span{display:block;font-size:9px;color:var(--muted);margin-top:2px}
+  .diag{right:16px;bottom:16px;width:250px;border-radius:17px;padding:12px 14px;font-size:10px}
+  .diag h3{font-size:10px;margin:0 0 9px;letter-spacing:.08em}
+  .row{display:grid;grid-template-columns:84px 1fr 34px;gap:8px;align-items:center;margin:5px 0}
+  .meter{height:4px;background:rgba(255,255,255,.1);border-radius:10px;overflow:hidden}
+  .fill{height:100%;background:#fff;width:0%}
+  .status{position:absolute;left:50%;top:74px;transform:translateX(-50%);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:rgba(255,255,255,.67)}
+  .mini{font-size:9px;color:var(--muted);margin-top:9px;line-height:1.4}
+  .controls{display:flex;gap:6px;align-items:center}
+  select{background:rgba(255,255,255,.07);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:8px 9px;font-size:10px}
+  
+  .lab{position:absolute;left:16px;top:82px;width:320px;max-height:calc(100vh - 180px);overflow:auto;border-radius:17px;padding:12px 14px;font-size:10px;pointer-events:auto;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);box-shadow:0 14px 35px rgba(0,0,0,.22)}
+  .lab h3{font-size:10px;margin:0 0 10px;letter-spacing:.08em}
+  .pRow{display:grid;grid-template-columns:56px 46px 1fr 34px 34px;gap:6px;align-items:center;margin:6px 0}
+  .pRow input[type=range], .gRow input[type=range]{width:100%}
+  .tiny{font-size:9px;color:var(--muted)}
+  .soloBtn,.onBtn{padding:6px 0;border-radius:8px;font-size:9px}
+  .soloBtn.active,.onBtn.active{background:#f4f6f8;color:#10141a}
+  .gWrap{margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.10)}
+  .gRow{display:grid;grid-template-columns:76px 1fr 1fr 42px;gap:7px;align-items:center;margin:6px 0}.gHead{font-size:8px;color:var(--muted);letter-spacing:.06em}
+  .mapOpen{width:100%;margin:10px 0 4px;padding:9px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:10px;letter-spacing:.06em;cursor:pointer}
+  .matrixPanel{position:absolute;z-index:30;left:355px;right:355px;top:76px;bottom:88px;display:none;overflow:auto;border-radius:18px;padding:16px;background:rgba(8,11,16,.94);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(18px);box-shadow:0 18px 50px rgba(0,0,0,.45);pointer-events:auto}
+  .matrixPanel.open{display:block}.matrixTop{position:sticky;top:-16px;z-index:5;display:flex;justify-content:space-between;gap:12px;align-items:center;margin:-16px -16px 10px;padding:14px 16px 10px;background:rgba(8,11,16,.98);border-bottom:1px solid rgba(255,255,255,.12)}.matrixTop h2{font-size:13px;margin:0;letter-spacing:.08em}.matrixActions{display:flex;gap:6px}.matrixActions button{padding:7px 9px;border-radius:9px;font-size:9px}.matrixActions #closeMatrix{background:#f4f6f8;color:#10141a;font-weight:700}.matrixFooter{position:sticky;bottom:-16px;z-index:5;margin:12px -16px -16px;padding:10px 16px 14px;background:linear-gradient(180deg,rgba(8,11,16,.2),rgba(8,11,16,.98) 35%);display:flex;justify-content:flex-end}.applyClose{padding:10px 14px;border-radius:10px;background:#f4f6f8;color:#10141a;border:0;font-size:10px;font-weight:700;letter-spacing:.05em;cursor:pointer}.mapTable{border-collapse:separate;border-spacing:4px;width:max-content;min-width:100%}.mapTable th{font-size:8px;color:var(--muted);font-weight:600;padding:5px;white-space:nowrap}.mapTable td{font-size:9px;padding:2px;text-align:center}.mapTable .srcLabel{text-align:left;font-weight:600;white-space:nowrap;padding-right:8px}.mapCell{width:58px;background:rgba(255,255,255,.06);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:6px 4px;text-align:center;font-size:9px}.mapCell.nz{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.28)}.matrixLegend{font-size:9px;color:var(--muted);line-height:1.45;margin:6px 0 12px}
+  .imagePanel{position:absolute;z-index:32;left:330px;right:330px;top:68px;bottom:84px;display:none;overflow:auto;border-radius:18px;padding:16px;background:rgba(8,11,16,.96);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(18px);box-shadow:0 18px 50px rgba(0,0,0,.48);pointer-events:auto}
+  .imagePanel.open{display:block}
+  .imageTop{position:sticky;top:-16px;z-index:6;display:flex;justify-content:space-between;gap:14px;align-items:center;margin:-16px -16px 12px;padding:14px 16px 11px;background:rgba(8,11,16,.99);border-bottom:1px solid rgba(255,255,255,.12)}
+  .imageTop h2{font-size:13px;margin:0;letter-spacing:.08em}
+  .imageControls{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:10px 0 14px}
+  .ctlBox{border:1px solid rgba(255,255,255,.10);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
+  .ctlBox label{display:block;font-size:8px;color:var(--muted);margin-bottom:5px;letter-spacing:.06em}
+  .ctlBox select,.ctlBox input{width:100%}
+  .imageGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:9px}
+  .imageCard{border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:7px;background:rgba(255,255,255,.035)}
+  .imageThumb{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid rgba(255,255,255,.10);display:block;margin-bottom:7px}
+  .imageCard.current{border-color:rgba(255,255,255,.55);background:rgba(255,255,255,.10)}
+  .imageCard .cardLine{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:9px;margin:4px 0}
+  .imageCard input[type=number]{width:60px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:7px;padding:5px}
+  .orderCtl{display:flex;align-items:center;gap:4px}.orderCtl button{padding:5px 7px;border-radius:7px;font-size:9px}.orderCtl select{padding:5px 6px;border-radius:7px;font-size:9px;min-width:48px}
+  .eventHint{font-size:8px;color:var(--muted);line-height:1.35;margin-top:5px}
+
+  .imageFooter{position:sticky;bottom:-16px;z-index:5;margin:14px -16px -16px;padding:10px 16px 14px;background:linear-gradient(180deg,rgba(8,11,16,.2),rgba(8,11,16,.99) 35%);display:flex;justify-content:space-between;align-items:center}
+  .imageFooter button,.imageTop button{padding:8px 11px;border-radius:9px;font-size:9px}
+  .primaryBtn{background:#f4f6f8!important;color:#10141a!important;font-weight:700}
+  .presetRow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0;align-items:center}.presetRow select,.presetRow input{grid-column:span 3;min-width:0;width:100%}.presetRow input{background:rgba(255,255,255,.07);color:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 9px;font-size:10px}.presetRow button{padding:8px 6px}
+  @media(max-width:1200px){.imagePanel{left:20px;right:20px}.imageGrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1200px){.matrixPanel{left:22px;right:22px}}
+
+  @media(max-width:1200px){.lab{width:290px}}
+  @media(max-width:900px){.diag{display:none}.sub{display:none}.brand{font-size:10px}.arch{min-width:0}.arch span{display:none}.lab{display:none}}
+
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="particles"></canvas>
+<audio id="audio"></audio>
+
+<div class="ui">
+  <div class="top">
+    <div class="brand">AUDIO REACTIVE VISUALS <span class="sub">V0.44 SIX ARCHETYPES / DIRECT MUSICAL TARGETS</span></div>
+    <label class="filebtn">LOAD AUDIO<input id="file" type="file" accept="audio/*"></label>
+    <button id="play">PLAY / PAUSE</button>
+    <button id="smooth" class="active">SMOOTH</button>
+    <button id="cut">CUT</button>
+    <select id="react">
+      <option value=".55">REACTIVITY LOW</option>
+      <option value=".85" selected>REACTIVITY MED</option>
+      <option value="1.15">REACTIVITY HIGH</option>
+    </select>
+    <div style="display:flex;align-items:center;gap:6px;padding:0 4px;">
+      <span style="font-size:9px;color:var(--muted);letter-spacing:.06em">PERF</span>
+      <input id="ctxPerf" type="range" min="0" max="1" step="0.01" value="0.72" style="width:120px">
+      <span style="font-size:9px;color:var(--muted);letter-spacing:.06em">CTX</span>
+      <span id="ctxPerfVal" style="font-size:10px;min-width:32px;text-align:right">0.72</span>
+    </div>
+    <button id="imageMgrBtn">IMAGE MANAGER</button><button id="diagBtn">DIAGNOSTICS</button>
+    <button id="fullscreen">FULL SCREEN</button>
+  </div>
+  <div class="status" id="status">DEEP DRIFT · slow morph</div>
+  <div class="bottom" id="archBar">
+    <button class="arch active" data-a="0"><b>1 · DEEP DRIFT</b><span>space / contemplation</span></button>
+    <button class="arch" data-a="1"><b>2 · FUNK ELASTIC</b><span>groove / elastic flow</span></button>
+    <button class="arch" data-a="2"><b>3 · ORGANIC BLOOM</b><span>growth / breath / living systems</span></button>
+    <button class="arch" data-a="3"><b>4 · DENSE PROPULSION</b><span>pressure / momentum</span></button>
+    <button class="arch" data-a="4"><b>5 · HEART PULSE</b><span>heart / visceral energy</span></button>
+    <button class="arch" data-a="5"><b>6 · CYBER HEART</b><span>living heart / neon anatomy</span></button>
+  </div>
+
+  <div class="lab" id="lab">
+    <h3>MODULATION LAB</h3>
+    <div class="tiny">The archetype defines the visual world and image sequence. Musical presets define how sound activates its targets. With no routed musical signal the image stays still, while image sequencing continues.</div>
+    <div class="presetRow"><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><input id="presetName" placeholder="Preset name"><button id="presetLoad">LOAD</button><button id="presetSave">SAVE NEW</button><button id="presetDelete">DELETE</button></div>
+    <button class="mapOpen" id="openMatrix">OPEN SOURCE → TARGET MAPPING MATRIX</button>
+
+    <div class="pRow"><b>Param</b><span class="tiny">On</span><span class="tiny">Amount</span><span class="tiny">Solo</span><span class="tiny">Val</span></div>
+
+    <div class="pRow" data-p="energy"><span>Energy</span><button class="onBtn active" data-on="energy">ON</button><input type="range" id="amt-energy" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="energy">S</button><span id="show-energy">1.00</span></div>
+    <div class="pRow" data-p="density"><span>Density</span><button class="onBtn active" data-on="density">ON</button><input type="range" id="amt-density" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="density">S</button><span id="show-density">1.00</span></div>
+    <div class="pRow" data-p="drive"><span>Drive</span><button class="onBtn active" data-on="drive">ON</button><input type="range" id="amt-drive" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="drive">S</button><span id="show-drive">1.00</span></div>
+    <div class="pRow" data-p="boombap"><span>BoomBap</span><button class="onBtn active" data-on="boombap">ON</button><input type="range" id="amt-boombap" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="boombap">S</button><span id="show-boombap">1.00</span></div>
+    <div class="pRow" data-p="tension"><span>Tension</span><button class="onBtn active" data-on="tension">ON</button><input type="range" id="amt-tension" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="tension">S</button><span id="show-tension">1.00</span></div>
+    <div class="pRow" data-p="bright"><span>Bright</span><button class="onBtn active" data-on="bright">ON</button><input type="range" id="amt-bright" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="bright">S</button><span id="show-bright">1.00</span></div>
+    <div class="pRow" data-p="open"><span>Open</span><button class="onBtn active" data-on="open">ON</button><input type="range" id="amt-open" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="open">S</button><span id="show-open">1.00</span></div>
+    <div class="pRow" data-p="beat"><span>Beat</span><button class="onBtn active" data-on="beat">ON</button><input type="range" id="amt-beat" min="0" max="2" step="0.01" value="0.55"><button class="soloBtn" data-solo="beat">S</button><span id="show-beat">0.55</span></div>
+    <div class="pRow" data-p="kick"><span>Kick</span><button class="onBtn active" data-on="kick">ON</button><input type="range" id="amt-kick" min="0" max="2" step="0.01" value="1.00"><button class="soloBtn" data-solo="kick">S</button><span id="show-kick">1.00</span></div>
+    <div class="pRow" data-p="snare"><span>Snare</span><button class="onBtn active" data-on="snare">ON</button><input type="range" id="amt-snare" min="0" max="2" step="0.01" value="1.00"><button class="soloBtn" data-solo="snare">S</button><span id="show-snare">1.00</span></div>
+
+    <div class="gWrap">
+      <h3>MUSICAL TARGETS · INTENSITY + REACTIVITY</h3>
+      <div class="tiny">INTENSITY sets the maximum visual strength. REACTIVITY scales the signal arriving from the routing matrix. No routed signal means no target effect.</div>
+      <div class="gRow gHead"><span></span><span>INTENS.</span><span>REACT.</span><span>LIVE</span></div>
+      <div class="gRow"><span>Pulse</span><input type="range" id="g-pulse" min="0" max="1.5" step="0.01" value="0.90"><input type="range" id="ga-pulse" min="0" max="1.5" step="0.01" value="0.90"><span id="gf-pulse">0.00</span></div>
+      <div class="gRow"><span>Distortion</span><input type="range" id="g-dist" min="0" max="1.5" step="0.01" value="0.90"><input type="range" id="ga-dist" min="0" max="1.5" step="0.01" value="0.55"><span id="gf-dist">0.90</span></div>
+      <div class="gRow"><span>Glow</span><input type="range" id="g-glow" min="0" max="1.8" step="0.01" value="1.00"><input type="range" id="ga-glow" min="0" max="1.5" step="0.01" value="0.65"><span id="gf-glow">1.00</span></div>
+      <div class="gRow"><span>Brightness</span><input type="range" id="g-luma" min="0" max="1.5" step="0.01" value="0.80"><input type="range" id="ga-luma" min="0" max="1.5" step="0.01" value="0.95"><span id="gf-luma">1.00</span></div>
+      <div class="gRow"><span>Saturation</span><input type="range" id="g-sat" min="0" max="1.5" step="0.01" value="0.80"><input type="range" id="ga-sat" min="0" max="1.5" step="0.01" value="0.85"><span id="gf-sat">1.00</span></div>
+      <div class="gRow"><span>Particles</span><input type="range" id="g-parts" min="0" max="1.8" step="0.01" value="1.00"><input type="range" id="ga-parts" min="0" max="1.5" step="0.01" value="0.60"><span id="gf-parts">1.00</span></div>
+      <div class="gRow"><span>Zoom</span><input type="range" id="g-zoom" min="0" max="1.5" step="0.01" value="1.00"><input type="range" id="ga-zoom" min="0" max="1.5" step="0.01" value="0.60"><span id="gf-zoom">1.00</span></div>
+    </div>
+  </div>
+
+
+  <div class="imagePanel" id="imagePanel">
+    <div class="imageTop">
+      <div>
+        <h2>ARCHETYPE IMAGE MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2>
+        <div class="matrixLegend">Turn each image ON/OFF, set individual dwell time, choose playback order, and select AUTO, MANUAL or MAPPED sequencing. Continuous sources map low→high across your image order; Beat/Kick/Snare advance on detected events.</div>
+      </div>
+      <button id="closeImageMgr" class="primaryBtn">CLOSE</button>
+    </div>
+    <div class="imageControls">
+      <div class="ctlBox"><label>SEQUENCE MODE</label><select id="imageMode"><option value="auto">AUTO TIMER</option><option value="manual">MANUAL</option><option value="mapped">MAPPED LEVEL</option></select></div>
+      <div class="ctlBox"><label>MAPPED SOURCE</label><select id="imageSource"><option value="energy">Energy</option><option value="density">Density</option><option value="drive">Drive</option><option value="boombap">BoomBap</option><option value="tension">Tension</option><option value="bright">Brightness</option><option value="open">Openness</option><option value="beat">Beat</option><option value="kick">Kick</option><option value="snare">Snare</option></select><div class="eventHint">Energy…Openness = level mapping · Beat/Kick/Snare = event advance</div></div>
+      <div class="ctlBox"><label>CROSSFADE (SEC)</label><input id="imageCrossfade" type="number" min="0.2" max="8" step="0.1" value="2.2"></div><div class="ctlBox"><label>EVENT THRESHOLD</label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"><div class="eventHint">Used with Beat / Kick / Snare</div></div>
+      <div class="ctlBox"><label>MANUAL NAVIGATION</label><div style="display:flex;gap:6px"><button id="imgPrev">◀ PREV</button><button id="imgNext">NEXT ▶</button></div></div>
+    </div>
+    <div id="imageManagerStatus" class="matrixLegend">Current image 1 / 5</div>
+    <div class="imageGrid" id="imageGrid"></div>
+    <div class="imageFooter"><span class="tiny">Changes are stored locally per archetype.</span><button id="applyCloseImageMgr" class="primaryBtn">APPLY & CLOSE</button></div>
+  </div>
+
+  <div class="matrixPanel" id="matrixPanel">
+    <div class="matrixTop"><div><h2>SOURCE → TARGET ROUTING · <span id="matrixArchName">DEEP DRIFT</span></h2><div class="matrixLegend">Each cell is a routing weight from <b>-1.50</b> to <b>+1.50</b>. 0 = no connection. Positive values increase the target when the source rises; negative values invert the relationship. Each archetype keeps its own map. Values are saved automatically; use APPLY & CLOSE to return to the visual.</div></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix">CLOSE</button></div></div>
+    <div id="matrixHolder"></div>
+    <div class="matrixFooter"><button class="applyClose" id="applyCloseMatrix">APPLY & CLOSE</button></div>
+  </div>
+
+  <div class="diag" id="diag">
+    <h3>MUSICAL CONTEXT STATE</h3>
+    <div class="row"><span>ENERGY</span><div class="meter"><div id="fE" class="fill"></div></div><span id="vE">0.00</span></div>
+    <div class="row"><span>DENSITY</span><div class="meter"><div id="fD" class="fill"></div></div><span id="vD">0.00</span></div>
+    <div class="row"><span>DRIVE</span><div class="meter"><div id="fR" class="fill"></div></div><span id="vR">0.00</span></div>
+    <div class="row"><span>BOOMBAP</span><div class="meter"><div id="fK" class="fill"></div></div><span id="vK">0.00</span></div>
+    <div class="row"><span>BEAT</span><div class="meter"><div id="fBeat" class="fill"></div></div><span id="vBeat">0.00</span></div>
+    <div class="row"><span>BPM</span><div class="meter"><div id="fBpmConf" class="fill"></div></div><span id="vBPM">--</span></div>
+    <div class="row"><span>TENSION</span><div class="meter"><div id="fT" class="fill"></div></div><span id="vT">0.00</span></div>
+    <div class="row"><span>BRIGHT</span><div class="meter"><div id="fB" class="fill"></div></div><span id="vB">0.00</span></div>
+    <div class="row"><span>OPENNESS</span><div class="meter"><div id="fO" class="fill"></div></div><span id="vO">0.00</span></div>
+    <div class="mini">
+      Main meters now represent the contextual state, not frame-by-frame audio.<br>BOOMBAP now measures groove strength only; it does not create autonomous pulses.<br>Beat, Kick and Snare are isolated and each has its own intensity control.<br>
+      <span id="microState">Micro layer · Energy 0.00 · Drive 0.00</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const IMAGE_SETS = [
+ [
+  "../public/assets/images/deep-drift-01.webp",
+  "../public/assets/images/deep-drift-02.webp",
+  "../public/assets/images/deep-drift-03.webp",
+  "../public/assets/images/deep-drift-04.webp",
+  "../public/assets/images/deep-drift-05.webp"
+ ],
+ [
+  "../public/assets/images/funk-elastic-01.webp",
+  "../public/assets/images/funk-elastic-02.webp",
+  "../public/assets/images/funk-elastic-03.webp",
+  "../public/assets/images/funk-elastic-04.webp",
+  "../public/assets/images/funk-elastic-05.webp"
+ ],
+ [
+  "../public/assets/images/organic-bloom-01.webp",
+  "../public/assets/images/organic-bloom-02.webp",
+  "../public/assets/images/organic-bloom-03.webp",
+  "../public/assets/images/organic-bloom-04.webp",
+  "../public/assets/images/organic-bloom-05.webp"
+ ],
+ [
+  "../public/assets/images/dense-propulsion-01.webp",
+  "../public/assets/images/dense-propulsion-02.webp",
+  "../public/assets/images/dense-propulsion-03.webp",
+  "../public/assets/images/dense-propulsion-04.webp",
+  "../public/assets/images/dense-propulsion-05.webp"
+ ],
+ [
+  "../public/assets/images/heart-pulse-01.webp",
+  "../public/assets/images/heart-pulse-02.webp",
+  "../public/assets/images/heart-pulse-03.webp",
+  "../public/assets/images/heart-pulse-04.webp",
+  "../public/assets/images/heart-pulse-05.webp"
+ ],
+ [
+  "../public/assets/images/cyber-heart-01.png",
+  "../public/assets/images/cyber-heart-02.png",
+  "../public/assets/images/cyber-heart-03.png",
+  "../public/assets/images/cyber-heart-04.png",
+  "../public/assets/images/cyber-heart-05.png"
+ ]
+];
+const archetypes = [
+ {name:'DEEP DRIFT', behavior:{warp:.16, zoom:.025, pan:.012, glow:.45, particle:.34, pulse:.22, dir:0}},
+ {name:'FUNK ELASTIC', behavior:{warp:.34, zoom:.035, pan:.040, glow:.50, particle:.58, pulse:.55, dir:1}},
+ {name:'ORGANIC BLOOM', behavior:{warp:.24, zoom:.040, pan:.020, glow:.78, particle:.52, pulse:.30, dir:2}},
+ {name:'DENSE PROPULSION', behavior:{warp:.43, zoom:.065, pan:.028, glow:.76, particle:.90, pulse:.76, dir:3}},
+ {name:'HEART PULSE', behavior:{warp:.38, zoom:.055, pan:.022, glow:.88, particle:.70, pulse:.90, dir:4}},
+ {name:'CYBER HEART', behavior:{warp:.36, zoom:.060, pan:.018, glow:.92, particle:.62, pulse:1.00, dir:5}}
+];
+
+const routeSources=['energy','density','drive','boombap','tension','bright','open','beat','kick','snare'];
+const routeTargets=['pulse','dist','luma','sat','glow','parts','zoom'];
+const sourceLabels={energy:'Energy',density:'Density',drive:'Drive',boombap:'BoomBap',tension:'Tension',bright:'Brightness',open:'Openness',beat:'Beat',kick:'Kick',snare:'Snare'};
+const targetLabels={pulse:'Pulse',dist:'Distortion',luma:'Brightness',sat:'Saturation',glow:'Glow',parts:'Particles',zoom:'Zoom'};
+function blankMap(){const m={};routeSources.forEach(s=>{m[s]={};routeTargets.forEach(t=>m[s][t]=0)});return m}
+function makeMap(entries){const m=blankMap();entries.forEach(([s,t,v])=>m[s][t]=v);return m}
+const defaultRoutingMaps=[
+ makeMap([['energy','luma',.55],['bright','glow',.70],['open','luma',.38],['open','glow',.28],['open','zoom',-.25],['tension','dist',.38],['density','parts',.42],['kick','pulse',.28],['snare','glow',.34]]),
+ makeMap([['energy','pulse',.72],['energy','zoom',.18],['drive','pulse',.42],['boombap','luma',.38],['boombap','sat',.20],['density','parts',.55],['tension','dist',.42],['kick','pulse',.55],['snare','glow',.46]]),
+ makeMap([['energy','sat',.35],['energy','luma',.18],['bright','glow',.55],['bright','luma',.28],['open','glow',.42],['open','zoom',-.38],['density','parts',.45],['kick','pulse',.20],['snare','glow',.24]]),
+ makeMap([['energy','dist',.58],['energy','pulse',.48],['energy','zoom',.28],['boombap','dist',.38],['boombap','zoom',.15],['tension','dist',.68],['density','parts',.78],['drive','parts',.32],['kick','pulse',.68],['snare','luma',.55],['snare','glow',.48]]),
+ makeMap([['energy','luma',.48],['energy','sat',.42],['energy','pulse',.35],['boombap','zoom',.14],['tension','dist',.45],['bright','glow',.55],['density','parts',.48],['kick','pulse',.88],['snare','glow',.58],['snare','luma',.40]]),
+ makeMap([['energy','pulse',.72],['energy','glow',.44],['energy','luma',.28],['density','parts',.36],['boombap','sat',.32],['boombap','zoom',.18],['tension','dist',.40],['bright','glow',.62],['open','zoom',-.12],['kick','pulse',1.10],['snare','glow',.52]])
+];
+let routingMaps=JSON.parse(JSON.stringify(defaultRoutingMaps));
+try{
+ const candidates=[
+   localStorage.getItem('arv_v043_routing_maps'),
+   localStorage.getItem('arv_v042_routing_maps'),
+   localStorage.getItem('arv_v041_routing_maps')
+ ].filter(Boolean);
+ for(const saved of candidates){
+   try{
+     const p=JSON.parse(saved);
+     if(!Array.isArray(p)) continue;
+     if(p.length>=6){ routingMaps=p.slice(0,6); break; }
+     if(p.length===5){ routingMaps=p.map((m)=>{const n=blankMap();routeSources.forEach(s=>routeTargets.forEach(t=>{if(m&&m[s]&&m[s][t]!=null)n[s][t]=m[s][t]}));return n}); routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[5]))); break; }
+     if(p.length===4){ routingMaps=p.map((m)=>{const n=blankMap();routeSources.forEach(s=>routeTargets.forEach(t=>{if(m&&m[s]&&m[s][t]!=null)n[s][t]=m[s][t]}));return n}); routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[4]))); routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[5]))); break; }
+   }catch(err){}
+ }
+ // normalize shape
+ routingMaps=archetypes.map((_,i)=>{
+   const src=routingMaps[i]||defaultRoutingMaps[i];
+   const n=blankMap();
+   routeSources.forEach(s=>routeTargets.forEach(t=>{ if(src&&src[s]&&src[s][t]!=null) n[s][t]=src[s][t]; }));
+   return n;
+ });
+}catch(e){}
+function saveRoutingMaps(){try{localStorage.setItem('arv_v043_routing_maps',JSON.stringify(routingMaps))}catch(e){}}
+function renderMatrixEditor(){
+ const a=(typeof target==='number')?target:0;document.getElementById('matrixArchName').textContent=archetypes[a].name;
+ let h='<table class="mapTable"><thead><tr><th>SOURCE ↓ / TARGET →</th>';routeTargets.forEach(t=>h+='<th>'+targetLabels[t]+'</th>');h+='</tr></thead><tbody>';
+ routeSources.forEach(s=>{h+='<tr><td class="srcLabel">'+sourceLabels[s]+'</td>';routeTargets.forEach(t=>{const v=Number(routingMaps[a][s][t]||0);h+='<td><input class="mapCell '+(Math.abs(v)>.001?'nz':'')+'" data-s="'+s+'" data-t="'+t+'" type="number" min="-1.5" max="1.5" step="0.05" value="'+v.toFixed(2)+'"></td>'});h+='</tr>'});h+='</tbody></table>';
+ document.getElementById('matrixHolder').innerHTML=h;document.querySelectorAll('.mapCell').forEach(el=>{el.oninput=()=>{const v=Math.max(-1.5,Math.min(1.5,parseFloat(el.value)||0));routingMaps[a][el.dataset.s][el.dataset.t]=v;el.classList.toggle('nz',Math.abs(v)>.001);saveRoutingMaps()}})
+}
+function closeMappingMatrix(){saveRoutingMaps();document.getElementById('matrixPanel').classList.remove('open')}
+document.getElementById('openMatrix').onclick=()=>{closeImageManager();renderMatrixEditor();document.getElementById('matrixPanel').classList.add('open')};
+document.getElementById('closeMatrix').onclick=closeMappingMatrix;
+document.getElementById('applyCloseMatrix').onclick=closeMappingMatrix;
+document.addEventListener('keydown',e=>{
+ if(e.key==='Escape'){
+   if(document.getElementById('matrixPanel').classList.contains('open'))closeMappingMatrix();
+   if(document.getElementById('imagePanel').classList.contains('open'))closeImageManager();
+ }
+});
+document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();renderMatrixEditor()};
+document.getElementById('resetMap').onclick=()=>{routingMaps[target]=JSON.parse(JSON.stringify(defaultRoutingMaps[target]));saveRoutingMaps();renderMatrixEditor()};
+
+const modState = {
+ enabled:{energy:true,density:true,drive:true,boombap:true,tension:true,bright:true,open:true,beat:true,kick:true,snare:true},
+ solo:{energy:false,density:false,drive:false,boombap:false,tension:false,bright:false,open:false,beat:false,kick:false,snare:false}
+};
+const neutralVals = {energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:0.60};
+const sourceKeys=['energy','density','drive','boombap','tension','bright','open','beat','kick','snare'];
+const globalCtl = {
+ pulse:document.getElementById('g-pulse'),
+ dist:document.getElementById('g-dist'),
+ glow:document.getElementById('g-glow'),
+ luma:document.getElementById('g-luma'),
+ sat:document.getElementById('g-sat'),
+ parts:document.getElementById('g-parts'),
+ zoom:document.getElementById('g-zoom')
+};
+const globalAuto = {
+ pulse:document.getElementById('ga-pulse'),
+ dist:document.getElementById('ga-dist'),
+ glow:document.getElementById('ga-glow'),
+ luma:document.getElementById('ga-luma'),
+ sat:document.getElementById('ga-sat'),
+ parts:document.getElementById('ga-parts'),
+ zoom:document.getElementById('ga-zoom')
+};
+let FinalG={pulse:0,dist:0,glow:0,luma:1,sat:1,parts:0,zoom:1};
+
+const ctxPerf=document.getElementById('ctxPerf'), ctxPerfVal=document.getElementById('ctxPerfVal');
+ctxPerf.oninput=()=>ctxPerfVal.textContent=(+ctxPerf.value).toFixed(2);
+
+ctxPerfVal.textContent=(+ctxPerf.value).toFixed(2);
+sourceKeys.forEach(k=>{
+  const amt=document.getElementById('amt-'+k), out=document.getElementById('show-'+k);
+  amt.oninput=()=>out.textContent=(+amt.value).toFixed(2);
+  out.textContent=(+amt.value).toFixed(2);
+});
+document.querySelectorAll('[data-on]').forEach(btn=>btn.onclick=()=>{
+  const k=btn.dataset.on; modState.enabled[k]=!modState.enabled[k];
+  btn.classList.toggle('active',modState.enabled[k]); btn.textContent=modState.enabled[k]?'ON':'OFF';
+});
+document.querySelectorAll('[data-solo]').forEach(btn=>btn.onclick=()=>{
+  const k=btn.dataset.solo; modState.solo[k]=!modState.solo[k];
+  btn.classList.toggle('active',modState.solo[k]);
+});
+
+let musicPresets=archetypes.map(()=>[]);
+try{
+  const saved=JSON.parse(localStorage.getItem('arv_v044_music_presets')||'null');
+  if(Array.isArray(saved))musicPresets=archetypes.map((_,i)=>Array.isArray(saved[i])?saved[i]:[]);
+}catch(e){}
+function saveMusicPresets(){try{localStorage.setItem('arv_v044_music_presets',JSON.stringify(musicPresets))}catch(e){}}
+function captureMusicPreset(name){
+  const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
+  const intensity={},reactivity={};routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
+  return {name,enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:JSON.parse(JSON.stringify(routingMaps[target]))};
+}
+function applyMusicPreset(p){
+  if(!p)return;
+  sourceKeys.forEach(k=>{
+    modState.enabled[k]=p.enabled?.[k]!==false;modState.solo[k]=!!p.solo?.[k];
+    const amt=document.getElementById('amt-'+k);if(p.amounts?.[k]!=null)amt.value=p.amounts[k];document.getElementById('show-'+k).textContent=(+amt.value).toFixed(2);
+    const on=document.querySelector('[data-on="'+k+'"]'),solo=document.querySelector('[data-solo="'+k+'"]');on.classList.toggle('active',modState.enabled[k]);on.textContent=modState.enabled[k]?'ON':'OFF';solo.classList.toggle('active',modState.solo[k]);
+  });
+  routeTargets.forEach(k=>{if(p.intensity?.[k]!=null)globalCtl[k].value=p.intensity[k];if(p.reactivity?.[k]!=null)globalAuto[k].value=p.reactivity[k]});
+  if(p.ctxPerf!=null){ctxPerf.value=p.ctxPerf;ctxPerfVal.textContent=(+ctxPerf.value).toFixed(2)}
+  if(p.globalReact!=null)document.getElementById('react').value=String(p.globalReact);
+  if(p.routing)routingMaps[target]=JSON.parse(JSON.stringify(p.routing));
+  saveRoutingMaps();
+  if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+}
+function renderPresetControls(){
+  const select=document.getElementById('presetSelect'),items=musicPresets[target]||[],previous=select.value;select.innerHTML='';
+  const empty=document.createElement('option');empty.value='';empty.textContent=items.length?'SELECT MUSICAL PRESET':'NO SAVED PRESET';select.appendChild(empty);
+  items.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.name;select.appendChild(o)});
+  if(previous!==''&&items[+previous])select.value=previous;
+}
+document.getElementById('presetSave').onclick=()=>{
+  const input=document.getElementById('presetName'),name=input.value.trim()||('Preset '+(musicPresets[target].length+1));
+  musicPresets[target].push(captureMusicPreset(name));saveMusicPresets();renderPresetControls();document.getElementById('presetSelect').value=String(musicPresets[target].length-1);input.value='';
+};
+document.getElementById('presetLoad').onclick=()=>{const i=document.getElementById('presetSelect').value;if(i!=='')applyMusicPreset(musicPresets[target][+i])};
+document.getElementById('presetDelete').onclick=()=>{const select=document.getElementById('presetSelect'),i=select.value;if(i==='')return;musicPresets[target].splice(+i,1);saveMusicPresets();renderPresetControls()};
+function getEffectiveState(){
+  const anySolo = Object.values(modState.solo).some(Boolean);
+  const out = {};
+  ['energy','density','drive','boombap','tension','bright','open'].forEach(k=>{
+    const active = anySolo ? modState.solo[k] : modState.enabled[k];
+    const amt = +document.getElementById('amt-'+k).value;
+    const m = active ? amt : 0;
+    out[k] = neutralVals[k] + (S[k]-neutralVals[k]) * m;
+  });
+  return out;
+}
+
+function sourceActive(k){
+  const anySolo=Object.values(modState.solo).some(Boolean);
+  return anySolo ? modState.solo[k] : modState.enabled[k];
+}
+function centered(Eff,k){
+  if(!sourceActive(k)) return 0;
+  return Eff[k]-0.5;
+}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+function computeGlobalMapping(Eff,now){
+  const map=routingMaps[target];
+  const live=!!analyser&&!audio.paused;
+  const amount=k=>+(document.getElementById('amt-'+k)?.value||0);
+  const continuous={energy:Eff.energy,density:Eff.density,drive:Eff.drive,boombap:Eff.boombap,tension:Eff.tension,bright:Eff.bright,open:Eff.open};
+  const rawSrc={},activeSrc={};
+  routeSources.forEach(k=>{
+    activeSrc[k]=live&&sourceActive(k);
+    if(!activeSrc[k]){rawSrc[k]=0;return}
+    let v;if(k==='beat')v=BeatPulse*amount(k);else if(k==='kick')v=KickFast*amount(k);else if(k==='snare')v=SnareFast*amount(k);else v=continuous[k];
+    rawSrc[k]=clamp(v,0,1.5);
+  });
+  function routeSum(t){
+    const bipolar=t==='luma'||t==='sat'||t==='zoom';let sum=0;
+    routeSources.forEach(s=>{
+      if(!activeSrc[s])return;
+      const w=map[s][t]||0,v=rawSrc[s];
+      // For motion/amount targets a negative weight means inverse response.
+      // For bipolar targets it moves brightness/saturation/zoom below neutral.
+      sum+=(!bipolar&&w<0)?Math.abs(w)*(1-clamp(v,0,1)):w*v;
+    });
+    return sum*(+document.getElementById('react').value);
+  }
+  const shape=v=>Math.sign(v)*Math.sqrt(Math.abs(v));
+  const mod={};routeTargets.forEach(t=>mod[t]=shape(routeSum(t)));
+  const driven=k=>(+globalCtl[k].value)*(+globalAuto[k].value);
+  FinalG.pulse=clamp(driven('pulse')*Math.max(0,mod.pulse),0,1.5);
+  FinalG.dist=clamp(driven('dist')*Math.max(0,mod.dist),0,1.5);
+  FinalG.glow=clamp(driven('glow')*Math.max(0,mod.glow),0,1.8);
+  FinalG.parts=clamp(driven('parts')*Math.max(0,mod.parts),0,1.8);
+  FinalG.luma=clamp(1+driven('luma')*mod.luma*.60,.4,1.8);
+  FinalG.sat=clamp(1+driven('sat')*mod.sat*.75,0,1.8);
+  FinalG.zoom=clamp(1+driven('zoom')*mod.zoom*.20,.78,1.28);
+  ['pulse','dist','glow','luma','sat','parts','zoom'].forEach(k=>document.getElementById('gf-'+k).textContent=FinalG[k].toFixed(2));
+  return FinalG;
+}
+
+
+const defaultImageConfigs=archetypes.map((a,idx)=>({
+ mode:'auto',source:idx===0?'open':idx===1?'drive':idx===2?'bright':idx===3?'energy':'boombap',
+ crossfade:2.2,threshold:.55,
+ images:Array.from({length:5},(_,i)=>({enabled:true,duration:[10,10,12,9,11][i],order:i}))
+}));
+let imageConfigs=JSON.parse(JSON.stringify(defaultImageConfigs));
+function normalizeImageConfigs(configs){
+ return archetypes.map((a,ai)=>{
+   const base=JSON.parse(JSON.stringify(defaultImageConfigs[ai]));
+   const c=(configs&&configs[ai])?configs[ai]:{};
+   base.mode=['auto','manual','mapped'].includes(c.mode)?c.mode:base.mode;
+   base.source=c.source||base.source;base.crossfade=clamp(parseFloat(c.crossfade)||base.crossfade,.2,8);base.threshold=clamp(parseFloat(c.threshold)||.55,.05,.95);
+   base.images=Array.from({length:5},(_,i)=>{
+     const old=(c.images&&c.images[i])?c.images[i]:{};
+     return {enabled:old.enabled!==false,duration:clamp(parseFloat(old.duration)||[10,10,12,9,11][i],2,60),order:Number.isFinite(+old.order)?+old.order:i};
+   });
+   // Normalize order to a unique 0..4 sequence while preserving the user's relative order.
+   const sorted=base.images.map((im,i)=>({i,o:im.order})).sort((x,y)=>x.o-y.o||x.i-y.i);
+   sorted.forEach((x,pos)=>base.images[x.i].order=pos);
+   return base;
+ });
+}
+try{
+ let s=localStorage.getItem('arv_v043_image_configs');
+ if(!s)s=localStorage.getItem('arv_v042b_image_configs');
+ if(!s)s=localStorage.getItem('arv_v042_image_configs');
+ if(s){const p=JSON.parse(s);if(Array.isArray(p))imageConfigs=normalizeImageConfigs(p)}
+}catch(e){}
+imageConfigs=normalizeImageConfigs(imageConfigs);
+function saveImageConfigs(){try{localStorage.setItem('arv_v043_image_configs',JSON.stringify(imageConfigs))}catch(e){}}
+const seqStates=archetypes.map(()=>({current:0,next:1,blend:0,transitioning:false,loading:false,transStart:0,lastSwitch:performance.now(),lastMappedSignal:0}));
+function orderedImages(a,enabledOnly=false){
+ return imageConfigs[a].images.map((im,i)=>({i,order:im.order,enabled:im.enabled})).filter(x=>!enabledOnly||x.enabled).sort((x,y)=>x.order-y.order||x.i-y.i).map(x=>x.i);
+}
+function enabledImages(a){return orderedImages(a,true)}
+function nextEnabled(a,from,dir=1){
+ const e=enabledImages(a);if(!e.length)return 0;
+ let pos=e.indexOf(from);if(pos<0)pos=dir>0?-1:0;
+ return e[(pos+dir+e.length)%e.length];
+}
+function moveImageToPosition(a,imgIdx,newPos){
+ const seq=orderedImages(a,false).filter(i=>i!==imgIdx);
+ newPos=Math.max(0,Math.min(4,newPos));seq.splice(newPos,0,imgIdx);
+ seq.forEach((i,p)=>imageConfigs[a].images[i].order=p);saveImageConfigs();
+}
+function moveImageBy(a,imgIdx,delta){
+ const seq=orderedImages(a,false),pos=seq.indexOf(imgIdx);if(pos<0)return;
+ moveImageToPosition(a,imgIdx,pos+delta);
+}
+function mappedSourceValue(name,Eff){
+ if(name==='energy')return Eff.energy;if(name==='density')return Eff.density;if(name==='drive')return Eff.drive;
+ if(name==='boombap')return Eff.boombap;if(name==='tension')return Eff.tension;if(name==='bright')return Eff.bright;if(name==='open')return Eff.open;
+ if(name==='beat')return BeatPulse;if(name==='kick')return KickFast;if(name==='snare')return SnareFast;
+ return Eff.energy;
+}
+function mappedSourceIsEvent(name){return name==='beat'||name==='kick'||name==='snare'}
+function renderImageManager(){
+ const a=target,cfg=imageConfigs[a],s=seqStates[a];
+ document.getElementById('imageArchName').textContent=archetypes[a].name;
+ document.getElementById('imageMode').value=cfg.mode;
+ document.getElementById('imageSource').value=cfg.source;
+ document.getElementById('imageCrossfade').value=cfg.crossfade;
+ document.getElementById('imageThreshold').value=cfg.threshold;
+ let h='';
+ const visualOrder=orderedImages(a,false);
+ visualOrder.forEach((i,pos)=>{
+   const im=cfg.images[i];
+   let opts='';for(let p=0;p<5;p++)opts+='<option value="'+p+'" '+(p===pos?'selected':'')+'>'+(p+1)+'</option>';
+   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'"><img class="imageThumb" src="'+IMAGE_SETS[a][i]+'"><div class="cardLine"><b>IMAGE '+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+'> ON</label></div><div class="cardLine"><span>Dwell sec</span><input type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'"></div><div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'">▲</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'">▼</button></div></div></div>';
+ });
+ document.getElementById('imageGrid').innerHTML=h;
+ const active=enabledImages(a),orderPos=active.indexOf(s.current);
+ document.getElementById('imageManagerStatus').textContent='Current IMAGE '+(s.current+1)+' · active position '+(orderPos>=0?orderPos+1:'—')+' / '+active.length+' · mode '+cfg.mode.toUpperCase();
+ document.querySelectorAll('[data-imgen]').forEach(el=>el.onchange=()=>{
+   const i=+el.dataset.imgen;
+   imageConfigs[a].images[i].enabled=el.checked;
+   if(!enabledImages(a).length){imageConfigs[a].images[i].enabled=true;el.checked=true}
+   saveImageConfigs();
+   if(!imageConfigs[a].images[s.current].enabled){const nxt=enabledImages(a)[0];if(nxt!=null)requestImageChange(a,nxt)}
+ });
+ document.querySelectorAll('[data-imgdur]').forEach(el=>el.onchange=()=>{
+   const i=+el.dataset.imgdur;imageConfigs[a].images[i].duration=clamp(parseFloat(el.value)||10,2,60);el.value=imageConfigs[a].images[i].duration;saveImageConfigs();
+ });
+ document.querySelectorAll('[data-imgorder]').forEach(el=>el.onchange=()=>{moveImageToPosition(a,+el.dataset.imgorder,+el.value);renderImageManager()});
+ document.querySelectorAll('[data-imgup]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgup,-1);renderImageManager()});
+ document.querySelectorAll('[data-imgdown]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgdown,1);renderImageManager()});
+}
+function closeImageManager(){saveImageConfigs();document.getElementById('imagePanel').classList.remove('open')}
+document.getElementById('imageMgrBtn').onclick=()=>{closeMappingMatrix();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
+document.getElementById('closeImageMgr').onclick=closeImageManager;
+document.getElementById('applyCloseImageMgr').onclick=closeImageManager;
+document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].lastMappedSignal=0;saveImageConfigs();renderImageManager()};
+document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;seqStates[target].lastMappedSignal=0;saveImageConfigs()};
+document.getElementById('imageCrossfade').onchange=e=>{imageConfigs[target].crossfade=clamp(parseFloat(e.target.value)||2.2,.2,8);e.target.value=imageConfigs[target].crossfade;saveImageConfigs()};
+document.getElementById('imageThreshold').onchange=e=>{imageConfigs[target].threshold=clamp(parseFloat(e.target.value)||.55,.05,.95);e.target.value=imageConfigs[target].threshold;saveImageConfigs()};
+document.getElementById('imgPrev').onclick=()=>requestImageChange(target,nextEnabled(target,seqStates[target].current,-1));
+document.getElementById('imgNext').onclick=()=>requestImageChange(target,nextEnabled(target,seqStates[target].current,1));
+
+const canvas=document.getElementById('gl');
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'high-performance'});
+if(!gl) alert('WebGL2 is required. Try Chrome or Safari on a recent Mac.');
+const pcanvas=document.getElementById('particles'),ctx=pcanvas.getContext('2d');
+
+const vs=`#version 300 es
+in vec2 aPos; out vec2 vUv;
+void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
+
+const fs=`#version 300 es
+precision highp float;
+out vec4 fragColor;
+in vec2 vUv;
+uniform vec2 uRes;
+uniform float uTime,uMorphA,uMorphB,uArchMix,uMapPulse,uDistAmt,uGlowAmt,uLumAmt,uSatAmt,uZoomAmt;
+uniform int uArchA,uArchB;
+uniform sampler2D t0a,t0b,t1a,t1b,t2a,t2b,t3a,t3b,t4a,t4b,t5a,t5b;
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+ vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+ return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+vec2 warpUV(vec2 uv,int a){
+ float t=uTime;
+ float amp=0.0; float speed=0.0; vec2 dir=vec2(0.);
+ if(a==0){amp=.018; speed=.12; dir=vec2(.35,.12);}
+ if(a==1){amp=.035; speed=.28; dir=vec2(.85,.15);}
+ if(a==2){amp=.028; speed=.16; dir=normalize(uv-.5);}
+ if(a==3){amp=.045; speed=.34; dir=vec2(.72,-.2);}
+ if(a==4){amp=.036; speed=.22; dir=normalize(uv-.5);}
+ if(a==5){amp=.034; speed=.27; dir=normalize(uv-.5);}
+ vec2 p=uv*3.2;
+ float n1=noise(p+vec2(t*speed,-t*speed*.6));
+ float n2=noise(p*1.7+vec2(-t*speed*.45,t*speed*.7));
+ uv += vec2(n1-.5,n2-.5)*amp*uDistAmt;
+ uv += dir*(sin(t*.45+uv.y*6.)*.0035*uDistAmt);
+ return uv;
+}
+vec2 parallax(vec2 uv,int a){
+ vec2 c=uv-.5;
+ vec2 q=c/max(.72,uZoomAmt);
+ return q+.5;
+}
+vec4 getPair(int a, vec2 uv, float m){
+ vec2 q=parallax(warpUV(uv,a),a);
+ if(a==0) return mix(texture(t0a,q),texture(t0b,q),m);
+ if(a==1) return mix(texture(t1a,q),texture(t1b,q),m);
+ if(a==2) return mix(texture(t2a,q),texture(t2b,q),m);
+ if(a==3) return mix(texture(t3a,q),texture(t3b,q),m);
+ if(a==4) return mix(texture(t4a,q),texture(t4b,q),m);
+ return mix(texture(t5a,q),texture(t5b,q),m);
+}
+vec3 grade(vec3 c,int a){
+ float lum=dot(c,vec3(.2126,.7152,.0722));
+ float glow=smoothstep(.55,.95,lum)*.62;
+ c += c*glow*uGlowAmt;
+ if(a==0){ c*=.96; c.b+=.025; }
+ if(a==1){ c.g+=.020; c*=1.02; }
+ if(a==2){ c*=1.04; c+=vec3(.012,.008,.020); }
+ if(a==3){ c*=1.02; c.r+=.020; }
+ if(a==4){ c*=1.01; c.r+=.040; c.b+=.012; }
+ if(a==5){ c*=1.02; c.r+=.030; c.b+=.035; }
+ float l=dot(c,vec3(.2126,.7152,.0722));
+ c = mix(vec3(l), c, uSatAmt);
+ c *= uLumAmt;
+ // Slightly friendlier highlight response when brightness/saturation are driven up.
+ c = min(c, vec3(4.0));
+ return c;
+}
+void main(){
+ vec2 uv=vUv;
+ vec2 cUv = uv - .5;
+ float r = length(cUv);
+ float pulseCore = exp(-r*5.0) * uMapPulse;
+ float pulseWave = (0.72 + 0.28*sin(uTime*6.0)) * pulseCore;
+ uv = cUv * (1.0 - 0.034*pulseWave) + .5;
+ uv += normalize(cUv + vec2(.0001)) * 0.0045 * pulseCore;
+
+ vec4 ca=getPair(uArchA,uv,uMorphA);
+ vec4 cb=getPair(uArchB,uv,uMorphB);
+ vec3 c=mix(grade(ca.rgb,uArchA),grade(cb.rgb,uArchB),uArchMix);
+ float vig=smoothstep(1.0,.25,length(vUv-.5));
+ c*=mix(.82,1.,vig);
+ c=1.-exp(-c*1.08);
+ fragColor=vec4(c,1.);
+}`;
+
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const pos=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+
+const names=['uRes','uTime','uMorphA','uMorphB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uArchA','uArchB'];
+const U={}; names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const samplers=['t0a','t0b','t1a','t1b','t2a','t2b','t3a','t3b','t4a','t4b','t5a','t5b']; samplers.forEach((n,i)=>{U[n]=gl.getUniformLocation(prog,n);gl.uniform1i(U[n],i)});
+
+const texObjs=Array.from({length:archetypes.length},()=>[null,null]);
+function createTextureSlot(a,slot){
+ const unit=a*2+slot;
+ const tex=gl.createTexture();texObjs[a][slot]=tex;
+ gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([12,16,22,255]));
+}
+for(let a=0;a<archetypes.length;a++){createTextureSlot(a,0);createTextureSlot(a,1)}
+function bindTextureSlot(a,slot){
+ gl.activeTexture(gl.TEXTURE0+a*2+slot);gl.bindTexture(gl.TEXTURE_2D,texObjs[a][slot]);
+}
+function uploadImageToSlot(a,slot,imgIdx){
+ return new Promise(resolve=>{
+   const img=new Image();
+   img.onload=()=>{
+     bindTextureSlot(a,slot);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);
+     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
+     resolve();
+   };
+   img.onerror=()=>resolve();
+   img.src=IMAGE_SETS[a][imgIdx];
+ });
+}
+function swapTextureSlots(a){
+ const tmp=texObjs[a][0];texObjs[a][0]=texObjs[a][1];texObjs[a][1]=tmp;
+ bindTextureSlot(a,0);bindTextureSlot(a,1);
+}
+async function requestImageChange(a,idx){
+ const s=seqStates[a];
+ if(s.loading||s.transitioning||idx===s.current||!imageConfigs[a].images[idx].enabled)return;
+ s.loading=true;
+ await uploadImageToSlot(a,1,idx);
+ s.next=idx;s.blend=0;s.transStart=performance.now();s.transitioning=true;s.loading=false;
+}
+function updateImageSequence(now,Eff){
+ const a=target,s=seqStates[a],cfg=imageConfigs[a];
+ if(s.transitioning){
+   const dur=Math.max(.2,cfg.crossfade||2.2)*1000;
+   s.blend=Math.min(1,(now-s.transStart)/dur);
+   if(s.blend>=1){
+     swapTextureSlots(a);s.current=s.next;s.blend=0;s.transitioning=false;s.lastSwitch=now;
+     if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+   }
+   return;
+ }
+ const enabled=enabledImages(a);if(enabled.length<2)return;
+ if(cfg.mode==='auto'){
+   const dwell=Math.max(2,cfg.images[s.current].duration||10)*1000;
+   if(now-s.lastSwitch>=dwell)requestImageChange(a,nextEnabled(a,s.current,1));
+ }else if(cfg.mode==='mapped'){
+   const v=clamp(mappedSourceValue(cfg.source,Eff),0,1);
+   const minDwell=Math.max(1.0,Math.min(8,cfg.images[s.current].duration||3))*1000;
+   if(mappedSourceIsEvent(cfg.source)){
+     const th=cfg.threshold||.55;
+     // Rising-edge trigger: each detected Beat/Kick/Snare event advances one image in the chosen order.
+     if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,nextEnabled(a,s.current,1));
+     s.lastMappedSignal=v;
+   }else{
+     // Continuous musical state: low values use early images, high values later images.
+     const desired=enabled[Math.min(enabled.length-1,Math.floor(v*enabled.length))];
+     if(desired!==s.current&&now-s.lastSwitch>=minDwell)requestImageChange(a,desired);
+     s.lastMappedSignal=v;
+   }
+ }
+}
+Promise.all(archetypes.flatMap((a,idx)=>{
+ const e=enabledImages(idx),i0=e[0]??0,i1=e[1]??i0;
+ seqStates[idx].current=i0;seqStates[idx].next=i1;
+ return [uploadImageToSlot(idx,0,i0),uploadImageToSlot(idx,1,i1)];
+})).then(()=>start());
+
+let audioCtx=null,analyser=null,source=null,F=null,T=null;
+const audio=document.getElementById('audio');
+let Raw={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
+let Fast={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
+let Context={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
+let S={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
+let prevEnergy=0,driveMem=0,lastAnalysisAt=0, prevLow=0, prevSnare=0, boomMem=0, KickFast=0, SnareFast=0;
+let BPM=0, BPMConfidence=0, beatAnchorSec=null, BeatPulse=0, lastBpmEstimateAt=0;
+const beatHistory=[];
+const history=[];
+async function ensureAudio(){
+ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+ if(audioCtx.state==='suspended') await audioCtx.resume();
+}
+document.getElementById('file').onchange=async e=>{
+ const f=e.target.files[0]; if(!f)return;
+ audio.src=URL.createObjectURL(f); await ensureAudio();
+ if(source) try{source.disconnect()}catch{}
+ source=audioCtx.createMediaElementSource(audio);
+ analyser=audioCtx.createAnalyser(); analyser.fftSize=1024; analyser.smoothingTimeConstant=.56;
+ source.connect(analyser); analyser.connect(audioCtx.destination);
+ F=new Uint8Array(analyser.frequencyBinCount);T=new Uint8Array(analyser.fftSize);
+ await audio.play();
+};
+document.getElementById('play').onclick=async()=>{await ensureAudio();audio.paused?audio.play():audio.pause()};
+document.getElementById('fullscreen').onclick=()=>document.documentElement.requestFullscreen();
+document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none'};
+
+function analyze(now){
+ if(!analyser)return;
+ // Rhythm analysis runs at ~25 Hz for tighter kick/snare and beat timing.
+ if(now-lastAnalysisAt<40)return;
+ lastAnalysisAt=now;
+
+ analyser.getByteFrequencyData(F); analyser.getByteTimeDomainData(T);
+ let low=0,mid=0,high=0,all=0,n=F.length;
+ for(let i=0;i<n;i++){
+   let v=F[i]/255; all+=v;
+   if(i<n*.10)low+=v;
+   else if(i<n*.38)mid+=v;
+   else high+=v;
+ }
+ low/=n*.10; mid/=n*.28; high/=n*.62; all/=n;
+
+ let rms=0;
+ for(let i=0;i<T.length;i++){let x=(T[i]-128)/128;rms+=x*x}
+ rms=Math.sqrt(rms/T.length);
+
+ // Raw instantaneous layer: useful only as micro-detail.
+ let energy=Math.min(1,rms*4.0);
+ let flux=Math.max(0,energy-prevEnergy); prevEnergy=energy;
+ driveMem=driveMem*.84+Math.min(1,flux*5.0+low*.48)*.16;
+ let density=Math.min(1,all*1.18+mid*.30);
+ let bright=Math.min(1,(high*1.55)/(low+.20));
+
+ // BoomBap estimates kick/snare emphasis:
+ // - kick side: low band transient + low band presence
+ // - snare side: low-mid / mid transient + brightness presence
+ let lowFlux=Math.max(0,low-prevLow); prevLow=low;
+ let snareBand=Math.max(0,(mid*1.08 + high*0.35) - low*0.25);
+ let snareFlux=Math.max(0,snareBand-prevSnare); prevSnare=snareBand;
+ let kickHit=Math.min(1, lowFlux*4.4 + low*0.50);
+ let snareHit=Math.min(1, snareFlux*4.8 + snareBand*0.28);
+
+ // Short hit envelopes for actual visual accents.
+ KickFast = KickFast*0.52 + kickHit*0.48;
+ SnareFast = SnareFast*0.50 + snareHit*0.50;
+
+ // Onset envelope used by the BPM/beat-clock estimator.
+ let onsetStrength=Math.min(1, lowFlux*2.7 + snareFlux*2.8 + flux*1.35);
+ const nowSec=now/1000;
+ beatHistory.push({t:nowSec,o:onsetStrength,k:kickHit,s:snareHit});
+ while(beatHistory.length && beatHistory[0].t<nowSec-12) beatHistory.shift();
+
+ // Lightweight autocorrelation BPM estimator, recalculated about once per second.
+ // Candidate tempo range: 65–155 BPM.
+ if(now-lastBpmEstimateAt>900 && beatHistory.length>110){
+   lastBpmEstimateAt=now;
+   const vals=beatHistory.map(x=>x.o);
+   const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+   const centered=vals.map(v=>v-mean);
+   let energyNorm=centered.reduce((a,v)=>a+v*v,0)+1e-6;
+   let bestBpm=BPM||92, bestScore=-1;
+   const sampleDt=Math.max(.035,Math.min(.055,(beatHistory[beatHistory.length-1].t-beatHistory[0].t)/Math.max(1,beatHistory.length-1)));
+
+   function corrForLag(lag){
+     let num=0,a2=0,b2=0;
+     for(let i=lag;i<centered.length;i++){
+       const a=centered[i], b=centered[i-lag];
+       num+=a*b; a2+=a*a; b2+=b*b;
+     }
+     return num/(Math.sqrt(a2*b2)+1e-6);
+   }
+
+   for(let bpm=65;bpm<=155;bpm+=1){
+     const lag=Math.max(2,Math.round((60/bpm)/sampleDt));
+     if(lag*2>=centered.length) continue;
+     const c1=corrForLag(lag);
+     const c2=corrForLag(lag*2);
+     const halfLag=Math.max(2,Math.round(lag/2));
+     const ch=corrForLag(halfLag);
+     let score=c1*.68+c2*.24+ch*.08;
+     if(BPM>0) score-=Math.min(.10,Math.abs(bpm-BPM)*.0018);
+     if(score>bestScore){bestScore=score;bestBpm=bpm;}
+   }
+
+   const conf=Math.max(0,Math.min(1,(bestScore-.04)/.42));
+   BPMConfidence=BPMConfidence*.72+conf*.28;
+   if(conf>.10){
+     if(BPM===0) BPM=bestBpm;
+     else BPM=BPM*.78+bestBpm*.22;
+   }
+ }
+
+ // Establish/snap the beat grid to strong percussive onsets.
+ if(BPM>0){
+   const period=60/BPM;
+   const strongHit=Math.max(kickHit,snareHit,onsetStrength);
+   if(beatAnchorSec===null && strongHit>.52){
+     beatAnchorSec=nowSec;
+   } else if(beatAnchorSec!==null && strongHit>.58){
+     const nBeat=Math.round((nowSec-beatAnchorSec)/period);
+     const predicted=beatAnchorSec+nBeat*period;
+     const err=nowSec-predicted;
+     if(Math.abs(err)<period*.22) beatAnchorSec+=err*.20;
+   }
+ }
+
+ // BOOMBAP is now groove strength, not BPM itself:
+ // regular beat confidence + current kick/snare activity + drive.
+ let percussivePresence=Math.min(1,(kickHit+snareHit)*.55);
+ let boombapInstant=Math.min(1,BPMConfidence*.58 + percussivePresence*.30 + driveMem*.12);
+ boomMem=boomMem*.76 + boombapInstant*.24;
+
+ let tension=Math.min(1,bright*.22+flux*1.55+Math.max(0,mid-low*.65)*.26);
+ let openness=Math.max(0,Math.min(1,.80-density*.42-tension*.14+bright*.08));
+
+ Raw={energy,density,drive:driveMem,boombap:boomMem,tension,bright,open:openness};
+
+ const lerp=(a,b,k)=>a+(b-a)*k;
+
+ // FAST LAYER: ~0.3–1.0 s. It can add accents, but cannot drive the world.
+ Fast.energy=lerp(Fast.energy,Raw.energy,.30);
+ Fast.density=lerp(Fast.density,Raw.density,.22);
+ Fast.drive=lerp(Fast.drive,Raw.drive,.26);
+ Fast.boombap=lerp(Fast.boombap,Raw.boombap,.30);
+ Fast.bright=lerp(Fast.bright,Raw.bright,.18);
+ Fast.tension=lerp(Fast.tension,Raw.tension,.13);
+ Fast.open=lerp(Fast.open,Raw.open,.10);
+
+ // Keep a 20-second rolling history.
+ history.push({t:now/1000,...Raw});
+ const oldest=now/1000-20;
+ while(history.length && history[0].t<oldest) history.shift();
+
+ function rolling(key,seconds,fallback){
+   const cutoff=now/1000-seconds;
+   let sum=0,count=0;
+   for(let i=history.length-1;i>=0;i--){
+     const s=history[i];
+     if(s.t<cutoff)break;
+     sum+=s[key];count++;
+   }
+   return count ? sum/count : fallback;
+ }
+
+ // CONTEXT LAYER: deliberately different windows for different perceptions.
+ // Energy 3s, Density 6s, Drive 4s, BoomBap 4s, Brightness 6s,
+ // Tension 12s, Openness 15s.
+ const targetContext={
+   energy:rolling('energy',3,Fast.energy),
+   density:rolling('density',6,Fast.density),
+   drive:rolling('drive',4,Fast.drive),
+   boombap:rolling('boombap',4,Fast.boombap),
+   bright:rolling('bright',6,Fast.bright),
+   tension:rolling('tension',12,Fast.tension),
+   open:rolling('open',15,Fast.open)
+ };
+
+ // Extra inertia stops contextual meters from wobbling as the window changes.
+ Context.energy=lerp(Context.energy,targetContext.energy,.18);
+ Context.density=lerp(Context.density,targetContext.density,.12);
+ Context.drive=lerp(Context.drive,targetContext.drive,.15);
+ Context.boombap=lerp(Context.boombap,targetContext.boombap,.16);
+ Context.bright=lerp(Context.bright,targetContext.bright,.10);
+ Context.tension=lerp(Context.tension,targetContext.tension,.065);
+ Context.open=lerp(Context.open,targetContext.open,.05);
+
+ // Global slider: 0 = performance / immediate layer, 1 = context / phrase layer.
+ // Small per-variable shaping keeps the personality of each dimension while still allowing pure performance mode.
+ const mix=+document.getElementById('ctxPerf').value;
+ function blend(f,c,shape){
+   const w=Math.max(0,Math.min(1,mix*shape));
+   return f*(1-w)+c*w;
+ }
+ S.energy=blend(Fast.energy,Context.energy,0.95);
+ S.density=blend(Fast.density,Context.density,1.00);
+ S.drive=blend(Fast.drive,Context.drive,0.92);
+ // Rhythm is intentionally much more performance-led than the other states.
+ const bbContextWeight=Math.min(.20,(+document.getElementById('ctxPerf').value)*.20);
+ S.boombap=Fast.boombap*(1-bbContextWeight)+Context.boombap*bbContextWeight;
+ S.bright=blend(Fast.bright,Context.bright,1.00);
+ S.tension=blend(Fast.tension,Context.tension,1.08);
+ S.open=blend(Fast.open,Context.open,1.12);
+}
+
+let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;
+renderPresetControls();
+document.querySelectorAll('.arch').forEach(b=>b.onclick=()=>{
+ const a=+b.dataset.a;if(a===target)return;
+ document.querySelectorAll('.arch').forEach(x=>x.classList.toggle('active',x===b));
+ target=a;
+ if(mode==='cut'){current=target;archMix=0;transitioning=false}
+ else{transitioning=true;archMix=0;transitionStart=performance.now()}
+ document.getElementById('status').textContent=archetypes[a].name+' · '+(mode==='cut'?'cut':'smooth morph');
+ renderPresetControls();
+ if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+ if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+});
+document.getElementById('smooth').onclick=()=>{mode='smooth';smooth.classList.add('active');cut.classList.remove('active')};
+document.getElementById('cut').onclick=()=>{mode='cut';cut.classList.add('active');smooth.classList.remove('active')};
+
+let particles=[];
+function resize(){
+ const scale=.78;
+ let w=Math.floor(innerWidth*scale),h=Math.floor(innerHeight*scale);
+ if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}
+ if(pcanvas.width!==innerWidth||pcanvas.height!==innerHeight){pcanvas.width=innerWidth;pcanvas.height=innerHeight}
+}
+function updateParticles(t){
+ const a=archetypes[target].behavior;
+ const partAmt=FinalG.parts;
+ const wanted=Math.floor(150*a.particle*partAmt);
+ while(particles.length<wanted) particles.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,z:Math.random(),r:.6+Math.random()*2.3,vx:(Math.random()-.5),vy:(Math.random()-.5),life:Math.random()*100});
+ while(particles.length>wanted)particles.pop();
+ ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
+ ctx.globalCompositeOperation='screen';
+ let speed=.12+a.particle*.22+partAmt*.42;
+ for(const p of particles){
+   if(target===1){p.x+=(1.2*speed)*(1+p.z);p.y+=Math.sin((p.x+p.life)*.01)*.16}
+   else if(target===2){let dx=p.x-innerWidth/2,dy=p.y-innerHeight/2,dl=Math.hypot(dx,dy)||1;p.x+=dx/dl*.16*speed;p.y+=dy/dl*.16*speed}
+   else if(target===3){p.x+=2.2*speed;p.y+=(Math.random()-.5)*.22*speed}
+   else if(target===4){let dx=p.x-innerWidth/2,dy=p.y-innerHeight/2,dl=Math.hypot(dx,dy)||1;p.x+=dx/dl*.12*speed;p.y+=dy/dl*.12*speed}
+   else if(target===5){p.x+=(p.z+.35)*1.5*speed;p.y+=Math.sin(t*.001+p.life)*.08*speed}
+   else{p.x+=Math.sin(t*.0002+p.life)*.12*speed;p.y-=.12*speed*(.5+p.z)}
+   if(p.x<-10)p.x=innerWidth+10;if(p.x>innerWidth+10)p.x=-10;if(p.y<-10)p.y=innerHeight+10;if(p.y>innerHeight+10)p.y=-10;
+   let alpha=(.08+.34*p.z)*clamp(partAmt,0,1.4);
+   ctx.fillStyle=`rgba(190,235,255,${alpha})`;
+   ctx.strokeStyle=`rgba(190,235,255,${alpha})`;
+   ctx.lineWidth=.6+p.z;
+   if(target===1||target===3||target===5){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-(8+18*p.z)*speed,p.y+(target===5?3:0));ctx.stroke()}
+   else if(target===2){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.5+p.z*2),0,Math.PI*2);ctx.stroke()}
+   else{ctx.beginPath();ctx.arc(p.x,p.y,p.r*(.6+p.z),0,Math.PI*2);ctx.fill()}
+ }
+ ctx.globalCompositeOperation='source-over';
+}
+function smoothstep(x){return x*x*(3-2*x)}
+
+let t0=performance.now(),last=performance.now();
+function start(){requestAnimationFrame(frame)}
+function frame(now){
+ resize(); analyze(now);
+ const dt=Math.min(.05,(now-last)/1000);last=now;
+
+ // Tempo-synced pulse is calculated every visual frame from the current beat clock.
+ let beatPhase=0;
+ if(BPM>0 && beatAnchorSec!==null){
+   const period=60/BPM;
+   const pos=(now/1000-beatAnchorSec)/period;
+   beatPhase=((pos%1)+1)%1;
+   BeatPulse=Math.exp(-beatPhase*8.5)*BPMConfidence;
+ } else {
+   BeatPulse*=0.92;
+ }
+
+ const react=+document.getElementById('react').value;
+ const Eff = getEffectiveState();
+ computeGlobalMapping(Eff,now);
+ updateImageSequence(now,Eff);
+ if(transitioning){
+   let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
+   if(x>=1){current=target;archMix=0;transitioning=false}
+ }
+ gl.useProgram(prog);
+ gl.uniform2f(U.uRes,canvas.width,canvas.height);
+ gl.uniform1f(U.uTime,(now-t0)/1000);
+ gl.uniform1f(U.uMorphA,seqStates[current].blend);gl.uniform1f(U.uMorphB,seqStates[target].blend);
+ gl.uniform1f(U.uArchMix,transitioning?archMix:0);
+ gl.uniform1i(U.uArchA,current);
+ gl.uniform1i(U.uArchB,target);
+ gl.uniform1f(U.uMapPulse,FinalG.pulse);
+ gl.uniform1f(U.uDistAmt,FinalG.dist);gl.uniform1f(U.uGlowAmt,FinalG.glow);gl.uniform1f(U.uLumAmt,FinalG.luma);gl.uniform1f(U.uSatAmt,FinalG.sat);gl.uniform1f(U.uZoomAmt,FinalG.zoom);
+ gl.drawArrays(gl.TRIANGLES,0,3);
+ updateParticles(now);
+ const vals=[['E',Eff.energy],['D',Eff.density],['R',Eff.drive],['K',Eff.boombap],['T',Eff.tension],['B',Eff.bright],['O',Eff.open]];
+ vals.forEach(([k,v])=>{document.getElementById('v'+k).textContent=v.toFixed(2);document.getElementById('f'+k).style.width=(v*100)+'%'});
+ document.getElementById('vBeat').textContent=BeatPulse.toFixed(2);
+ document.getElementById('fBeat').style.width=(Math.min(1,BeatPulse)*100)+'%';
+ document.getElementById('vBPM').textContent=BPM>0?Math.round(BPM):'--';
+ document.getElementById('fBpmConf').style.width=(BPMConfidence*100)+'%';
+ document.getElementById('microState').textContent=
+   'Beat '+BeatPulse.toFixed(2)+' · Kick '+KickFast.toFixed(2)+' · Snare '+SnareFast.toFixed(2)+' · '+archetypes[target].name+' IMG '+(seqStates[target].current+1)+' ['+imageConfigs[target].mode.toUpperCase()+'] · Zoom '+FinalG.zoom.toFixed(2)+' · '+(BPM>0?Math.round(BPM)+' BPM':'learning');
+ requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
