@@ -23,6 +23,8 @@ test('navigation, transition and help shortcuts resolve', () => {
   assert.deepEqual(resolvePerformanceShortcut(key('Slash', { shiftKey: true }), 6), { type: 'help' });
   assert.deepEqual(resolvePerformanceShortcut(key('KeyB'), 6), { type: 'safety', control: 'blackout' });
   assert.deepEqual(resolvePerformanceShortcut(key('KeyP'), 6), { type: 'safety', control: 'panic' });
+  assert.deepEqual(resolvePerformanceShortcut(key('BracketLeft'), 6), { type: 'media-step', direction: -1 });
+  assert.deepEqual(resolvePerformanceShortcut(key('BracketRight'), 6), { type: 'media-step', direction: 1 });
 });
 
 test('Alt or Option maps number and navigation keys to presets', () => {

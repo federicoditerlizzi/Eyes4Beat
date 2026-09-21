@@ -46,6 +46,21 @@ export async function saveCustomArchetype({ name, templateIndex, media, images }
   return record;
 }
 
+export async function deleteCustomArchetype(id) {
+  const database = await openDatabase();
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, 'readwrite');
+      transaction.objectStore(STORE_NAME).delete(id);
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
 export function customMediaSources(record) {
   return (record.media || record.images || []).map((file) => ({
     url: URL.createObjectURL(file),

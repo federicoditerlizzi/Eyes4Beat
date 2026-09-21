@@ -1,12 +1,12 @@
 import {
-  Activity, ArrowDown, ArrowUp, AudioLines, ChevronDown, ChevronLeft,
+  Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft,
   ChevronRight, ChevronUp, FileAudio, Images, Info, Keyboard, Maximize,
   Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare,
   Trash2, Volume2, VolumeX, X, createElement, createIcons,
 } from 'lucide';
 
 const ICONS = {
-  Activity, ArrowDown, ArrowUp, AudioLines, ChevronDown, ChevronLeft,
+  Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft,
   ChevronRight, ChevronUp, FileAudio, Images, Info, Keyboard, Maximize,
   Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare,
   Trash2, Volume2, VolumeX, X,
@@ -17,6 +17,7 @@ const iconByName = {
   'arrow-down': ArrowDown,
   'arrow-up': ArrowUp,
   'audio-lines': AudioLines,
+  'book-open': BookOpen,
   'chevron-down': ChevronDown,
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,

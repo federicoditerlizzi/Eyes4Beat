@@ -2,12 +2,14 @@ import './styles.css';
 import { IMAGE_SETS, archetypes, routeSources, routeTargets, sourceLabels, targetLabels, defaultRoutingMaps, blankMap } from './config.js';
 import { computeTargetState, NEUTRAL_TARGETS } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
-import { customMediaSources, loadCustomArchetypes, saveCustomArchetype } from './custom-archetypes.js';
+import { customMediaSources, deleteCustomArchetype, loadCustomArchetypes, saveCustomArchetype } from './custom-archetypes.js';
 import { resolvePerformanceShortcut } from './shortcuts.js';
 import { applyPanicTargets } from './show-safety.js';
 import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
 import { averageNoiseFloor, computeDbfsMeter, spectralSubtract, subtractRmsNoise } from './input-calibration.js';
 import { icon, initIcons } from './icons.js';
+import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS, resolveTransitionParam, transitionShaderId } from './transitions.js';
+import { DWELL_BEAT_OPTIONS, IMAGE_CONFIG_STORAGE_KEY, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS, applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, normalizeImageConfigStore, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from './image-sequencer.js';
 
 const isShowMode=new URLSearchParams(location.search).get('show')==='1';
 document.body.classList.toggle('showMode',isShowMode);
@@ -33,6 +35,7 @@ if(isShowMode){
 showChannel?.addEventListener('message',event=>{
  const message=event.data||{};
  if(isShowMode&&message.type==='frame'){remoteVisualState=message.state;document.getElementById('showConnection')?.classList.add('connected')}
+ if(isShowMode&&message.type==='transition-start')startRemoteImageTransition(message.transition,0);
  if(isShowMode&&message.type==='library-changed')location.reload();
  if(!isShowMode&&message.type==='show-ready')lastShowPeerAt=Date.now();
 });
@@ -83,6 +86,7 @@ document.getElementById('openMatrix').onclick=()=>{closeImageManager();renderMat
 document.getElementById('closeMatrix').onclick=closeMappingMatrix;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){
+   const openDialog=document.querySelector('dialog[open]');if(openDialog){openDialog.close();return}
    if(document.getElementById('matrixPanel').classList.contains('open'))closeMappingMatrix();
    if(document.getElementById('imagePanel').classList.contains('open'))closeImageManager();
    if(document.getElementById('creatorPanel').classList.contains('open'))closeArchetypeCreator();
@@ -246,47 +250,49 @@ function mediaUrl(source){return typeof source==='string'?source:source.url}
 function mediaIsVideo(source){return typeof source!=='string'&&source.type?.startsWith('video/')}
 function createDefaultImageConfig(idx){
  const profile=visualProfileIndex(idx),count=IMAGE_SETS[idx].length;
+ const transitionSettings=(pool,duration=2.2)=>({pool,pickOrder:'cycle',duration,durationBeats:.5,easing:'linear',wipeDirection:'left'});
  return {
  mode:'auto',source:profile===0?'open':profile===1?'drive':profile===2?'bright':profile===3?'energy':'boombap',
- crossfade:2.2,threshold:.55,
- images:Array.from({length:count},(_,i)=>({enabled:true,duration:[10,10,12,9,11][i%5],order:i}))
+ timeBase:'seconds',orderMode:'sequential',triggers:{timed:transitionSettings(['crossfade']),event:transitionSettings(['cut'],.05),manual:transitionSettings(['crossfade'])},threshold:.55,
+ images:Array.from({length:count},(_,i)=>({enabled:true,duration:[10,10,12,9,11][i%5],durationBeats:4,order:i}))
  }}
 const defaultImageConfigs=archetypes.map((_,idx)=>createDefaultImageConfig(idx));
 let imageConfigs=JSON.parse(JSON.stringify(defaultImageConfigs));
-function normalizeImageConfigs(configs){
- return archetypes.map((a,ai)=>{
-   const base=JSON.parse(JSON.stringify(defaultImageConfigs[ai]));
-   const c=(configs&&configs[ai])?configs[ai]:{};
-   base.mode=['auto','manual','mapped'].includes(c.mode)?c.mode:base.mode;
-   base.source=c.source||base.source;base.crossfade=clamp(parseFloat(c.crossfade)||base.crossfade,.2,8);base.threshold=clamp(parseFloat(c.threshold)||.55,.05,.95);
-   base.images=Array.from({length:IMAGE_SETS[ai].length},(_,i)=>{
-     const old=(c.images&&c.images[i])?c.images[i]:{};
-     return {enabled:old.enabled!==false,duration:clamp(parseFloat(old.duration)||[10,10,12,9,11][i%5],2,60),order:Number.isFinite(+old.order)?+old.order:i};
-   });
-   // Normalize order while preserving the user's relative order.
-   const sorted=base.images.map((im,i)=>({i,o:im.order})).sort((x,y)=>x.o-y.o||x.i-y.i);
-   sorted.forEach((x,pos)=>base.images[x.i].order=pos);
-   return base;
- });
-}
 try{
- let s=localStorage.getItem('arv_v043_image_configs');
+ let s=localStorage.getItem(IMAGE_CONFIG_STORAGE_KEY);
+ if(!s)s=localStorage.getItem('arv_v043_image_configs');
  if(!s)s=localStorage.getItem('arv_v042b_image_configs');
  if(!s)s=localStorage.getItem('arv_v042_image_configs');
- if(s){const p=JSON.parse(s);if(Array.isArray(p))imageConfigs=normalizeImageConfigs(p)}
+ if(s)imageConfigs=normalizeImageConfigStore(JSON.parse(s),defaultImageConfigs).configs;
 }catch(e){}
-imageConfigs=normalizeImageConfigs(imageConfigs);
-function saveImageConfigs(){try{localStorage.setItem('arv_v043_image_configs',JSON.stringify(imageConfigs))}catch(e){}}
-const seqStates=archetypes.map(()=>({current:0,next:1,blend:0,transitioning:false,loading:false,transStart:0,lastSwitch:performance.now(),lastMappedSignal:0}));
+imageConfigs=normalizeImageConfigStore({configs:imageConfigs},defaultImageConfigs).configs;
+function saveImageConfigs(){try{localStorage.setItem(IMAGE_CONFIG_STORAGE_KEY,JSON.stringify(normalizeImageConfigStore({configs:imageConfigs},defaultImageConfigs)))}catch(e){}}
+function createSequenceState(){return {current:0,next:1,blend:0,rawProgress:0,transitioning:false,loading:false,loadingTarget:null,pendingRequest:null,poolStates:{timed:{},event:{},manual:{}},orderState:{},shownHistory:[0],shownHistoryCursor:0,nextAutoAt:null,lastReliableBpm:0,scheduledTempo:null,transStart:0,durationMs:0,transitionId:'crossfade',transitionShaderId:transitionShaderId('crossfade'),seed:0,param:[0,0,0,0],easing:'linear',lastSwitch:performance.now(),lastMappedSignal:0}}
+const seqStates=archetypes.map(createSequenceState);
 function orderedImages(a,enabledOnly=false){
  return imageConfigs[a].images.map((im,i)=>({i,order:im.order,enabled:im.enabled})).filter(x=>!enabledOnly||x.enabled).sort((x,y)=>x.order-y.order||x.i-y.i).map(x=>x.i);
 }
 function enabledImages(a){return orderedImages(a,true)}
-function nextEnabled(a,from,dir=1){
- const e=enabledImages(a);if(!e.length)return 0;
- let pos=e.indexOf(from);if(pos<0)pos=dir>0?-1:0;
- return e[(pos+dir+e.length)%e.length];
+function chooseOrderedImage(a,direction=1){
+ const s=seqStates[a],mode=imageConfigs[a].orderMode;
+ if((mode==='random-no-repeat'||mode==='shuffle')&&direction<0){s.shownHistoryCursor=Math.max(0,s.shownHistoryCursor-1);return s.shownHistory[s.shownHistoryCursor]??s.current}
+ if((mode==='random-no-repeat'||mode==='shuffle')&&s.shownHistoryCursor<s.shownHistory.length-1){s.shownHistoryCursor+=1;return s.shownHistory[s.shownHistoryCursor]}
+ const result=nextSequenceIndex({enabled:enabledImages(a),current:navigationBase(s),direction,mode,state:s.orderState});
+ s.orderState=result.state;return result.index;
 }
+function sequenceTempo(a){
+ const s=seqStates[a],tempo=resolveSequencerTempo({bpm:BPM,confidence:BPMConfidence,lastReliableBpm:s.lastReliableBpm});
+ s.lastReliableBpm=tempo.lastReliableBpm;return tempo;
+}
+function imageDwell(a,index,tempo=sequenceTempo(a)){
+ const cfg=imageConfigs[a],image=cfg.images[index];
+ if(cfg.timeBase==='beats'){
+   const requested=image.durationBeats||4,effective=effectiveBeatDwell(requested,tempo.bpm);
+   return {seconds:beatsToSeconds(effective,tempo.bpm),requestedBeats:requested,effectiveBeats:effective,tempo};
+ }
+ return {seconds:Math.max(2,image.duration||10),tempo};
+}
+function beatLabel(value){return value<1?({'.125':'1/8','.25':'1/4','.5':'1/2'}[String(value)]||String(value)):String(value)}
 function moveImageToPosition(a,imgIdx,newPos){
  const seq=orderedImages(a,false).filter(i=>i!==imgIdx);
  newPos=Math.max(0,Math.min(imageConfigs[a].images.length-1,newPos));seq.splice(newPos,0,imgIdx);
@@ -303,34 +309,72 @@ function mappedSourceValue(name,Eff){
  return Eff.energy;
 }
 function mappedSourceIsEvent(name){return name==='beat'||name==='kick'||name==='snare'}
+const triggerLabels={timed:['TIMED','Auto and continuous mapping'],event:['EVENT','Beat, kick and snare'],manual:['MANUAL','Buttons and shortcuts']};
+function navigationBase(s){return s.pendingRequest?.idx??s.loadingTarget??(s.transitioning?s.next:s.current)}
+function renderTriggerTransitionControls(a){
+ const root=document.getElementById('triggerTransitionControls'),cfg=imageConfigs[a];
+ root.innerHTML=IMAGE_TRIGGER_CLASSES.map(triggerClass=>{
+   const settings=cfg.triggers[triggerClass],labels=triggerLabels[triggerClass];
+   const pool=TRANSITIONS.map(item=>`<label><input type="checkbox" data-trigger-pool="${triggerClass}" value="${item.id}" ${settings.pool.includes(item.id)?'checked':''}>${item.label}</label>`).join('');
+   const orders=['cycle','random-no-repeat'].map(id=>`<option value="${id}" ${settings.pickOrder===id?'selected':''}>${id==='cycle'?'Cycle':'Random · no repeat'}</option>`).join('');
+   const easings=EASINGS.map(item=>`<option value="${item.id}" ${settings.easing===item.id?'selected':''}>${item.label}</option>`).join('');
+   const wipes=WIPE_DIRECTIONS.map(item=>`<option value="${item.id}" ${settings.wipeDirection===item.id?'selected':''}>${item.label}</option>`).join('');
+   const duration=cfg.timeBase==='beats'?`<select data-trigger-duration-beats="${triggerClass}">${TRANSITION_BEAT_OPTIONS.map(value=>`<option value="${value}" ${settings.durationBeats===value?'selected':''}>${beatLabel(value)} beat${value===1?'':'s'}</option>`).join('')}</select>`:`<input data-trigger-duration="${triggerClass}" type="number" min="0.05" max="8" step="0.05" value="${settings.duration}">`;
+   return `<section class="triggerTransitionGroup" data-trigger-section="${triggerClass}"><div class="triggerTransitionHead"><div><b>${labels[0]}</b><span> · ${labels[1]}</span></div><button type="button" data-trigger-test="${triggerClass}">TEST</button></div><div class="transitionPool">${pool}</div><div class="triggerSettings"><label>PICK ORDER<select data-trigger-order="${triggerClass}">${orders}</select></label><label>DURATION · ${cfg.timeBase==='beats'?'BEATS':'SEC'}${duration}</label><label>EASING<select data-trigger-easing="${triggerClass}">${easings}</select></label><label class="triggerWipe" ${settings.pool.includes('wipe')?'':'hidden'}>WIPE DIRECTION<select data-trigger-wipe="${triggerClass}">${wipes}</select></label></div></section>`;
+ }).join('');
+ root.querySelectorAll('[data-trigger-pool]').forEach(input=>input.onchange=()=>{
+   const settings=cfg.triggers[input.dataset.triggerPool],checked=[...root.querySelectorAll(`[data-trigger-pool="${input.dataset.triggerPool}"]:checked`)].map(item=>item.value);
+   if(!checked.length){input.checked=true;return}
+   settings.pool=checked;root.querySelector(`[data-trigger-section="${input.dataset.triggerPool}"] .triggerWipe`).hidden=!checked.includes('wipe');saveImageConfigs();
+ });
+ root.querySelectorAll('[data-trigger-order]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerOrder].pickOrder=el.value;saveImageConfigs()});
+ root.querySelectorAll('[data-trigger-duration]').forEach(el=>el.onchange=()=>{const settings=cfg.triggers[el.dataset.triggerDuration];settings.duration=clamp(parseFloat(el.value)||2.2,.05,8);el.value=settings.duration;saveImageConfigs()});
+ root.querySelectorAll('[data-trigger-duration-beats]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerDurationBeats].durationBeats=+el.value;saveImageConfigs()});
+ root.querySelectorAll('[data-trigger-easing]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerEasing].easing=el.value;saveImageConfigs()});
+ root.querySelectorAll('[data-trigger-wipe]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerWipe].wipeDirection=el.value;saveImageConfigs()});
+ root.querySelectorAll('[data-trigger-test]').forEach(el=>el.onclick=()=>requestImageChange(a,chooseOrderedImage(a,1),el.dataset.triggerTest));
+}
+function updateImageManagerRuntimeState(a){
+ if(target!==a||!document.getElementById('imagePanel').classList.contains('open'))return;
+ const cfg=imageConfigs[a],s=seqStates[a],active=enabledImages(a),orderPos=active.indexOf(s.current);
+ document.querySelectorAll('#imageGrid [data-imgcard]').forEach(card=>card.classList.toggle('current',+card.dataset.imgcard===s.current));
+ const beatStatus=document.getElementById('beatTimeStatus'),tempo=sequenceTempo(a);
+ beatStatus.hidden=cfg.timeBase!=='beats';
+ beatStatus.textContent=cfg.timeBase==='beats'?'BEATS · '+(tempo.source==='live'?Math.round(tempo.bpm)+' BPM':(tempo.source==='last'?'LAST RELIABLE ':'FALLBACK ')+Math.round(tempo.bpm)):'';
+ document.getElementById('imageManagerStatus').textContent='Current IMAGE '+(s.current+1)+' · active position '+(orderPos>=0?orderPos+1:'—')+' / '+active.length+' · mode '+cfg.mode.toUpperCase();
+}
 function renderImageManager(){
  const a=target,cfg=imageConfigs[a],s=seqStates[a];
  document.getElementById('imageArchName').textContent=archetypes[a].name;
  document.getElementById('imageMode').value=cfg.mode;
+ document.getElementById('imageTimeBase').value=cfg.timeBase;
+ document.getElementById('imageOrderMode').value=cfg.orderMode;
  document.getElementById('imageSource').value=cfg.source;
- document.getElementById('imageCrossfade').value=cfg.crossfade;
  document.getElementById('imageThreshold').value=cfg.threshold;
+ renderTriggerTransitionControls(a);
  let h='';
  const visualOrder=orderedImages(a,false);
  visualOrder.forEach((i,pos)=>{
    const im=cfg.images[i];
    let opts='';for(let p=0;p<cfg.images.length;p++)opts+='<option value="'+p+'" '+(p===pos?'selected':'')+'>'+(p+1)+'</option>';
    const source=IMAGE_SETS[a][i],preview=mediaIsVideo(source)?'<video class="imageThumb" src="'+mediaUrl(source)+'" muted loop playsinline autoplay></video>':'<img class="imageThumb" src="'+mediaUrl(source)+'">';
-   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+'> ON</label></div><div class="cardLine"><span>Dwell sec</span><input type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'"></div><div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
+   const dwellControl=cfg.timeBase==='beats'?'<select data-imgbeats="'+i+'">'+DWELL_BEAT_OPTIONS.map(value=>'<option value="'+value+'" '+(im.durationBeats===value?'selected':'')+'>'+value+'</option>').join('')+'</select>':'<input type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'">';
+   const dwellInfo=cfg.timeBase==='beats'?imageDwell(a,i):null,effective=dwellInfo&&dwellInfo.effectiveBeats!==dwellInfo.requestedBeats?'<div class="effectiveDwell">'+dwellInfo.requestedBeats+' BEAT'+(dwellInfo.requestedBeats===1?'':'S')+' → '+dwellInfo.effectiveBeats+' BEATS @ '+Math.round(dwellInfo.tempo.bpm)+' BPM</div>':'';
+   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+'> ON</label></div><div class="cardLine"><span>Dwell '+(cfg.timeBase==='beats'?'beats':'sec')+'</span>'+dwellControl+'</div>'+effective+'<div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
  });
  document.getElementById('imageGrid').innerHTML=h;
- const active=enabledImages(a),orderPos=active.indexOf(s.current);
- document.getElementById('imageManagerStatus').textContent='Current IMAGE '+(s.current+1)+' · active position '+(orderPos>=0?orderPos+1:'—')+' / '+active.length+' · mode '+cfg.mode.toUpperCase();
+ updateImageManagerRuntimeState(a);
  document.querySelectorAll('[data-imgen]').forEach(el=>el.onchange=()=>{
    const i=+el.dataset.imgen;
    imageConfigs[a].images[i].enabled=el.checked;
    if(!enabledImages(a).length){imageConfigs[a].images[i].enabled=true;el.checked=true}
    saveImageConfigs();
-   if(!imageConfigs[a].images[s.current].enabled){const nxt=enabledImages(a)[0];if(nxt!=null)requestImageChange(a,nxt)}
+   if(!imageConfigs[a].images[s.current].enabled){const nxt=enabledImages(a)[0];if(nxt!=null)requestImageChange(a,nxt,'manual')}
  });
  document.querySelectorAll('[data-imgdur]').forEach(el=>el.onchange=()=>{
-   const i=+el.dataset.imgdur;imageConfigs[a].images[i].duration=clamp(parseFloat(el.value)||10,2,60);el.value=imageConfigs[a].images[i].duration;saveImageConfigs();
+   const i=+el.dataset.imgdur;imageConfigs[a].images[i].duration=clamp(parseFloat(el.value)||10,2,60);el.value=imageConfigs[a].images[i].duration;seqStates[a].nextAutoAt=null;saveImageConfigs();
  });
+ document.querySelectorAll('[data-imgbeats]').forEach(el=>el.onchange=()=>{const i=+el.dataset.imgbeats;imageConfigs[a].images[i].durationBeats=+el.value;seqStates[a].nextAutoAt=null;saveImageConfigs();renderImageManager()});
  document.querySelectorAll('[data-imgorder]').forEach(el=>el.onchange=()=>{moveImageToPosition(a,+el.dataset.imgorder,+el.value);renderImageManager()});
  document.querySelectorAll('[data-imgup]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgup,-1);renderImageManager()});
  document.querySelectorAll('[data-imgdown]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgdown,1);renderImageManager()});
@@ -338,12 +382,16 @@ function renderImageManager(){
 function closeImageManager(){saveImageConfigs();document.getElementById('imagePanel').classList.remove('open')}
 document.getElementById('imageMgrBtn').onclick=()=>{closeMappingMatrix();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
 document.getElementById('closeImageMgr').onclick=closeImageManager;
-document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].lastMappedSignal=0;saveImageConfigs();renderImageManager()};
+const imageTutorialDialog=document.getElementById('imageTutorialDialog');
+document.getElementById('openImageTutorial').onclick=()=>{if(!imageTutorialDialog.open)imageTutorialDialog.showModal()};
+document.getElementById('closeImageTutorial').onclick=()=>imageTutorialDialog.close();
+document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].lastMappedSignal=0;seqStates[target].nextAutoAt=null;saveImageConfigs();renderImageManager()};
+document.getElementById('imageTimeBase').onchange=e=>{imageConfigs[target].timeBase=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].nextAutoAt=null;saveImageConfigs();renderImageManager()};
+document.getElementById('imageOrderMode').onchange=e=>{const s=seqStates[target];imageConfigs[target].orderMode=e.target.value;s.orderState={};s.shownHistory=[s.current];s.shownHistoryCursor=0;saveImageConfigs();renderImageManager()};
 document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;seqStates[target].lastMappedSignal=0;saveImageConfigs()};
-document.getElementById('imageCrossfade').onchange=e=>{imageConfigs[target].crossfade=clamp(parseFloat(e.target.value)||2.2,.2,8);e.target.value=imageConfigs[target].crossfade;saveImageConfigs()};
 document.getElementById('imageThreshold').onchange=e=>{imageConfigs[target].threshold=clamp(parseFloat(e.target.value)||.55,.05,.95);e.target.value=imageConfigs[target].threshold;saveImageConfigs()};
-document.getElementById('imgPrev').onclick=()=>requestImageChange(target,nextEnabled(target,seqStates[target].current,-1));
-document.getElementById('imgNext').onclick=()=>requestImageChange(target,nextEnabled(target,seqStates[target].current,1));
+document.getElementById('imgPrev').onclick=()=>requestImageChange(target,chooseOrderedImage(target,-1),'manual');
+document.getElementById('imgNext').onclick=()=>requestImageChange(target,chooseOrderedImage(target,1),'manual');
 
 const creatorPanel=document.getElementById('creatorPanel');
 const creatorFiles=document.getElementById('customArchFiles');
@@ -442,7 +490,7 @@ document.getElementById('createArchetype').onclick=async()=>{
    routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[template])));
    const newIndex=archetypes.length-1,newConfig=createDefaultImageConfig(newIndex);
    defaultImageConfigs.push(JSON.parse(JSON.stringify(newConfig)));imageConfigs.push(newConfig);
-   seqStates.push({current:0,next:Math.min(1,IMAGE_SETS[newIndex].length-1),blend:0,transitioning:false,loading:false,transStart:0,lastSwitch:performance.now(),lastMappedSignal:0});
+   const sequenceState=createSequenceState();sequenceState.next=Math.min(1,IMAGE_SETS[newIndex].length-1);seqStates.push(sequenceState);
    musicPresets.push([]);saveRoutingMaps();saveImageConfigs();saveMusicPresets();renderArchetypeBar();
    showChannel?.postMessage({type:'library-changed'});
    closeArchetypeCreator();document.getElementById('customArchName').value='';await selectArchetype(newIndex);
@@ -469,7 +517,7 @@ gl.deleteShader(vertexShader);gl.deleteShader(fragmentShader);gl.useProgram(prog
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const pos=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
 
-const names=['uRes','uTime','uMorphA','uMorphB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uArchA','uArchB'];
+const names=['uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uArchA','uArchB'];
 const U={}; names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 const samplers=['tCurrentA','tCurrentB','tTargetA','tTargetB']; samplers.forEach((n,i)=>{U[n]=gl.getUniformLocation(prog,n);gl.uniform1i(U[n],i)});
 
@@ -532,42 +580,75 @@ function refreshVideoTextures(){
    gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,video);
  }
 }
-async function requestImageChange(a,idx){
+function createSequenceTransition(a,from,to,triggerClass){
+ const cfg=imageConfigs[a],settings=cfg.triggers[triggerClass],s=seqStates[a],pick=pickTransitionFromPool(settings,s.poolStates[triggerClass]);s.poolStates[triggerClass]=pick.state;
+ const tempo=sequenceTempo(a),configuredDwell=cfg.images[from]?.duration||10;
+ const dwell=cfg.timeBase==='beats'?imageDwell(a,from,tempo).seconds:(cfg.mode==='mapped'&&triggerClass!=='manual'?Math.max(1,Math.min(8,configuredDwell)):Math.max(2,configuredDwell));
+ const requestedDuration=cfg.timeBase==='beats'?beatsToSeconds(settings.durationBeats,tempo.bpm):settings.duration,duration=effectiveTransitionDuration(requestedDuration,dwell);
+ const transitionId=transitionRunsAsCut(pick.id,duration)?'cut':pick.id,seed=Math.random()*1000;
+ return {archetype:a,from,to,triggerClass,transitionId,transitionShaderId:transitionShaderId(transitionId),seed,param:resolveTransitionParam(transitionId,settings.wipeDirection,seed),easing:settings.easing,duration:transitionId==='cut'?0:duration};
+}
+function beginSequenceTransition(s,transition,now,initialRawProgress=0){
+ s.current=transition.from;s.next=transition.to;s.rawProgress=Math.max(0,Math.min(1,initialRawProgress));s.blend=applyTransitionEasing(s.rawProgress,transition.easing);
+ s.transStart=now-s.rawProgress*transition.duration*1000;s.durationMs=transition.duration*1000;s.transitioning=true;s.loading=false;
+ s.transitionId=transition.transitionId;s.transitionShaderId=transition.transitionShaderId??transitionShaderId(transition.transitionId);s.seed=transition.seed;s.param=[...transition.param];s.easing=transition.easing;
+}
+function sequenceTransitionPayload(s,a){return {archetype:a,from:s.current,to:s.next,transitionId:s.transitionId,seed:s.seed,param:[...s.param],easing:s.easing,duration:s.durationMs/1000}}
+function advanceSequenceTransition(role,a,now){
+ const s=seqStates[a];if(!s?.transitioning)return false;
+ s.rawProgress=s.durationMs>0?Math.min(1,(now-s.transStart)/s.durationMs):1;
+ s.blend=s.transitionId==='cut'?1:applyTransitionEasing(s.rawProgress,s.easing);
+ if(s.rawProgress<1)return false;
+ swapTextureSlots(role);s.current=s.next;s.blend=0;s.rawProgress=0;s.transitioning=false;s.lastSwitch=now;s.nextAutoAt=null;
+ if(!isShowMode){s.shownHistory=s.shownHistory.slice(0,s.shownHistoryCursor+1);if(s.shownHistory.at(-1)!==s.current)s.shownHistory.push(s.current);s.shownHistoryCursor=s.shownHistory.length-1}
+ if(!isShowMode)updateImageManagerRuntimeState(a);
+ return true;
+}
+function completeSequenceTransition(role,a,now=performance.now()){
+ const s=seqStates[a];if(!s?.transitioning)return false;
+ s.transStart=now-s.durationMs;s.rawProgress=1;return advanceSequenceTransition(role,a,now);
+}
+async function requestImageChange(a,idx,triggerClass=null){
  const s=seqStates[a];
- if(panicActive||s.loading||s.transitioning||idx===s.current||!imageConfigs[a].images[idx].enabled)return;
- s.loading=true;
+ if(deletingArchetype||panicActive||!imageConfigs[a].images[idx]?.enabled)return;
+ triggerClass=triggerClass||classifyImageTrigger(imageConfigs[a]);
+ const request={idx,triggerClass};
+ if(s.loading){s.pendingRequest=resolvePendingImageRequest(s.pendingRequest,request);return}
+ if(s.transitioning)completeSequenceTransition(1,a);
+ if(idx===s.current)return;
+ s.loading=true;s.loadingTarget=idx;
  await uploadMediaToSlot(1,1,a,idx);
- if(panicActive){s.loading=false;return}
- s.next=idx;s.blend=0;s.transStart=performance.now();s.transitioning=true;s.loading=false;
+ s.loading=false;s.loadingTarget=null;
+ if(panicActive){s.pendingRequest=null;return}
+ if(s.pendingRequest){const pending=s.pendingRequest;s.pendingRequest=null;if(pending.idx!==idx){requestImageChange(a,pending.idx,pending.triggerClass);return}triggerClass=pending.triggerClass}
+ const now=performance.now(),transition=createSequenceTransition(a,s.current,idx,triggerClass);beginSequenceTransition(s,transition,now);
+ showChannel?.postMessage({type:'transition-start',transition:sequenceTransitionPayload(s,a)});
+ if(s.transitionId==='cut')advanceSequenceTransition(1,a,now);
 }
 function updateImageSequence(now,Eff,freezeAdvances=false){
  const a=target,s=seqStates[a],cfg=imageConfigs[a];
- if(s.transitioning){
-   const dur=Math.max(.2,cfg.crossfade||2.2)*1000;
-   s.blend=Math.min(1,(now-s.transStart)/dur);
-   if(s.blend>=1){
-     swapTextureSlots(1);s.current=s.next;s.blend=0;s.transitioning=false;s.lastSwitch=now;
-     if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
-   }
-   return;
- }
+ if(s.transitioning){advanceSequenceTransition(1,a,now);return}
  if(freezeAdvances)return;
  const enabled=enabledImages(a);if(enabled.length<2)return;
  if(cfg.mode==='auto'){
-   const dwell=Math.max(2,cfg.images[s.current].duration||10)*1000;
-   if(now-s.lastSwitch>=dwell)requestImageChange(a,nextEnabled(a,s.current,1));
+   if(s.nextAutoAt==null){
+     const dwell=imageDwell(a,s.current),earliest=s.lastSwitch/1000+Math.max(2,dwell.seconds);
+     s.scheduledTempo=dwell.tempo;
+     s.nextAutoAt=(cfg.timeBase==='beats'?quantizeToBeatGrid(earliest,beatAnchorSec??s.lastSwitch/1000,60/dwell.tempo.bpm):earliest)*1000;
+   }
+   if(now>=s.nextAutoAt){s.nextAutoAt=Infinity;requestImageChange(a,chooseOrderedImage(a,1),'timed')}
  }else if(cfg.mode==='mapped'){
    const v=clamp(mappedSourceValue(cfg.source,Eff),0,1);
    const minDwell=Math.max(1.0,Math.min(8,cfg.images[s.current].duration||3))*1000;
    if(mappedSourceIsEvent(cfg.source)){
      const th=cfg.threshold||.55;
      // Rising-edge trigger: each detected Beat/Kick/Snare event advances one image in the chosen order.
-     if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,nextEnabled(a,s.current,1));
+     if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,chooseOrderedImage(a,1),'event');
      s.lastMappedSignal=v;
    }else{
      // Continuous musical state: low values use early images, high values later images.
      const desired=enabled[Math.min(enabled.length-1,Math.floor(v*enabled.length))];
-     if(desired!==s.current&&now-s.lastSwitch>=minDwell)requestImageChange(a,desired);
+     if(desired!==s.current&&now-s.lastSwitch>=minDwell)requestImageChange(a,desired,'timed');
      s.lastMappedSignal=v;
    }
  }
@@ -577,7 +658,7 @@ async function loadArchetypeIntoRole(role,a){
  s.current=i0;s.next=i1;
  await Promise.all([uploadMediaToSlot(role,0,a,i0),uploadMediaToSlot(role,1,a,i1)]);
 }
-const remoteRoleSignatures=['',''],remoteRoleTokens=[0,0];
+const remoteRoleSignatures=['',''],remoteTransitionSignatures=['',''],remoteRoleTokens=[0,0];
 function syncRemoteRole(role,a,state){
  if(!state||!IMAGE_SETS[a])return;
  const i0=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.current||0));
@@ -587,19 +668,40 @@ function syncRemoteRole(role,a,state){
  remoteRoleSignatures[role]=signature;const token=++remoteRoleTokens[role];
  Promise.all([uploadMediaToSlot(role,0,a,i0),uploadMediaToSlot(role,1,a,i1)]).then(()=>{
    if(token!==remoteRoleTokens[role])return;
-   const seq=seqStates[a];seq.current=i0;seq.next=i1;
+   const seq=seqStates[a];seq.current=i0;seq.next=i1;seq.blend=0;seq.rawProgress=0;seq.transitioning=false;
  }).catch(error=>console.error('Unable to synchronize show media',error));
+}
+function remoteTransitionSignature(transition,role){return `${role}:${transition.archetype}:${transition.from}:${transition.to}:${transition.seed}`}
+async function startRemoteImageTransition(transition,initialRawProgress=0,forcedRole=null){
+ if(!isShowMode||!transition||!IMAGE_SETS[transition.archetype])return;
+ const role=forcedRole??(transition.archetype===current&&transition.archetype!==target?0:1),signature=remoteTransitionSignature(transition,role);
+ if(remoteTransitionSignatures[role]===signature)return;
+ const sourceReady=remoteRoleSignatures[role].startsWith(`${transition.archetype}:${transition.from}:`);
+ remoteTransitionSignatures[role]=signature;remoteRoleSignatures[role]=`${transition.archetype}:${transition.from}:${transition.to}`;
+ const token=++remoteRoleTokens[role],s=seqStates[transition.archetype];s.loading=true;
+ try{
+   const loads=[uploadMediaToSlot(role,1,transition.archetype,transition.to)];
+   if(!sourceReady)loads.push(uploadMediaToSlot(role,0,transition.archetype,transition.from));
+   await Promise.all(loads);if(token!==remoteRoleTokens[role])return;
+   beginSequenceTransition(s,{...transition,transitionShaderId:transitionShaderId(transition.transitionId),param:transition.param||resolveTransitionParam(transition.transitionId,'left',transition.seed)},performance.now(),initialRawProgress);
+   if(s.transitionId==='cut')advanceSequenceTransition(role,transition.archetype,performance.now());
+ }catch(error){s.loading=false;console.error('Unable to start show transition',error)}
+}
+function syncRemoteSequence(role,a,state){
+ if(!state)return;
+ if(state.transitioning&&state.transition){startRemoteImageTransition(state.transition,state.rawProgress||0,role);return}
+ if(seqStates[a]?.transitioning)return;
+ remoteTransitionSignatures[role]='';syncRemoteRole(role,a,state);
 }
 function applyRemoteVisualState(state){
  if(!state||!archetypes[state.current]||!archetypes[state.target])return;
  setBlackout(!!state.blackout);
  FinalG={...NEUTRAL_TARGETS,...state.finalG};
  current=state.current;target=state.target;archMix=Number.isFinite(state.archMix)?state.archMix:1;transitioning=!!state.transitioning;
- syncRemoteRole(0,current,state.seqA);syncRemoteRole(1,target,state.seqB);
- if(state.seqA&&seqStates[current])Object.assign(seqStates[current],{current:state.seqA.current,next:state.seqA.next,blend:state.seqA.blend||0,transitioning:!!state.seqA.transitioning});
- if(state.seqB&&seqStates[target])Object.assign(seqStates[target],{current:state.seqB.current,next:state.seqB.next,blend:state.seqB.blend||0,transitioning:!!state.seqB.transitioning});
+ if(current!==target)syncRemoteSequence(0,current,state.seqA);
+ syncRemoteSequence(1,target,state.seqB);
 }
-function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next:s.next,blend:s.blend,transitioning:s.transitioning}}
+function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next:s.next,blend:s.blend,rawProgress:s.rawProgress,transitioning:s.transitioning,transition:s.transitioning?sequenceTransitionPayload(s,a):null}}
 function broadcastShowFrame(now,Eff){
  if(!showChannel||now-lastShowBroadcastAt<40)return;
  lastShowBroadcastAt=now;
@@ -774,7 +876,7 @@ function setPanic(value){
  const next=!!value;if(next===panicActive)return panicActive;
  panicActive=next;
  if(panicActive){panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
- else{panicReleaseStartedAt=performance.now();if(seqStates[target])seqStates[target].lastSwitch=performance.now()}
+ else{panicReleaseStartedAt=performance.now();if(seqStates[target]){seqStates[target].lastSwitch=performance.now();seqStates[target].nextAutoAt=null}}
  updateSafetyUi();return panicActive;
 }
 function togglePanic(){return setPanic(!panicActive)}
@@ -979,18 +1081,61 @@ function analyze(now){
 
 let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;
 let archetypeSelectionBusy=false,queuedArchetype=null;
+let deletingArchetype=false,pendingDeleteArchId=null;
+const deleteArchDialog=document.getElementById('deleteArchDialog');
+function openDeleteArchetype(id){
+ const arch=archetypes.find(item=>item.customId===id);if(!arch)return;
+ pendingDeleteArchId=id;
+ document.getElementById('deleteArchName').textContent=arch.name;
+ document.getElementById('deleteArchError').hidden=true;
+ deleteArchDialog.showModal();
+}
+deleteArchDialog.addEventListener('close',()=>{pendingDeleteArchId=null});
+deleteArchDialog.addEventListener('cancel',event=>{if(deletingArchetype)event.preventDefault()});
+document.getElementById('closeDeleteArchDialog').onclick=()=>{if(!deletingArchetype)deleteArchDialog.close()};
+document.getElementById('cancelDeleteArch').onclick=()=>{if(!deletingArchetype)deleteArchDialog.close()};
+document.getElementById('confirmDeleteArch').onclick=async()=>{
+ const index=archetypes.findIndex(item=>item.customId===pendingDeleteArchId);
+ if(index<builtInArchetypeCount||deletingArchetype)return;
+ const error=document.getElementById('deleteArchError');
+ if(archetypeSelectionBusy||seqStates.some(state=>state.loading)){error.textContent='Wait for the current media load or archetype switch to finish, then try again.';error.hidden=false;return}
+ const button=document.getElementById('confirmDeleteArch');button.disabled=true;deletingArchetype=true;
+ try{
+   await deleteCustomArchetype(pendingDeleteArchId);
+   if(current===index||target===index){
+     await Promise.all([loadArchetypeIntoRole(0,0),loadArchetypeIntoRole(1,0)]);
+     current=target=0;archMix=1;transitioning=false;
+   }else{
+     if(current>index)current--;
+     if(target>index)target--;
+   }
+   IMAGE_SETS[index].forEach(source=>{if(typeof source!=='string')URL.revokeObjectURL(source.url)});
+   archetypes.splice(index,1);IMAGE_SETS.splice(index,1);defaultRoutingMaps.splice(index,1);routingMaps.splice(index,1);
+   defaultImageConfigs.splice(index,1);imageConfigs.splice(index,1);seqStates.splice(index,1);musicPresets.splice(index,1);
+   saveRoutingMaps();saveImageConfigs();saveMusicPresets();renderArchetypeBar();renderPresetControls();
+   if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+   if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+   deleteArchDialog.close();showChannel?.postMessage({type:'library-changed'});
+ }catch(cause){console.error('Unable to delete archetype',cause);error.textContent='Could not complete deletion. Please reload the app before trying again.';error.hidden=false}
+ finally{button.disabled=false;deletingArchetype=false}
+};
 renderPresetControls();
 function renderArchetypeBar(){
  const bar=document.getElementById('archBar');bar.innerHTML='';
  archetypes.forEach((arch,index)=>{
    const button=document.createElement('button');button.className='arch'+(index===target?' active':'');button.dataset.a=String(index);
    const profile=visualProfileIndex(index),subtitle=arch.customId?'custom · '+archetypes[profile].name.toLowerCase():(['space / contemplation','groove / elastic flow','growth / breath / living systems','pressure / momentum','heart / visceral energy','living heart / neon anatomy'][index]||'visual archetype');
-   button.innerHTML='<b>'+(index+1)+' · '+arch.name+'</b><span>'+subtitle+'</span>';button.onclick=()=>selectArchetype(index);bar.appendChild(button);
+   button.innerHTML='<b></b><span></span>';button.querySelector('b').textContent=(index+1)+' · '+arch.name;button.querySelector('span').textContent=subtitle;button.onclick=()=>selectArchetype(index);
+   if(arch.customId){
+     const item=document.createElement('div');item.className='archItem';item.appendChild(button);
+     const remove=document.createElement('button');remove.type='button';remove.className='iconAction archDelete';remove.innerHTML=icon('trash-2');remove.setAttribute('aria-label','Delete archetype '+arch.name);remove.dataset.tooltip='Delete archetype';remove.onclick=()=>openDeleteArchetype(arch.customId);item.appendChild(remove);bar.appendChild(item);
+   }else bar.appendChild(button);
  });
  const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=openArchetypeCreator;bar.appendChild(createButton);
 }
 async function selectArchetype(a){
  if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
+ if(deletingArchetype)return;
  if(a===target)return;
  if(archetypeSelectionBusy){queuedArchetype=a;return}
  archetypeSelectionBusy=true;
@@ -1041,6 +1186,9 @@ document.addEventListener('keydown',event=>{
  if(action.type==='transition'){setTransitionMode(action.mode);showShortcutToast(action.mode.toUpperCase()+' TRANSITIONS');return}
  if(action.type==='preset-select'){activatePreset(action.index);return}
  if(action.type==='preset-step'){stepPreset(action.direction);return}
+ if(action.type==='media-step'){
+   requestImageChange(target,chooseOrderedImage(target,action.direction),'manual');showShortcutToast(action.direction>0?'NEXT MEDIA':'PREVIOUS MEDIA');return;
+ }
  const index=action.type==='step'?(target+action.direction+archetypes.length)%archetypes.length:action.index;
  showShortcutToast(String(index+1).padStart(2,'0')+' · '+archetypes[index].name+' — '+mode.toUpperCase());selectArchetype(index);
 });
@@ -1090,6 +1238,8 @@ function frame(now){
  let Eff;
  if(isShowMode){
    if(remoteVisualState){applyRemoteVisualState(remoteVisualState);BPM=remoteVisualState.bpm||0;BeatPulse=remoteVisualState.beat||0;KickFast=remoteVisualState.kick||0;SnareFast=remoteVisualState.snare||0}
+   if(current!==target&&seqStates[current]?.transitioning)advanceSequenceTransition(0,current,now);
+   if(seqStates[target]?.transitioning)advanceSequenceTransition(1,target,now);
    Eff=remoteVisualState?.eff||neutralVals;
  }else{
    analyze(now);
@@ -1106,6 +1256,7 @@ function frame(now){
    FinalG=applyPanicTargets(routedTargets,{panic:panicActive,releaseStartedAt:panicReleaseStartedAt,now,duration:300});
    if(panicReleaseStartedAt!=null&&now-panicReleaseStartedAt>=300)panicReleaseStartedAt=null;
    routeTargets.forEach(key=>{document.getElementById('gf-'+key).textContent=FinalG[key].toFixed(2)});
+   if(transitioning&&current!==target&&seqStates[current]?.transitioning)advanceSequenceTransition(0,current,now);
    updateImageSequence(now,Eff,panicActive);
    if(transitioning){
      let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
@@ -1116,7 +1267,11 @@ function frame(now){
  gl.useProgram(prog);
  gl.uniform2f(U.uRes,canvas.width,canvas.height);
  gl.uniform1f(U.uTime,(now-t0)/1000);
- gl.uniform1f(U.uMorphA,seqStates[current].blend);gl.uniform1f(U.uMorphB,seqStates[target].blend);
+ const sequenceA=seqStates[current],sequenceB=seqStates[target];
+ gl.uniform1f(U.uMorphA,sequenceA.blend);gl.uniform1f(U.uMorphB,sequenceB.blend);
+ gl.uniform1i(U.uTransA,sequenceA.transitionShaderId);gl.uniform1i(U.uTransB,sequenceB.transitionShaderId);
+ gl.uniform1f(U.uSeedA,sequenceA.seed);gl.uniform1f(U.uSeedB,sequenceB.seed);
+ gl.uniform4fv(U.uParamA,sequenceA.param);gl.uniform4fv(U.uParamB,sequenceB.param);
  gl.uniform1f(U.uArchMix,transitioning?archMix:1);
  gl.uniform1i(U.uArchA,visualProfileIndex(current));
  gl.uniform1i(U.uArchB,visualProfileIndex(target));

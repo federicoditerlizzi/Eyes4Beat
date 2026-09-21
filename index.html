@@ -132,6 +132,15 @@
     </form>
   </dialog>
 
+  <dialog id="deleteArchDialog" class="presetDialog" aria-labelledby="deleteArchDialogTitle">
+    <div class="deleteArchDialogBody">
+      <div class="shortcutDialogHead"><h2 id="deleteArchDialogTitle">DELETE ARCHETYPE</h2><button id="closeDeleteArchDialog" class="iconAction closeAction" type="button" aria-label="Close delete confirmation" data-tooltip="Close"><i data-lucide="x"></i></button></div>
+      <p>Delete <strong id="deleteArchName"></strong>? Its locally saved images/videos, image settings, routing and musical presets will be permanently removed from this browser.</p>
+      <p id="deleteArchError" class="deleteArchError" role="alert" hidden></p>
+      <div class="dialogActions"><button id="cancelDeleteArch" type="button">CANCEL</button><button id="confirmDeleteArch" class="dangerBtn" type="button">DELETE ARCHETYPE</button></div>
+    </div>
+  </dialog>
+
   <dialog id="shortcutDialog" class="presetDialog shortcutDialog" aria-labelledby="shortcutDialogTitle">
     <div class="shortcutDialogBody">
       <div class="shortcutDialogHead"><h2 id="shortcutDialogTitle">LIVE KEYBOARD SHORTCUTS</h2><button id="closeShortcutDialog" class="iconAction closeAction" type="button" aria-label="Close shortcuts" data-tooltip="Close"><i data-lucide="x"></i></button></div>
@@ -147,6 +156,9 @@
         <div><kbd>Alt 0</kbd><span>Select preset 10</span></div>
         <div><kbd>Alt ←</kbd><kbd>Alt A</kbd><span>Previous preset</span></div>
         <div><kbd>Alt →</kbd><kbd>Alt D</kbd><span>Next preset</span></div>
+        <h3>MEDIA · ACTIVE ARCHETYPE</h3>
+        <div><kbd>[</kbd><span>Previous image or video</span></div>
+        <div><kbd>]</kbd><span>Next image or video</span></div>
         <h3>TRANSITIONS &amp; HELP</h3>
         <div><kbd>B</kbd><span>Toggle blackout</span></div>
         <div><kbd>P</kbd><span>Toggle panic safe state</span></div>
@@ -155,6 +167,42 @@
         <div><kbd>?</kbd><span>Open this guide</span></div>
       </div>
       <p>Shortcuts are disabled while typing in a field or using a dialog.</p>
+    </div>
+  </dialog>
+
+  <dialog id="imageTutorialDialog" class="presetDialog imageTutorialDialog" aria-labelledby="imageTutorialTitle">
+    <div class="imageTutorialBody">
+      <div class="shortcutDialogHead"><h2 id="imageTutorialTitle">GUIDA IMAGE MANAGER</h2><button id="closeImageTutorial" class="iconAction closeAction" type="button" aria-label="Close image manager guide" data-tooltip="Close"><i data-lucide="x"></i></button></div>
+      <p class="tutorialIntro">L’Image Manager decide quali immagini mostrare, in quale ordine e quale transizione usare. Ogni cambio utilizza un solo blocco: TIMED, EVENT oppure MANUAL, in base a ciò che lo ha provocato.</p>
+      <div class="tutorialGrid">
+        <section><h3>SEQUENZA</h3><dl>
+          <dt>Sequence mode</dt><dd><b>Auto Timer</b> cambia dopo il dwell; <b>Manual</b> cambia solo su comando; <b>Mapped Level</b> collega la sequenza a una sorgente musicale.</dd>
+          <dt>Time base</dt><dd><b>Seconds</b> usa secondi reali. <b>Beats</b> sincronizza dwell e transizioni al BPM; senza un BPM affidabile usa 120.</dd>
+          <dt>Sequence order</dt><dd><b>Sequential</b> va in avanti; <b>Ping-pong</b> torna indietro; <b>Random</b> evita doppioni consecutivi; <b>Shuffle</b> mostra tutti i media una volta per ciclo in ordine casuale.</dd>
+          <dt>Mapped source</dt><dd>Energy, Drive e le altre sorgenti continue scelgono una posizione nella sequenza. Beat, Kick e Snare fanno avanzare di un’immagine quando scatta l’evento.</dd>
+          <dt>Event threshold</dt><dd>Stabilisce quanto forte deve essere Beat, Kick o Snare per provocare il cambio. Più è alto, meno eventi vengono accettati.</dd>
+          <dt>Prev / Next</dt><dd>Cambio immediato tramite il blocco MANUAL. Le shortcut equivalenti sono <kbd>[</kbd> e <kbd>]</kbd>.</dd>
+        </dl></section>
+        <section><h3>TIMED / EVENT / MANUAL</h3><dl>
+          <dt>Timed</dt><dd>Usato da Auto Timer e dal mapping continuo.</dd>
+          <dt>Event</dt><dd>Usato quando Mapped Source è Beat, Kick o Snare.</dd>
+          <dt>Manual</dt><dd>Usato da Prev, Next, shortcut e test manuale.</dd>
+          <dt>Transition checkboxes</dt><dd>Le transizioni selezionate formano il pool disponibile per quel blocco.</dd>
+          <dt>Pick order</dt><dd><b>Cycle</b> percorre il pool in ordine. <b>Random · no repeat</b> sceglie casualmente senza ripetere subito lo stesso effetto.</dd>
+          <dt>Duration</dt><dd>Durata della transizione, espressa nell’unità scelta in Time Base.</dd>
+          <dt>Easing</dt><dd><b>Linear</b> mantiene velocità costante; <b>Ease in/out</b> parte e termina dolcemente; <b>Ease out</b> parte deciso e rallenta alla fine.</dd>
+          <dt>Wipe direction</dt><dd>Compare quando Wipe è nel pool e indica la direzione della tendina.</dd>
+          <dt>Test</dt><dd>Esegue subito il prossimo cambio usando quel blocco, senza attendere timer o musica.</dd>
+        </dl></section>
+        <section><h3>SCHEDE MEDIA</h3><dl>
+          <dt>On</dt><dd>Include o esclude l’immagine o il video dalla sequenza.</dd>
+          <dt>Dwell</dt><dd>Tempo minimo per cui il media resta visibile. In Beats, l’app aumenta automaticamente valori troppo brevi per rispettare almeno due secondi.</dd>
+          <dt>Order selector</dt><dd>Sposta direttamente il media in una posizione numerica della sequenza.</dd>
+          <dt>Arrow up / down</dt><dd>Sposta il media di una posizione prima o dopo.</dd>
+          <dt>Current image</dt><dd>Il bordo più chiaro indica il media attualmente visualizzato.</dd>
+        </dl></section>
+      </div>
+      <section class="tutorialRecipe"><h3>ESEMPIO · LOOP MORBIDO A TEMPO</h3><p>Per ottenere una sequenza fluida che cambia ogni quattro battiti: scegli <b>Auto Timer</b>, <b>Beats</b>, ordine <b>Shuffle</b>; imposta il dwell di ogni immagine a <b>4 beats</b>. In TIMED seleziona <b>Crossfade</b> e <b>Zoom through</b>, Pick Order <b>Cycle</b>, Duration <b>1 beat</b>, Easing <b>Ease in/out</b>. Il risultato alterna dissolvenza e zoom, cambia immagine a tempo e varia l’ordine senza sembrare caotico.</p></section>
     </div>
   </dialog>
 
@@ -174,15 +222,19 @@
 
   <div class="imagePanel" id="imagePanel">
     <div class="imageTop">
-      <div class="sectionTitle"><h2>MEDIA MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and crossfade. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently."><i data-lucide="info"></i></button></div>
-      <button id="closeImageMgr" class="iconAction closeAction" type="button" aria-label="Close image manager" data-tooltip="Close"><i data-lucide="x"></i></button>
+      <div class="sectionTitle"><h2>MEDIA MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and transition style. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently."><i data-lucide="info"></i></button></div>
+      <div class="imageHeaderActions"><button id="openImageTutorial" class="iconAction" type="button" aria-label="Open image manager guide" data-tooltip="Image manager guide"><i data-lucide="book-open"></i></button><button id="closeImageMgr" class="iconAction closeAction" type="button" aria-label="Close image manager" data-tooltip="Close"><i data-lucide="x"></i></button></div>
     </div>
-    <div class="imageControls">
+    <div class="imageControls imageSequenceControls">
       <div class="ctlBox"><label>SEQUENCE MODE</label><select id="imageMode"><option value="auto">AUTO TIMER</option><option value="manual">MANUAL</option><option value="mapped">MAPPED LEVEL</option></select></div>
+      <div class="ctlBox"><label>TIME BASE</label><select id="imageTimeBase"><option value="seconds">SECONDS</option><option value="beats">BEATS</option></select></div>
+      <div class="ctlBox"><label>SEQUENCE ORDER</label><select id="imageOrderMode"><option value="sequential">SEQUENTIAL</option><option value="ping-pong">PING-PONG</option><option value="random-no-repeat">RANDOM · NO REPEAT</option><option value="shuffle">SHUFFLE</option></select></div>
       <div class="ctlBox"><label title="Continuous sources map levels to positions; Beat, Kick and Snare advance on events.">MAPPED SOURCE <i data-lucide="info" class="inlineInfo"></i></label><select id="imageSource"><option value="energy">Energy</option><option value="density">Density</option><option value="drive">Drive</option><option value="boombap">BoomBap</option><option value="tension">Tension</option><option value="bright">Brightness</option><option value="open">Openness</option><option value="beat">Beat</option><option value="kick">Kick</option><option value="snare">Snare</option></select></div>
-      <div class="ctlBox"><label>CROSSFADE (SEC)</label><input id="imageCrossfade" type="number" min="0.2" max="8" step="0.1" value="2.2"></div><div class="ctlBox"><label title="Used only with Beat, Kick and Snare.">EVENT THRESHOLD <i data-lucide="info" class="inlineInfo"></i></label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"></div>
+      <div class="ctlBox"><label title="Used only with Beat, Kick and Snare.">EVENT THRESHOLD <i data-lucide="info" class="inlineInfo"></i></label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"></div>
       <div class="ctlBox"><label>MANUAL NAVIGATION</label><div style="display:flex;gap:6px"><button id="imgPrev"><i data-lucide="chevron-left"></i> PREV</button><button id="imgNext">NEXT <i data-lucide="chevron-right"></i></button></div></div>
     </div>
+    <div id="beatTimeStatus" class="beatTimeStatus" hidden></div>
+    <div id="triggerTransitionControls" class="triggerTransitionControls"></div>
     <div id="imageManagerStatus" class="matrixLegend">Current image 1 / 5</div>
     <div class="imageGrid" id="imageGrid"></div>
   </div>

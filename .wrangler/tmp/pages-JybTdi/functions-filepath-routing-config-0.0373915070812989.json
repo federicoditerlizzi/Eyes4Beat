@@ -1,0 +1,29 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/generate-image",
+      "mountPath": "/api",
+      "method": "POST",
+      "module": [
+        "api/generate-image.js:onRequestPost"
+      ]
+    },
+    {
+      "routePath": "/api/generate-image",
+      "mountPath": "/api",
+      "method": "",
+      "module": [
+        "api/generate-image.js:onRequest"
+      ]
+    },
+    {
+      "routePath": "/",
+      "mountPath": "/",
+      "method": "",
+      "middleware": [
+        "_middleware.js:onRequest"
+      ]
+    }
+  ],
+  "baseURL": "/"
+}

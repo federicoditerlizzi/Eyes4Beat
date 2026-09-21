@@ -1,3 +1,5 @@
+import { TRANSITION_GLSL_DEFINES } from './transitions.js';
+
 export const vertexShaderSource=`#version 300 es
 in vec2 aPos; out vec2 vUv;
 void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
@@ -8,8 +10,12 @@ out vec4 fragColor;
 in vec2 vUv;
 uniform vec2 uRes;
 uniform float uTime,uMorphA,uMorphB,uArchMix,uMapPulse,uDistAmt,uGlowAmt,uLumAmt,uSatAmt,uZoomAmt;
-uniform int uArchA,uArchB;
+uniform float uSeedA,uSeedB;
+uniform int uArchA,uArchB,uTransA,uTransB;
+uniform vec4 uParamA,uParamB;
 uniform sampler2D tCurrentA,tCurrentB,tTargetA,tTargetB;
+
+${TRANSITION_GLSL_DEFINES}
 
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){
@@ -37,10 +43,56 @@ vec2 parallax(vec2 uv,int a){
  vec2 q=c/max(.72,uZoomAmt);
  return q+.5;
 }
-vec4 getPair(int slot, int a, vec2 uv, float m){
+vec4 samplePair(int slot,int image,vec2 uv){
+ if(slot==0){if(image==0)return texture(tCurrentA,uv);return texture(tCurrentB,uv);}
+ if(image==0)return texture(tTargetA,uv);return texture(tTargetB,uv);
+}
+vec4 transitionPair(int slot,vec2 uv,float p,int transitionType,float seed,vec4 param){
+ vec4 a=samplePair(slot,0,uv),b=samplePair(slot,1,uv);
+ if(p<=0.)return a;if(p>=1.)return b;
+ if(transitionType==TRANS_CUT)return b;
+ if(transitionType==TRANS_CROSSFADE)return mix(a,b,p);
+ if(transitionType==TRANS_DIP_BLACK){if(p<=.5)return a*(1.-p*2.);return b*((p-.5)*2.);}
+ if(transitionType==TRANS_DIP_WHITE){if(p<=.5)return mix(a,vec4(1.),p*2.);return mix(vec4(1.),b,(p-.5)*2.);}
+ float edge=max(.002,param.y);
+ if(transitionType==TRANS_LUMA_DISSOLVE){
+   float luma=dot(b.rgb,vec3(.2126,.7152,.0722));
+   float mask=smoothstep(1.-p-edge,1.-p+edge,luma);
+   return mix(a,b,mask);
+ }
+ if(transitionType==TRANS_NOISE_DISSOLVE){
+   float mask=smoothstep(1.-p-edge,1.-p+edge,hash(floor(uv*320.)+seed));
+   return mix(a,b,mask);
+ }
+ if(transitionType==TRANS_WIPE){
+   float axis=uv.x;
+   if(param.x<.5)axis=uv.x;else if(param.x<1.5)axis=1.-uv.x;else if(param.x<2.5)axis=uv.y;else axis=1.-uv.y;
+   return mix(a,b,1.-smoothstep(p-edge,p+edge,axis));
+ }
+ if(transitionType==TRANS_IRIS){
+   float radius=length(uv-.5)/.70710678;
+   return mix(a,b,1.-smoothstep(p-edge,p+edge,radius));
+ }
+ if(transitionType==TRANS_ZOOM_THROUGH){
+   vec2 uvA=(uv-.5)/(1.+p*.85)+.5;
+   vec2 uvB=(uv-.5)*(1.+(1.-p)*.55)+.5;
+   return mix(samplePair(slot,0,uvA),samplePair(slot,1,uvB),smoothstep(0.,1.,p));
+ }
+ if(transitionType==TRANS_GLITCH_CUT){
+   float envelope=sin(p*3.14159265);
+   float block=hash(vec2(floor(uv.y*18.+seed*7.),floor((uTime+seed)*20.)));
+   float offset=(block-.5)*max(.025,param.z)*envelope;
+   vec2 shifted=uv+vec2(offset,0.);
+   int image=p<.5?0:1;
+   float split=.014*envelope;
+   vec4 center=samplePair(slot,image,shifted);
+   return vec4(samplePair(slot,image,shifted+vec2(split,0.)).r,center.g,samplePair(slot,image,shifted-vec2(split,0.)).b,center.a);
+ }
+ return mix(a,b,p);
+}
+vec4 getPair(int slot,int a,vec2 uv,float progress,int transitionType,float seed,vec4 param){
  vec2 q=parallax(warpUV(uv,a),a);
- if(slot==0) return mix(texture(tCurrentA,q),texture(tCurrentB,q),m);
- return mix(texture(tTargetA,q),texture(tTargetB,q),m);
+ return transitionPair(slot,q,progress,transitionType,seed,param);
 }
 vec3 grade(vec3 c,int a){
  float lum=dot(c,vec3(.2126,.7152,.0722));
@@ -68,8 +120,8 @@ void main(){
  uv = cUv * (1.0 - 0.034*pulseWave) + .5;
  uv += normalize(cUv + vec2(.0001)) * 0.0045 * pulseCore;
 
- vec4 ca=getPair(0,uArchA,uv,uMorphA);
- vec4 cb=getPair(1,uArchB,uv,uMorphB);
+ vec4 ca=getPair(0,uArchA,uv,uMorphA,uTransA,uSeedA,uParamA);
+ vec4 cb=getPair(1,uArchB,uv,uMorphB,uTransB,uSeedB,uParamB);
  vec3 c=mix(grade(ca.rgb,uArchA),grade(cb.rgb,uArchB),uArchMix);
  float vig=smoothstep(1.0,.25,length(vUv-.5));
  c*=mix(.82,1.,vig);

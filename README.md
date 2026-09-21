@@ -16,6 +16,8 @@ npm run dev
 
 Open the local URL printed by Vite, load an audio file, and use the routing matrix to connect musical sources to visual targets.
 
+Custom archetypes can be removed with the trash icon on their footer card. Confirming permanently deletes that archetype's locally stored media, sequence settings, routing and musical presets from this browser. The six built-in archetypes cannot be deleted. If the deleted archetype is active, the app switches to Deep Drift; playback continues. An open Show window refreshes its library automatically.
+
 ## Quality checks
 
 ```sh
@@ -33,12 +35,15 @@ src/main.js                 Runtime orchestration and UI bindings
 src/config.js               Archetypes, assets, labels and default routing
 src/routing.js              Pure musical source → visual target engine
 src/icons.js                Bundled Lucide subset and runtime icon helper
+src/transitions.js          Media-transition catalogue and GLSL ids
+src/image-sequencer.js      Easing, duration and config migration logic
 src/shaders.js              WebGL2 vertex and fragment shaders
 src/custom-archetypes.js    IndexedDB persistence for user-created archetypes
 src/styles.css              Application styles
 public/assets/images/       Archetype source images
 public/assets/brand/        EyesForBeats logo and favicon assets
 test/routing.test.js        Routing invariants
+test/image-sequencer.test.js Transition and migration invariants
 legacy/index_v044.html      Archived single-file prototype
 ```
 
@@ -49,6 +54,20 @@ The audio analyzer produces continuous musical states (`energy`, `density`, `dri
 Archetypes define visual identity and image sequencing. Named presets contain only musical configuration. With no active routed signal, visual targets return to their neutral state while the image sequence continues.
 
 Audio files remain local to the browser and are never uploaded.
+
+## Image transitions
+
+Each archetype has three media-transition pools in the Image Manager. **TIMED** serves auto sequencing and continuous mapped sources; **EVENT** serves Beat, Kick and Snare; **MANUAL** serves the previous/next controls and `[`/`]` shortcuts. Every pool can contain multiple transition styles, selected either cyclically or randomly without immediate repetition, and has independent duration, easing, wipe direction and TEST action. Available styles are cut, crossfade, dip to black/white, luma and noise dissolves, directional wipe, iris, zoom through and glitch cut.
+
+Transition duration is limited to 80% of the current image dwell so the destination remains readable; durations below roughly 60 ms become cuts. Easing is computed in JavaScript and the WebGL shader receives the eased progress plus a stable transition type, seed and parameters. The library in `src/transitions.js` is the single source of truth for UI labels and GLSL numeric identifiers.
+
+The Show window receives a transition-start event and runs the effect using its own clock after its destination media has loaded. Periodic frame state remains only as a recovery path if that event is missed.
+
+A new request during a running transition completes that transition immediately before starting the next one. While destination media is loading, only the most recent pending request is retained. Automatic requests still respect their existing dwell limits; manual navigation bypasses dwell timing.
+
+Each archetype also selects a sequence order: sequential, ping-pong, random without consecutive repeats, or shuffle. Shuffle creates a new random permutation for each cycle and prevents a repeat at the cycle boundary. In random and shuffle modes, PREV follows the history of images actually shown. Continuous mapped mode remains a direct level-to-position mapping.
+
+The time base can be seconds or beats. Beat dwell values are 1, 2, 4, 8, 16 or 32 beats; values shorter than two seconds at the scheduled tempo are promoted to the next power of two. Transition durations use 1/8, 1/4, 1/2, 1, 2 or 4 beats. Auto changes are requested on the next beat-grid boundary, then begin when on-demand media loading completes. A reliable detected tempo is preferred, followed by the last reliable tempo and finally a visible 120 BPM fallback. The schedule is fixed after each change rather than recalculated on every frame.
 
 ## Live input
 
@@ -66,11 +85,11 @@ Move the Show window to the projector and double-click it (or press `F`) to requ
 
 ## Live keyboard shortcuts
 
-The controller supports direct archetype selection with `1–9`, `0` for archetype 10 and `Shift+1–9` for archetypes 11–19. Arrow keys or `A`/`D` move backward and forward cyclically. `Alt/Option+1–9` selects presets 1–9 for the active archetype, `Alt/Option+0` selects preset 10, and `Alt/Option` combined with arrows or A/D cycles its presets. `S` selects smooth transitions and `C` selects cuts. `?` opens the same compact reference available from the header keyboard button. Shortcuts ignore key repeat and are disabled in form fields, dialogs and the Show window. Rapid archetype requests are serialized and the most recent queued selection wins.
+The controller supports direct archetype selection with `1–9`, `0` for archetype 10 and `Shift+1–9` for archetypes 11–19. Arrow keys or `A`/`D` move backward and forward cyclically. `Alt/Option+1–9` selects presets 1–9 for the active archetype, `Alt/Option+0` selects preset 10, and `Alt/Option` combined with arrows or A/D cycles its presets. `[` and `]` select previous/next media through the manual transition pool. `S` selects smooth transitions and `C` selects cuts. `?` opens the same compact reference available from the header keyboard button. Shortcuts ignore key repeat and are disabled in form fields, dialogs and the Show window. Rapid archetype requests are serialized and the most recent queued selection wins.
 
 ## Live safety controls
 
-`B` or the **BLACKOUT** button toggles a fast black DOM overlay above both render canvases while keeping the controller UI, audio analysis and rendering active. `P` or **PANIC** latches a non-destructive safe state: visual targets are forced to neutral, an archetype transition completes immediately and image sequencing stops after any active image crossfade finishes. Releasing PANIC eases from neutral back to the current routed targets over 300 ms and restarts the current image dwell period. Neither control writes to presets, routing, localStorage or IndexedDB. The four plain functions are available as `window.EyesForBeatsSafety` for a future MIDI adapter.
+`B` or the **BLACKOUT** button toggles a fast black DOM overlay above both render canvases while keeping the controller UI, audio analysis and rendering active. `P` or **PANIC** latches a non-destructive safe state: visual targets are forced to neutral, an archetype transition completes immediately and image sequencing stops after any active media transition finishes. Releasing PANIC eases from neutral back to the current routed targets over 300 ms and restarts the current image dwell period. Neither control writes to presets, routing, localStorage or IndexedDB. The four plain functions are available as `window.EyesForBeatsSafety` for a future MIDI adapter.
 
 ## Custom archetypes
 

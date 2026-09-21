@@ -13,6 +13,8 @@ Eyes4Beat is a browser-based visual instrument for live music performances. It a
 - `src/routing.js` is the pure, tested source-to-target calculation module.
 - `src/audio-input.js` owns the Web Audio graph, live capture, device enumeration and source switching.
 - `src/input-calibration.js` owns pure trim, meter and noise-floor math.
+- `src/transitions.js` is the single source of truth for media-transition ids, shader ids, labels, parameters and generated GLSL defines.
+- `src/image-sequencer.js` owns pure easing, effective-duration, trigger classification, transition-pool and sequence-order selection, beat-time conversion/quantization, latest-pending resolution and image-config normalization/migration logic.
 - `src/shaders.js` owns the WebGL2 shader sources.
 - `src/custom-archetypes.js` persists user-created archetypes and image/video blobs in IndexedDB.
 - `public/assets/images/` contains the 30 visual source images.
@@ -52,20 +54,21 @@ Everything runs on the main browser thread:
 6. The PERF/CTX slider blends `Fast` and `Context` into `S`.
 7. `getEffectiveState()` applies each continuous source's enable/solo state and amount; Beat, Kick, and Snare have the same source controls in the routing stage.
 8. `computeGlobalMapping()` routes sources through the current archetype's matrix only while `inputActive` is true: FILE requires active playback, LIVE requires a live stream track. `frame(now)` then passes the routed result through `applyPanicTargets()` before assigning the shader-facing `FinalG` controls.
-9. `frame(now)` advances or freezes image sequencing according to PANIC, sends the safe target state to GLSL, draws a full-screen triangle, updates the 2D particle canvas, broadcasts Show state, and refreshes diagnostics.
+9. `frame(now)` advances or freezes image sequencing according to PANIC, classifying automatic requests as timed or event triggers. Auto scheduling uses either seconds or a beat-grid deadline fixed after the previous change; it never follows tempo wobble frame by frame. Manual controls enter the same sequencer with the manual trigger class. It eases any active media-transition progress in JavaScript, sends the safe target and per-role transition state to GLSL, draws a full-screen triangle, updates the 2D particle canvas, broadcasts Show state, and refreshes diagnostics.
 
 The two rendering layers are:
 
-- WebGL2 canvas `#gl`: image sampling, crossfades, UV warp/parallax, grading, glow, saturation, luminance, zoom, pulse, and vignette.
+- WebGL2 canvas `#gl`: image sampling, configurable media transitions, UV warp/parallax, grading, glow, saturation, luminance, zoom, pulse, and vignette.
 - Canvas 2D `#particles`: archetype-specific particle motion composited over WebGL.
 
 ## Show output architecture
 
-`?show=1` starts a clean output window in which `.ui` is hidden and audio analysis/mapping/image sequencing are disabled. The controller remains authoritative and broadcasts `FinalG`, effective musical state, archetype transition state and image sequence snapshots over `eyesforbeats-show-v1`. The Show renderer keeps its own WebGL context, loads built-in or IndexedDB media into its own texture slots and applies the received state. Do not make the Show window analyze or play audio: that would introduce drift and duplicate sound output. `library-changed` reloads the Show window after a custom archetype is created.
+`?show=1` starts a clean output window in which `.ui` is hidden and audio analysis/mapping/automatic image sequencing are disabled. The controller remains authoritative and broadcasts `FinalG`, effective musical state, archetype transition state and image sequence snapshots over `eyesforbeats-show-v1`. Media changes additionally send a `transition-start` event; the Show window loads its own destination slot and starts its local transition clock only when that load finishes. Periodic snapshots can reconstruct a missed start event but do not drive blend frame by frame. The Show renderer keeps its own WebGL context, loads built-in or IndexedDB media into its own texture slots and applies the received state. Do not make the Show window analyze or play audio: that would introduce drift and duplicate sound output. `library-changed` reloads the Show window after a custom archetype is created.
 
 Controller-only live shortcuts are resolved in `src/shortcuts.js`: number-row direct archetype selection, arrows or A/D archetype navigation, Alt/Option plus the same number/navigation keys for presets, S/C transition mode and `?` help. They must stay disabled for repeated keydown events, editable controls, open dialogs and Show mode. Archetype loading is serialized in `selectArchetype()` so rapid commands resolve to the latest queued selection without racing GPU texture uploads.
+Keep live shortcuts available while the Image Manager is open, but not when focus is in an editable control. Automatic media changes must update only its runtime status/current-card styling, not rebuild form controls: replacing a focused input during a performance steals focus and can turn numeric editing into an archetype shortcut.
 
-BLACKOUT and PANIC are latched live-safety controls. BLACKOUT is a DOM overlay independent of WebGL; PANIC uses the pure `src/show-safety.js` calculation to override routed targets without mutating configuration. While PANIC is active, archetype transitions resolve immediately and `updateImageSequence()` only finishes an already-running crossfade. B/P shortcuts follow the same typing, dialog, repeat and Show-mode guards as the other controller shortcuts. The controller broadcasts its blackout state and already-safe `FinalG` to an existing Show peer; no separate audio or safety calculation runs there.
+BLACKOUT and PANIC are latched live-safety controls. BLACKOUT is a DOM overlay independent of WebGL; PANIC uses the pure `src/show-safety.js` calculation to override routed targets without mutating configuration. While PANIC is active, archetype transitions resolve immediately and `updateImageSequence()` only finishes an already-running media transition. B/P shortcuts follow the same typing, dialog, repeat and Show-mode guards as the other controller shortcuts. The controller broadcasts its blackout state and already-safe `FinalG` to an existing Show peer; no separate audio or safety calculation runs there.
 
 ## Musical feature model
 
@@ -95,7 +98,7 @@ Treat these as perceptual heuristics, not production-grade source separation or 
 - Per-archetype routing maps connect 10 sources to 7 targets. Weights range from -1.5 to +1.5.
 - Routing uses raw normalized source values plus a square-root response curve so quieter signals remain visible. Beat, kick, and snare are event-like values. Negative weights invert unipolar effects and move bipolar targets below neutral.
 - Resulting `FinalG` targets are `pulse`, `dist`, `luma`, `sat`, `glow`, `parts`, and `zoom`. Their neutral state is pulse/distortion/glow/particles = 0 and luminance/saturation/zoom = 1.
-- If the selected input is inactive, all sources are disabled, routing is zero, or target intensity/reactivity is zero, the corresponding musical effect is neutral. FILE is active only during playback; LIVE is active only while its stream track is live. Image timers and crossfades remain independent.
+- If the selected input is inactive, all sources are disabled, routing is zero, or target intensity/reactivity is zero, the corresponding musical effect is neutral. FILE is active only during playback; LIVE is active only while its stream track is live. Image timers and media transitions remain independent.
 - Beat, Kick, and Snare are regular routable sources with On, Solo, and Amount controls; there is no hidden rhythm-to-shader path.
 - Reactivity is a coarse low/medium/high multiplier sent to both rendering layers.
 
@@ -113,33 +116,37 @@ The app ships with six built-in archetypes:
 An archetype is a purely visual world: its image sequence, chromatic identity, shader interpretation of each target, and particle vocabulary. It must not decide which musical feature drives a target. Musical behavior belongs to the routing matrix and named musical presets. Different archetypes may interpret the same target differently (for example bubbles, streaks, or geometric particles), but target intensity and reactivity remain user-controlled.
 
 Users can create additional archetypes from the footer action. A custom archetype contains a name, one or more image/video blobs, and a `templateIndex` selecting one built-in visual language. Videos are muted, looped and uploaded into the same live WebGL texture slots as still images. The template provides shader and particle interpretation only; the custom archetype receives its own routing, media sequence configuration and musical preset list.
+Only custom archetypes expose a trash action in the footer. After confirmation, deletion removes their IndexedDB record, object URLs and matching index in each parallel runtime/persistence array (routing maps, image configs, sequence states and music presets). If the deleted archetype is active, both renderer roles switch to built-in Deep Drift first; Show peers reload their library. Never leave the arrays out of alignment or offer deletion for built-ins.
 
 The creator can also generate still-image sequences through `/api/generate-image`, a Cloudflare Pages Function that calls OpenAI with the server-side `OPENAI_API_KEY`. The endpoint generates one bounded 1536×1024 WebP per request; the client calls it sequentially to expose progress and limit response size. Generated images become ordinary `File` objects and remain in local IndexedDB. They are not currently shared across browsers or stored in R2/D1.
 
 When animation-sequence mode is enabled, frame one uses the generations endpoint and later keyframes use the edits endpoint with the previous generated frame. Loop mode additionally supplies frame one as a reference and changes the sequence prompt so the final state continues naturally into the origin. The internal request flag remains `stopMotion` for compatibility. Without animation-sequence mode enabled, neither the animation prompt nor image references are used.
 
-`current` is the rendered source archetype and `target` is the selected destination. In smooth mode the shader blends them over 6.5 seconds using `archMix`; cut mode changes immediately. Image crossfades within an archetype are independent of archetype transitions.
+`current` is the rendered source archetype and `target` is the selected destination. In smooth mode the shader blends them over 6.5 seconds using `archMix`; cut mode changes immediately. That system is unchanged and separate from configurable media transitions within an archetype. The shader transition function is nevertheless role-based so the same library can be reused for archetype transitions later.
 
 The `behavior` object currently affects particle quantity/motion; several fields (`warp`, `zoom`, `pan`, `glow`, `pulse`, `dir`) are descriptive or only partially consumed because much of the archetype behavior is hard-coded in GLSL conditionals.
 
 ## Image sequencing
 
-`IMAGE_SETS` contains public asset paths for built-ins and object URLs for custom IndexedDB blobs. Image counts are variable. `imageConfigs` stores:
+`IMAGE_SETS` contains public asset paths for built-ins and object URLs for custom IndexedDB blobs. Image counts are variable. Version 3 of the `imageConfigs` schema stores:
 
 - sequence mode: `auto`, `manual`, or `mapped`;
+- sequence order: `sequential`, `ping-pong`, `random-no-repeat`, or `shuffle`;
+- time base: `seconds` or `beats`;
 - mapped source;
-- crossfade duration and event threshold;
-- per-image enabled state, dwell duration, and playback order.
+- timed, event and manual transition pools, each with transition ids, cycle or random-no-repeat selection, seconds and beat durations, easing and wipe direction;
+- mapped-event threshold;
+- per-image enabled state, seconds and beat dwell duration, and playback order.
 
-Auto mode advances after the current image's dwell time. Mapped continuous sources choose a position from low to high. Mapped beat/kick/snare sources advance on a rising-edge threshold with a minimum dwell. Each active archetype uses two GPU texture slots for the current and next image; `seqStates` tracks loading and crossfade state.
+Auto mode advances after the current image's dwell time and uses the timed pool. In beat mode, dwell is promoted to a power-of-two beat count when necessary to preserve the two-second minimum, then the request is quantized against `beatAnchorSec`; tempo selection is reliable BPM, last reliable BPM, then 120. Mapped continuous sources choose a position from low to high and also use timed without applying order modes; mapped beat/kick/snare sources advance on a rising-edge threshold with their existing minimum dwell and use event. Buttons and `[`/`]` shortcuts use manual and bypass dwell. Sequence order applies to auto, mapped events and manual navigation; random/shuffle PREV traverses shown history. Each active archetype uses two GPU texture slots for the current and next image; `seqStates` tracks loading, transition metadata, order/history state, fixed auto deadline, last reliable tempo, per-pool pick state and locally eased progress. Destination media remains loaded on demand inside `requestImageChange()`. A request during a transition completes it before starting the new change; during loading, one latest-wins pending request is retained. PANIC blocks new advances while allowing an already-started transition to finish. Show mode does not schedule: it continues to follow controller transition-start messages.
 
 ## Persistence and compatibility
 
 Routing maps, image-manager settings, and named per-archetype musical presets persist via `localStorage`:
 
-- current keys: `arv_v043_routing_maps`, `arv_v043_image_configs`;
+- current keys: `arv_v043_routing_maps`, `arv_v045_image_configs` (an object containing `schemaVersion` and `configs`);
 - musical presets: `arv_v044_music_presets` (source controls, target intensity/reactivity, PERF/CTX, global reactivity, and routing; never image sequencing);
-- fallback migration keys: routing `v042`/`v041`, images `v042b`/`v042`.
+- fallback migration keys: routing `v042`/`v041`, images `v043`/`v042b`/`v042`. Phase-2 configs migrate to seconds plus sequential order without changing their existing dwell or transition values. Phase-1 single-transition values migrate into the timed pool with unchanged settings; event defaults to cut and manual to crossfade. Older `crossfade` values first become the equivalent timed crossfade with the same duration and linear easing.
 - audio input device: `eyes4beat_input_device`;
 - per-input analysis trim: `eyes4beat_input_trim`;
 - per-input noise-floor profiles: `eyes4beat_input_calibrations`.
