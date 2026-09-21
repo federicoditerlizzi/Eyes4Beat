@@ -1,6 +1,6 @@
 import './styles.css';
 import { IMAGE_SETS, archetypes, routeSources, routeTargets, sourceLabels, targetLabels, defaultRoutingMaps, blankMap } from './config.js';
-import { computeTargetState, NEUTRAL_TARGETS } from './routing.js';
+import { computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
 import { customMediaSources, deleteCustomArchetype, loadCustomArchetypes, saveCustomArchetype } from './custom-archetypes.js';
 import { resolvePerformanceShortcut } from './shortcuts.js';
@@ -51,6 +51,15 @@ try{
  });
 }catch(error){console.error('Unable to load custom archetypes',error)}
 let routingMaps=JSON.parse(JSON.stringify(defaultRoutingMaps));
+const addedTargetKeys=new Set(['rotate','spiral','tiles']);
+function normalizeRoutingMap(source,fallback){
+ const map=blankMap();
+ routeSources.forEach(s=>routeTargets.forEach(t=>{
+   if(source?.[s]?.[t]!=null)map[s][t]=source[s][t];
+   else if(addedTargetKeys.has(t))map[s][t]=fallback?.[s]?.[t]??0;
+ }));
+ return map;
+}
 try{
  const candidates=[
    localStorage.getItem('arv_v043_routing_maps'),
@@ -67,12 +76,7 @@ try{
    }catch(err){}
  }
  // normalize shape
- routingMaps=archetypes.map((_,i)=>{
-   const src=routingMaps[i]||defaultRoutingMaps[i];
-   const n=blankMap();
-   routeSources.forEach(s=>routeTargets.forEach(t=>{ if(src&&src[s]&&src[s][t]!=null) n[s][t]=src[s][t]; }));
-   return n;
- });
+ routingMaps=archetypes.map((_,i)=>normalizeRoutingMap(routingMaps[i]||defaultRoutingMaps[i],defaultRoutingMaps[i]));
 }catch(e){}
 function saveRoutingMaps(){try{localStorage.setItem('arv_v043_routing_maps',JSON.stringify(routingMaps))}catch(e){}}
 function renderMatrixEditor(){
@@ -109,7 +113,10 @@ const globalCtl = {
  luma:document.getElementById('g-luma'),
  sat:document.getElementById('g-sat'),
  parts:document.getElementById('g-parts'),
- zoom:document.getElementById('g-zoom')
+ zoom:document.getElementById('g-zoom'),
+ rotate:document.getElementById('g-rotate'),
+ spiral:document.getElementById('g-spiral'),
+ tiles:document.getElementById('g-tiles')
 };
 const globalAuto = {
  pulse:document.getElementById('ga-pulse'),
@@ -118,8 +125,17 @@ const globalAuto = {
  luma:document.getElementById('ga-luma'),
  sat:document.getElementById('ga-sat'),
  parts:document.getElementById('ga-parts'),
- zoom:document.getElementById('ga-zoom')
+ zoom:document.getElementById('ga-zoom'),
+ rotate:document.getElementById('ga-rotate'),
+ spiral:document.getElementById('ga-spiral'),
+ tiles:document.getElementById('ga-tiles')
 };
+const targetState={enabled:Object.fromEntries(routeTargets.map(key=>[key,true])),solo:Object.fromEntries(routeTargets.map(key=>[key,false]))};
+document.querySelectorAll('[data-target-on]').forEach(input=>input.onchange=()=>{targetState.enabled[input.dataset.targetOn]=input.checked});
+document.querySelectorAll('[data-target-solo]').forEach(button=>button.onclick=()=>{
+ const key=button.dataset.targetSolo;targetState.solo[key]=!targetState.solo[key];
+ button.classList.toggle('active',targetState.solo[key]);button.setAttribute('aria-pressed',String(targetState.solo[key]));
+});
 let FinalG={...NEUTRAL_TARGETS};
 
 const ctxPerf=document.getElementById('ctxPerf'), ctxPerfVal=document.getElementById('ctxPerfVal');
@@ -148,7 +164,7 @@ function saveMusicPresets(){try{localStorage.setItem('arv_v044_music_presets',JS
 function captureMusicPreset(name){
   const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
   const intensity={},reactivity={};routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
-  return {name,enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:JSON.parse(JSON.stringify(routingMaps[target]))};
+  return {name,enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,targetEnabled:{...targetState.enabled},targetSolo:{...targetState.solo},ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:JSON.parse(JSON.stringify(routingMaps[target]))};
 }
 function applyMusicPreset(p){
   if(!p)return;
@@ -157,10 +173,16 @@ function applyMusicPreset(p){
     const amt=document.getElementById('amt-'+k);if(p.amounts?.[k]!=null)amt.value=p.amounts[k];document.getElementById('show-'+k).textContent=(+amt.value).toFixed(2);
     const on=document.querySelector('[data-on="'+k+'"]'),solo=document.querySelector('[data-solo="'+k+'"]');on.checked=modState.enabled[k];solo.classList.toggle('active',modState.solo[k]);
   });
-  routeTargets.forEach(k=>{if(p.intensity?.[k]!=null)globalCtl[k].value=p.intensity[k];if(p.reactivity?.[k]!=null)globalAuto[k].value=p.reactivity[k]});
+  routeTargets.forEach(k=>{
+    if(p.intensity?.[k]!=null)globalCtl[k].value=p.intensity[k];else if(addedTargetKeys.has(k))globalCtl[k].value=0;
+    if(p.reactivity?.[k]!=null)globalAuto[k].value=p.reactivity[k];else if(addedTargetKeys.has(k))globalAuto[k].value=1;
+    targetState.enabled[k]=p.targetEnabled?.[k]!==false;targetState.solo[k]=!!p.targetSolo?.[k];
+    document.querySelector('[data-target-on="'+k+'"]').checked=targetState.enabled[k];
+    const solo=document.querySelector('[data-target-solo="'+k+'"]');solo.classList.toggle('active',targetState.solo[k]);solo.setAttribute('aria-pressed',String(targetState.solo[k]));
+  });
   if(p.ctxPerf!=null){ctxPerf.value=p.ctxPerf;ctxPerfVal.textContent=(+ctxPerf.value).toFixed(2)}
   if(p.globalReact!=null)document.getElementById('react').value=String(p.globalReact);
-  if(p.routing)routingMaps[target]=JSON.parse(JSON.stringify(p.routing));
+  if(p.routing)routingMaps[target]=normalizeRoutingMap(p.routing,defaultRoutingMaps[target]);
   saveRoutingMaps();
   if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
 }
@@ -239,8 +261,9 @@ function computeGlobalMapping(Eff,now){
   });
   const intensity={},reactivity={};
   routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
-  FinalG=computeTargetState({map,sources:rawSrc,activeSources:activeSrc,intensity,reactivity,globalReactivity:+document.getElementById('react').value});
-  ['pulse','dist','glow','luma','sat','parts','zoom'].forEach(k=>document.getElementById('gf-'+k).textContent=FinalG[k].toFixed(2));
+  const activeTargets=resolveTargetActivity(targetState);
+  FinalG=computeTargetState({map,sources:rawSrc,activeSources:activeSrc,activeTargets,intensity,reactivity,globalReactivity:+document.getElementById('react').value});
+  routeTargets.forEach(k=>document.getElementById('gf-'+k).textContent=FinalG[k].toFixed(2));
   return FinalG;
 }
 
@@ -517,7 +540,7 @@ gl.deleteShader(vertexShader);gl.deleteShader(fragmentShader);gl.useProgram(prog
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const pos=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
 
-const names=['uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uArchA','uArchB'];
+const names=['uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uRotateAmt','uSpiralAmt','uTilesAmt','uArchA','uArchB'];
 const U={}; names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 const samplers=['tCurrentA','tCurrentB','tTargetA','tTargetB']; samplers.forEach((n,i)=>{U[n]=gl.getUniformLocation(prog,n);gl.uniform1i(U[n],i)});
 
@@ -1277,6 +1300,7 @@ function frame(now){
  gl.uniform1i(U.uArchB,visualProfileIndex(target));
  gl.uniform1f(U.uMapPulse,FinalG.pulse);
  gl.uniform1f(U.uDistAmt,FinalG.dist);gl.uniform1f(U.uGlowAmt,FinalG.glow);gl.uniform1f(U.uLumAmt,FinalG.luma);gl.uniform1f(U.uSatAmt,FinalG.sat);gl.uniform1f(U.uZoomAmt,FinalG.zoom);
+ gl.uniform1f(U.uRotateAmt,FinalG.rotate);gl.uniform1f(U.uSpiralAmt,FinalG.spiral);gl.uniform1f(U.uTilesAmt,FinalG.tiles);
  refreshVideoTextures();
  gl.drawArrays(gl.TRIANGLES,0,3);
  updateParticles(now);

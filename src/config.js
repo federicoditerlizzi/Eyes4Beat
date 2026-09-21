@@ -52,11 +52,11 @@ export const archetypes = [
 ];
 
 export const routeSources=['energy','density','drive','boombap','tension','bright','open','beat','kick','snare'];
-export const routeTargets=['pulse','dist','luma','sat','glow','parts','zoom'];
+export const routeTargets=['pulse','dist','luma','sat','glow','parts','zoom','rotate','spiral','tiles'];
 export const sourceLabels={energy:'Energy',density:'Density',drive:'Drive',boombap:'BoomBap',tension:'Tension',bright:'Brightness',open:'Openness',beat:'Beat',kick:'Kick',snare:'Snare'};
-export const targetLabels={pulse:'Pulse',dist:'Distortion',luma:'Brightness',sat:'Saturation',glow:'Glow',parts:'Particles',zoom:'Zoom'};
+export const targetLabels={pulse:'Pulse',dist:'Distortion',luma:'Brightness',sat:'Saturation',glow:'Glow',parts:'Particles',zoom:'Zoom',rotate:'Rotation',spiral:'Spiral',tiles:'Tile Shuffle'};
 export function blankMap(){const m={};routeSources.forEach(s=>{m[s]={};routeTargets.forEach(t=>m[s][t]=0)});return m}
-function makeMap(entries){const m=blankMap();entries.forEach(([s,t,v])=>m[s][t]=v);return m}
+function makeMap(entries){const m=blankMap();entries.forEach(([s,t,v])=>m[s][t]=v);m.energy.rotate=.45;m.drive.spiral=.55;m.kick.tiles=.7;return m}
 export const defaultRoutingMaps=[
  makeMap([['energy','luma',.55],['bright','glow',.70],['open','luma',.38],['open','glow',.28],['open','zoom',-.25],['tension','dist',.38],['density','parts',.42],['kick','pulse',.28],['snare','glow',.34]]),
  makeMap([['energy','pulse',.72],['energy','zoom',.18],['drive','pulse',.42],['boombap','luma',.38],['boombap','sat',.20],['density','parts',.55],['tension','dist',.42],['kick','pulse',.55],['snare','glow',.46]]),

@@ -9,7 +9,7 @@ precision highp float;
 out vec4 fragColor;
 in vec2 vUv;
 uniform vec2 uRes;
-uniform float uTime,uMorphA,uMorphB,uArchMix,uMapPulse,uDistAmt,uGlowAmt,uLumAmt,uSatAmt,uZoomAmt;
+uniform float uTime,uMorphA,uMorphB,uArchMix,uMapPulse,uDistAmt,uGlowAmt,uLumAmt,uSatAmt,uZoomAmt,uRotateAmt,uSpiralAmt,uTilesAmt;
 uniform float uSeedA,uSeedB;
 uniform int uArchA,uArchB,uTransA,uTransB;
 uniform vec4 uParamA,uParamB;
@@ -42,6 +42,31 @@ vec2 parallax(vec2 uv,int a){
  vec2 c=uv-.5;
  vec2 q=c/max(.72,uZoomAmt);
  return q+.5;
+}
+vec2 imageEffectsUV(vec2 uv){
+ float aspect=uRes.x/max(1.,uRes.y);
+ if(uRotateAmt>.001){
+   float angle=uRotateAmt*1.05,c=cos(angle),s=sin(angle);
+   float cover=max(abs(c)+abs(s)/aspect,abs(c)+abs(s)*aspect);
+   vec2 p=(uv-.5)*vec2(aspect,1.);
+   uv=vec2(c*p.x-s*p.y,s*p.x+c*p.y)/vec2(aspect,1.)/cover+.5;
+ }
+ if(uSpiralAmt>.001){
+   vec2 p=(uv-.5)*vec2(aspect,1.);
+   float angle=uSpiralAmt*2.3*(1.-smoothstep(.05,.65,length(p)));
+   float c=cos(angle),s=sin(angle);
+   uv=vec2(c*p.x-s*p.y,s*p.x+c*p.y)/vec2(aspect,1.)+.5;
+ }
+ if(uTilesAmt>.001){
+   vec2 grid=vec2(12.,8.),position=clamp(uv,vec2(0.),vec2(.999999))*grid;
+   vec2 tile=floor(position);
+   float index=tile.y*grid.x+tile.x;
+   float shuffled=mod(index*37.+17.,96.);
+   vec2 sourceTile=vec2(mod(shuffled,grid.x),floor(shuffled/grid.x));
+   vec2 shuffledUv=(sourceTile+fract(position))/grid;
+   uv=mix(uv,shuffledUv,step(hash(tile+vec2(13.,71.)),clamp(uTilesAmt/1.5,0.,1.)));
+ }
+ return uv;
 }
 vec4 samplePair(int slot,int image,vec2 uv){
  if(slot==0){if(image==0)return texture(tCurrentA,uv);return texture(tCurrentB,uv);}
@@ -91,7 +116,7 @@ vec4 transitionPair(int slot,vec2 uv,float p,int transitionType,float seed,vec4 
  return mix(a,b,p);
 }
 vec4 getPair(int slot,int a,vec2 uv,float progress,int transitionType,float seed,vec4 param){
- vec2 q=parallax(warpUV(uv,a),a);
+ vec2 q=imageEffectsUV(parallax(warpUV(uv,a),a));
  return transitionPair(slot,q,progress,transitionType,seed,param);
 }
 vec3 grade(vec3 c,int a){

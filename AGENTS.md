@@ -94,10 +94,10 @@ Treat these as perceptual heuristics, not production-grade source separation or 
 ## Control and modulation model
 
 - Source On/Off, Amount, and Solo live in `modState` plus the `amt-*` inputs.
-- Every target has an intensity (`globalCtl`) and musical reactivity (`globalAuto`). They multiply the routed signal rather than adding autonomous animation.
-- Per-archetype routing maps connect 10 sources to 7 targets. Weights range from -1.5 to +1.5.
+- Every target has On/Solo (`targetState`), intensity (`globalCtl`) and musical reactivity (`globalAuto`). On/Solo gates the target independently of the source controls; intensity and reactivity multiply the routed signal rather than adding autonomous animation. Any target Solo isolates the soloed targets, as in the source panel.
+- Per-archetype routing maps connect 10 sources to 10 targets. Weights range from -1.5 to +1.5. Existing maps/presets without rotation, spiral or tile shuffle receive the new default connections without changing their old weights; those three intensity sliders default to zero.
 - Routing uses raw normalized source values plus a square-root response curve so quieter signals remain visible. Beat, kick, and snare are event-like values. Negative weights invert unipolar effects and move bipolar targets below neutral.
-- Resulting `FinalG` targets are `pulse`, `dist`, `luma`, `sat`, `glow`, `parts`, and `zoom`. Their neutral state is pulse/distortion/glow/particles = 0 and luminance/saturation/zoom = 1.
+- Resulting `FinalG` targets are `pulse`, `dist`, `luma`, `sat`, `glow`, `parts`, `zoom`, `rotate`, `spiral` and `tiles`. Their neutral state is pulse/distortion/glow/particles/rotation/spiral/tile shuffle = 0 and luminance/saturation/zoom = 1. Rotation and spiral transform image UVs; tile shuffle permutes a fixed 12×8 grid in the fragment shader, with no extra textures or CPU-side media work.
 - If the selected input is inactive, all sources are disabled, routing is zero, or target intensity/reactivity is zero, the corresponding musical effect is neutral. FILE is active only during playback; LIVE is active only while its stream track is live. Image timers and media transitions remain independent.
 - Beat, Kick, and Snare are regular routable sources with On, Solo, and Amount controls; there is no hidden rhythm-to-shader path.
 - Reactivity is a coarse low/medium/high multiplier sent to both rendering layers.
@@ -145,7 +145,7 @@ Auto mode advances after the current image's dwell time and uses the timed pool.
 Routing maps, image-manager settings, and named per-archetype musical presets persist via `localStorage`:
 
 - current keys: `arv_v043_routing_maps`, `arv_v045_image_configs` (an object containing `schemaVersion` and `configs`);
-- musical presets: `arv_v044_music_presets` (source controls, target intensity/reactivity, PERF/CTX, global reactivity, and routing; never image sequencing);
+- musical presets: `arv_v044_music_presets` (source controls, target On/Solo/intensity/reactivity, PERF/CTX, global reactivity, and routing; never image sequencing). Presets saved before target On/Solo existed default to all targets enabled and no solos;
 - fallback migration keys: routing `v042`/`v041`, images `v043`/`v042b`/`v042`. Phase-2 configs migrate to seconds plus sequential order without changing their existing dwell or transition values. Phase-1 single-transition values migrate into the timed pool with unchanged settings; event defaults to cut and manual to crossfade. Older `crossfade` values first become the equivalent timed crossfade with the same duration and linear easing.
 - audio input device: `eyes4beat_input_device`;
 - per-input analysis trim: `eyes4beat_input_trim`;

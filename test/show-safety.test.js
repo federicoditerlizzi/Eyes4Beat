@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { NEUTRAL_TARGETS } from '../src/routing.js';
 import { applyPanicTargets } from '../src/show-safety.js';
 
-const routed = { pulse: .8, dist: .6, glow: 1.2, luma: .7, sat: 1.3, parts: .9, zoom: 1.25 };
+const routed = { pulse: .8, dist: .6, glow: 1.2, luma: .7, sat: 1.3, parts: .9, zoom: 1.25, rotate: .4, spiral: .7, tiles: .9 };
 
 test('panic returns exactly neutral targets', () => {
   assert.deepEqual(applyPanicTargets(routed, { panic: true, now: 1000 }), NEUTRAL_TARGETS);
@@ -16,6 +16,7 @@ test('panic release eases from neutral toward routed targets', () => {
   assert.deepEqual(start, NEUTRAL_TARGETS);
   assert.equal(middle.pulse, routed.pulse * .5);
   assert.equal(middle.zoom, 1 + (routed.zoom - 1) * .5);
+  assert.equal(middle.tiles, routed.tiles * .5);
   assert.deepEqual(end, routed);
 });
 

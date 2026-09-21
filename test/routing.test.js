@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blankMap } from '../src/config.js';
-import { computeTargetState, NEUTRAL_TARGETS } from '../src/routing.js';
+import { blankMap, routeTargets } from '../src/config.js';
+import { computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from '../src/routing.js';
 
 const targetControls = Object.fromEntries(
-  ['pulse', 'dist', 'luma', 'sat', 'glow', 'parts', 'zoom'].map((key) => [key, 1]),
+  routeTargets.map((key) => [key, 1]),
 );
 
 function compute(overrides = {}) {
@@ -40,4 +40,34 @@ test('target intensity zero disables that target', () => {
   map.kick.pulse = 1;
   const intensity = { ...targetControls, pulse: 0 };
   assert.equal(compute({ map, sources: { kick: 1 }, activeSources: { kick: true }, intensity }).pulse, 0);
+});
+
+test('inactive targets return to their own neutral value without affecting other targets', () => {
+  const map = blankMap();
+  map.energy.pulse = 1;map.energy.zoom = 1;
+  const state=compute({map,sources:{energy:1},activeSources:{energy:true},activeTargets:{pulse:false,zoom:true}});
+  assert.equal(state.pulse,NEUTRAL_TARGETS.pulse);
+  assert.ok(state.zoom>NEUTRAL_TARGETS.zoom);
+});
+
+test('target solos isolate selected effects without changing their On settings', () => {
+  const enabled={pulse:false,zoom:true};
+  const solo={pulse:true,zoom:false};
+  const active=resolveTargetActivity({enabled,solo});
+  assert.equal(active.pulse,true);
+  assert.equal(active.zoom,false);
+  assert.deepEqual(enabled,{pulse:false,zoom:true});
+  assert.deepEqual(solo,{pulse:true,zoom:false});
+  assert.equal(resolveTargetActivity({enabled,solo:{}}).pulse,false);
+  assert.equal(resolveTargetActivity({enabled,solo:{}}).zoom,true);
+});
+
+test('rotation, spiral and tile shuffle respond independently and return to zero', () => {
+  const map=blankMap();map.energy.rotate=.5;map.energy.spiral=.6;map.energy.tiles=.7;
+  const live=compute({map,sources:{energy:1},activeSources:{energy:true}});
+  for(const key of ['rotate','spiral','tiles'])assert.ok(live[key]>0);
+  const off=compute({map,sources:{energy:1},activeSources:{energy:false}});
+  for(const key of ['rotate','spiral','tiles'])assert.equal(off[key],0);
+  const muted=compute({map,sources:{energy:1},activeSources:{energy:true},activeTargets:{rotate:false,spiral:false,tiles:false}});
+  for(const key of ['rotate','spiral','tiles'])assert.equal(muted[key],0);
 });

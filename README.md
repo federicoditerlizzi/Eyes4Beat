@@ -16,6 +16,8 @@ npm run dev
 
 Open the local URL printed by Vite, load an audio file, and use the routing matrix to connect musical sources to visual targets.
 
+In Musical Targets, each effect has independent On and Solo controls beside its intensity and reactivity sliders. Switching a target off returns only that effect to its neutral value; Solo isolates one or more targets. Musical presets save these switches as well as the slider values.
+
 Custom archetypes can be removed with the trash icon on their footer card. Confirming permanently deletes that archetype's locally stored media, sequence settings, routing and musical presets from this browser. The six built-in archetypes cannot be deleted. If the deleted archetype is active, the app switches to Deep Drift; playback continues. An open Show window refreshes its library automatically.
 
 ## Quality checks
@@ -49,7 +51,7 @@ legacy/index_v044.html      Archived single-file prototype
 
 ## Runtime model
 
-The audio analyzer produces continuous musical states (`energy`, `density`, `drive`, `boombap`, `tension`, `bright`, `open`) and event states (`beat`, `kick`, `snare`). The routing matrix maps them to pulse, distortion, brightness, saturation, glow, particles and zoom.
+The audio analyzer produces continuous musical states (`energy`, `density`, `drive`, `boombap`, `tension`, `bright`, `open`) and event states (`beat`, `kick`, `snare`). The routing matrix maps them to pulse, distortion, brightness, saturation, glow, particles, zoom, rotation, spiral and tile shuffle. The three new image effects start at zero intensity so existing visuals do not change until enabled with their sliders. By default, Energy drives rotation, Drive drives spiral and Kick drives tile shuffle; these connections can be edited in the matrix. Tile shuffle rearranges a fixed 12×8 grid in the shader and does not create or load extra media.
 
 Archetypes define visual identity and image sequencing. Named presets contain only musical configuration. With no active routed signal, visual targets return to their neutral state while the image sequence continues.
 
