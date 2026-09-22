@@ -1,0 +1,17 @@
+CREATE TABLE users (email TEXT PRIMARY KEY, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+CREATE TABLE projects (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, name TEXT NOT NULL, visibility TEXT NOT NULL CHECK (visibility IN ('private','shared')), archetype_order TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL, deleted_at TEXT, updated_by TEXT NOT NULL);
+CREATE TABLE archetypes (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), name TEXT NOT NULL, origin TEXT NOT NULL, look TEXT NOT NULL, routing_map TEXT NOT NULL, image_config TEXT NOT NULL, music_presets TEXT NOT NULL, media TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL, deleted_at TEXT, updated_by TEXT NOT NULL);
+CREATE TABLE look_presets (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), name TEXT NOT NULL, look TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL, deleted_at TEXT, updated_by TEXT NOT NULL);
+CREATE TABLE media (id TEXT PRIMARY KEY, mime TEXT NOT NULL, size INTEGER NOT NULL, uploaded_by TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE archetype_media (archetype_id TEXT NOT NULL REFERENCES archetypes(id), media_id TEXT NOT NULL REFERENCES media(id), PRIMARY KEY(archetype_id,media_id));
+CREATE TABLE visibility_events (project_id TEXT NOT NULL, changed_at TEXT NOT NULL, from_visibility TEXT NOT NULL, to_visibility TEXT NOT NULL);
+CREATE TABLE write_guards (id TEXT PRIMARY KEY, ok INTEGER NOT NULL CHECK(ok = 1));
+CREATE INDEX projects_owner ON projects(owner_email);
+CREATE INDEX projects_visibility ON projects(visibility);
+CREATE INDEX projects_updated ON projects(updated_at);
+CREATE INDEX archetypes_project ON archetypes(project_id);
+CREATE INDEX archetypes_updated ON archetypes(updated_at);
+CREATE INDEX presets_project ON look_presets(project_id);
+CREATE INDEX presets_updated ON look_presets(updated_at);
+CREATE INDEX archetype_media_media ON archetype_media(media_id);
+CREATE INDEX visibility_events_project ON visibility_events(project_id,changed_at);

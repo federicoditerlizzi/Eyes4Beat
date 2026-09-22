@@ -2,5 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "eyesforbeats",
   "pages_build_output_dir": "./dist",
-  "compatibility_date": "2026-09-20"
+  "compatibility_date": "2026-09-20",
+  "d1_databases": [{ "binding": "DB", "database_name": "eyesforbeats", "database_id": "24f131f6-d793-4cb7-9f02-70881756fd91", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "eyesforbeats-media" }]
 }

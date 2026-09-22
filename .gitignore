@@ -3,6 +3,7 @@ dist/
 .DS_Store
 *.log
 .dev.vars
+.wrangler/
 .idea/
 
 setup-access.sh
