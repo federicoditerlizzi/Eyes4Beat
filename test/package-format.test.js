@@ -48,3 +48,16 @@ test('verification detects missing and corrupted media', async () => {
   const corrupt = unzipSync(result.zip); corrupt[path] = new TextEncoder().encode('corrupted media');
   assert.deepEqual((await verifyLibraryPackage(zipSync(corrupt))).checksumMismatches, [path]);
 });
+
+test('project packages require unambiguous source indexes', async () => {
+  const item = { ...archetype('Scene'), imageConfig: { images: [{ enabled: true, duration: 5, order: 0 }] },
+    media: [{ name: 'frame.webp', mime: 'image/webp', sourceIndex: 0, bytes }] };
+  const result = await buildLibraryPackage({ archetypes: [item], kind: 'project', project: { name: 'Set' }, appVersion: 'test', userAgent: 'test' });
+  assert.equal((await verifyLibraryPackage(result.zip)).valid, true);
+  const files = unzipSync(result.zip);
+  result.manifest.archetypes[0].media[0].sourceIndex = 3;
+  files['manifest.json'] = new TextEncoder().encode(JSON.stringify(result.manifest));
+  const report = await verifyLibraryPackage(zipSync(files));
+  assert.equal(report.valid, false);
+  assert.ok(report.invalidEntries.some(entry => entry.includes('media alignment')));
+});

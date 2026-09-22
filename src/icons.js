@@ -1,14 +1,14 @@
 import {
-  Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft,
-  ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, Images, Info, Keyboard, Maximize,
-  Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare, SlidersHorizontal,
+  Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft, Copy,
+  ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, FolderOpen, Images, Info, Keyboard, Maximize,
+  Minimize, MonitorOff, OctagonAlert, Pause, Pencil, Play, Plus, Save, ScreenShare, SlidersHorizontal,
   Trash2, Volume2, VolumeX, X, createElement, createIcons,
 } from 'lucide';
 
 const ICONS = {
-  Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft,
-  ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, Images, Info, Keyboard, Maximize,
-  Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare, SlidersHorizontal,
+  Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft, Copy,
+  ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, FolderOpen, Images, Info, Keyboard, Maximize,
+  Minimize, MonitorOff, OctagonAlert, Pause, Pencil, Play, Plus, Save, ScreenShare, SlidersHorizontal,
   Trash2, Volume2, VolumeX, X,
 };
 
@@ -22,9 +22,11 @@ const iconByName = {
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,
   'chevron-up': ChevronUp,
+  copy: Copy,
   download: Download,
   'file-audio': FileAudio,
   'file-check-2': FileCheck2,
+  'folder-open': FolderOpen,
   images: Images,
   info: Info,
   keyboard: Keyboard,
@@ -33,6 +35,7 @@ const iconByName = {
   'monitor-off': MonitorOff,
   'octagon-alert': OctagonAlert,
   pause: Pause,
+  pencil: Pencil,
   play: Play,
   plus: Plus,
   save: Save,

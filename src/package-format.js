@@ -22,7 +22,7 @@ export async function sha256(bytes) {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function buildLibraryPackage({ archetypes, localStorage = {}, appVersion, userAgent, exportedAt = new Date().toISOString() }, onProgress = () => {}) {
+export async function buildLibraryPackage({ archetypes, localStorage = {}, appVersion, userAgent, exportedAt = new Date().toISOString(), kind = 'legacy-library', project = null, lookPresets = [] }, onProgress = () => {}) {
   const files = {};
   const pathsByHash = new Map();
   let processed = 0;
@@ -39,44 +39,60 @@ export async function buildLibraryPackage({ archetypes, localStorage = {}, appVe
         pathsByHash.set(hash, path);
         files[path] = [bytes, { level: 0 }];
       }
-      media.push({ path, name: item.name, mime: item.mime, size: bytes.byteLength, sha256: hash });
+      media.push({ path, name: item.name, mime: item.mime, size: bytes.byteLength, sha256: hash,
+        ...(Number.isInteger(item.sourceIndex) ? { sourceIndex: item.sourceIndex } : {}) });
       await onProgress(++processed, total);
     }
     entries.push({ ...archetype, media });
   }
-  const manifest = { format: PACKAGE_FORMAT, formatVersion: PACKAGE_VERSION, kind: 'legacy-library', exportedAt, appVersion, userAgent, archetypes: entries };
+  const manifest = { format: PACKAGE_FORMAT, formatVersion: kind === 'project' ? 3 : PACKAGE_VERSION, kind,
+    exportedAt, appVersion, userAgent, ...(kind === 'project' ? { project: { name: project?.name || 'Untitled project' }, lookPresets } : {}), archetypes: entries };
   files['manifest.json'] = encoder.encode(JSON.stringify(manifest, null, 2));
   files['raw/local-storage.json'] = encoder.encode(JSON.stringify(localStorage, null, 2));
   return { manifest, zip: zipSync(files, { level: 6 }), uniqueMediaCount: pathsByHash.size,
     mediaBytes: [...pathsByHash.values()].reduce((sum, path) => sum + files[path][0].byteLength, 0) };
 }
 
-export async function verifyLibraryPackage(zipBytes) {
+export function readPackage(zipBytes) {
   const files = unzipSync(zipBytes);
   if (!files['manifest.json']) throw new Error('manifest.json is missing');
   let manifest;
   try { manifest = JSON.parse(decoder.decode(files['manifest.json'])); }
   catch { throw new Error('manifest.json is not valid JSON'); }
-  if (manifest.format !== PACKAGE_FORMAT || manifest.kind !== 'legacy-library' || !Array.isArray(manifest.archetypes)) {
+  if (manifest.format !== PACKAGE_FORMAT || !['legacy-library', 'project'].includes(manifest.kind) || !Array.isArray(manifest.archetypes)) {
     throw new Error('Not an Eyes4Beat library package');
   }
-  const supported = manifest.formatVersion === 1 || manifest.formatVersion === PACKAGE_VERSION;
+  return { manifest, files };
+}
+
+export async function verifyLibraryPackage(zipBytes) {
+  const { manifest, files } = readPackage(zipBytes);
+  const supported = manifest.kind === 'project' ? manifest.formatVersion === 3 : [1, 2].includes(manifest.formatVersion);
   const missingFiles = [], checksumMismatches = [], invalidEntries = [];
+  if (manifest.kind === 'project' && (typeof manifest.project?.name !== 'string' || !Array.isArray(manifest.lookPresets))) invalidEntries.push('project metadata');
   const checked = new Set();
   for (const archetype of manifest.archetypes) {
-    if (!['builtin', 'custom'].includes(archetype.kind) || !Number.isInteger(archetype.legacyIndex) ||
+    if (manifest.kind === 'legacy-library' && (!['builtin', 'custom'].includes(archetype.kind) || !Number.isInteger(archetype.legacyIndex) ||
       typeof archetype.legacyId !== 'string' || typeof archetype.name !== 'string' ||
       !Number.isInteger(archetype.profile) || !archetype.behavior || !archetype.routingMap ||
       !archetype.imageConfig || !Array.isArray(archetype.musicPresets) ||
-      (manifest.formatVersion === 2 && (!archetype.look?.distortion || !archetype.look?.color || !archetype.look?.particles))) {
+      (manifest.formatVersion === 2 && (!archetype.look?.distortion || !archetype.look?.color || !archetype.look?.particles))) ||
+      (manifest.kind === 'project' && (typeof archetype.name !== 'string' || !archetype.look?.distortion ||
+        !archetype.routingMap || !archetype.imageConfig || !Array.isArray(archetype.musicPresets)))) {
       invalidEntries.push(archetype.name || 'Malformed archetype');
     }
     if (!Array.isArray(archetype.media)) { invalidEntries.push(archetype.name || 'Unnamed archetype'); continue; }
+    if (manifest.kind === 'project') {
+      const indexes = archetype.media.map(item => item.sourceIndex);
+      if (indexes.length !== archetype.imageConfig?.images?.length || new Set(indexes).size !== indexes.length ||
+        indexes.some(index => !Number.isInteger(index) || index < 0 || index >= indexes.length)) invalidEntries.push(`${archetype.name || 'Unnamed archetype'} media alignment`);
+    }
     for (const item of archetype.media) {
       if (!/^media\/[a-f0-9]{64}\.[a-z0-9]+$/.test(item.path || '') || item.sha256 !== item.path.split('/')[1].split('.')[0] ||
         typeof item.name !== 'string' || typeof item.mime !== 'string' || !Number.isSafeInteger(item.size) || item.size < 0) {
         invalidEntries.push(item.path || 'Invalid media path'); continue;
       }
+      if (manifest.kind === 'project' && (!Number.isInteger(item.sourceIndex) || item.sourceIndex < 0)) invalidEntries.push(item.path);
       if (checked.has(item.path)) {
         if (files[item.path]?.byteLength !== item.size) checksumMismatches.push(item.path);
         continue;
@@ -87,9 +103,11 @@ export async function verifyLibraryPackage(zipBytes) {
       else if (bytes.byteLength !== item.size || await sha256(bytes) !== item.sha256) checksumMismatches.push(item.path);
     }
   }
-  if (!files['raw/local-storage.json']) missingFiles.push('raw/local-storage.json');
-  else try { const data = JSON.parse(decoder.decode(files['raw/local-storage.json'])); if (!data || Array.isArray(data) || typeof data !== 'object') invalidEntries.push('raw/local-storage.json'); }
-    catch { invalidEntries.push('raw/local-storage.json'); }
+  if (manifest.kind === 'legacy-library') {
+    if (!files['raw/local-storage.json']) missingFiles.push('raw/local-storage.json');
+    else try { const data = JSON.parse(decoder.decode(files['raw/local-storage.json'])); if (!data || Array.isArray(data) || typeof data !== 'object') invalidEntries.push('raw/local-storage.json'); }
+      catch { invalidEntries.push('raw/local-storage.json'); }
+  }
   return { formatVersion: manifest.formatVersion, supported,
     archetypeCount: manifest.archetypes.length, mediaCount: checked.size, missingFiles, checksumMismatches, invalidEntries,
     valid: supported && !missingFiles.length && !checksumMismatches.length && !invalidEntries.length };

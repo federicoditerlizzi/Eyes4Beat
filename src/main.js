@@ -1,18 +1,21 @@
 import './styles.css';
-import { IMAGE_SETS, archetypes, routeSources, routeTargets, sourceLabels, targetLabels, defaultRoutingMaps, blankMap } from './config.js';
+import { routeSources, routeTargets, sourceLabels, targetLabels, blankMap } from './config.js';
 import { computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
-import { customMediaSources, deleteCustomArchetype, loadCustomArchetypes, saveCustomArchetype } from './custom-archetypes.js';
+import { collectLegacyLibrary, legacyDataAvailable } from './legacy/export.js';
+import { LocalLibraryRepository } from './library/local-repository.js';
+import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, resolveShowIndexes, starterRoutingForOrigin } from './library/runtime.js';
 import { resolvePerformanceShortcut } from './shortcuts.js';
 import { applyPanicTargets } from './show-safety.js';
 import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
 import { averageNoiseFloor, computeDbfsMeter, spectralSubtract, subtractRmsNoise } from './input-calibration.js';
 import { icon, initIcons } from './icons.js';
-import { buildLibraryPackage, verifyLibraryPackage } from './package-format.js';
-import { FACTORY_LOOKS, LOOK_FIELDS, LOOK_STORAGE_KEY, NEUTRAL_LOOK, hexRgb, lookForArchetype, lookUniforms, normalizeLook, particleSpeed, stepParticle } from './looks.js';
+import { buildLibraryPackage, readPackage, verifyLibraryPackage } from './package-format.js';
+import { prepareImportedArchetype } from './library/package-mapping.js';
+import { FACTORY_LOOKS, LOOK_FIELDS, NEUTRAL_LOOK, hexRgb, lookUniforms, normalizeLook, particleSpeed, stepParticle } from './looks.js';
 import packageInfo from '../package.json';
 import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS, resolveTransitionParam, transitionShaderId } from './transitions.js';
-import { DWELL_BEAT_OPTIONS, IMAGE_CONFIG_STORAGE_KEY, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS, applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, normalizeImageConfigStore, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from './image-sequencer.js';
+import { DWELL_BEAT_OPTIONS, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS, applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from './image-sequencer.js';
 
 const isShowMode=new URLSearchParams(location.search).get('show')==='1';
 document.body.classList.toggle('showMode',isShowMode);
@@ -27,7 +30,7 @@ function applyButtonTooltips(root=document){if(root.matches?.('button'))ensureBu
 applyButtonTooltips();
 new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)applyButtonTooltips(node)}))).observe(document.body,{childList:true,subtree:true});
 const showChannel='BroadcastChannel' in window?new BroadcastChannel('eyesforbeats-show-v1'):null;
-let remoteVisualState=null,lastShowPeerAt=0,showWindow=null,lastShowBroadcastAt=0;
+let remoteVisualState=null,lastShowPeerAt=0,showWindow=null,lastShowBroadcastAt=0,remoteSwitchPromise=null;
 let blackoutActive=false,panicActive=false,panicReleaseStartedAt=null;
 if(isShowMode){
  const status=document.createElement('div');status.id='showConnection';status.className='showConnection';status.textContent='WAITING FOR CONTROLLER';document.body.appendChild(status);
@@ -37,30 +40,71 @@ if(isShowMode){
 }
 showChannel?.addEventListener('message',event=>{
  const message=event.data||{};
- if(isShowMode&&message.type==='frame'){remoteVisualState=message.state;document.getElementById('showConnection')?.classList.add('connected')}
+ if(isShowMode&&message.type==='frame'){
+   remoteVisualState=message.state;document.getElementById('showConnection')?.classList.add('connected');
+   if(message.state?.projectId!==activeProject?.id&&!remoteSwitchPromise){
+     remoteSwitchPromise=openProject(message.state.projectId,{fromShow:true}).catch(error=>console.error('Unable to switch Show project',error)).finally(()=>{remoteSwitchPromise=null});
+   }
+ }
  if(isShowMode&&message.type==='transition-start')startRemoteImageTransition(message.transition,0);
- if(isShowMode&&message.type==='library-changed')location.reload();
+ if(isShowMode&&message.type==='library-changed'&&!remoteSwitchPromise){
+   remoteSwitchPromise=openProject(message.projectId||activeProject?.id,{fromShow:true}).catch(error=>console.error('Unable to reload Show library',error)).finally(()=>{remoteSwitchPromise=null});
+ }
  if(!isShowMode&&message.type==='show-ready')lastShowPeerAt=Date.now();
 });
 
-const builtInArchetypeCount=archetypes.length;
-try{
- const storedArchetypes=await loadCustomArchetypes();
- storedArchetypes.forEach(record=>{
-   const template=Math.max(0,Math.min(builtInArchetypeCount-1,record.templateIndex||0));
-   archetypes.push({name:record.name,customId:record.id,templateIndex:record.templateIndex == null ? null : template});
-   IMAGE_SETS.push(customMediaSources(record));
-   defaultRoutingMaps.push(record.templateIndex == null ? blankMap() : JSON.parse(JSON.stringify(defaultRoutingMaps[template])));
+const repository=new LocalLibraryRepository();
+let activeProject=null,projectLookPresets=[],idToIndex=new Map();
+let projectSwitching=false,projectSwitchGeneration=0;
+const archetypes=[],IMAGE_SETS=[],defaultRoutingMaps=[];
+let looks=[];
+const pendingWrites=new Map();
+let writeQueue=Promise.resolve();
+function queueArchetypeWrite(index,changes){
+ const id=archetypes[index]?.id;if(!id||isShowMode)return;
+ const pending=pendingWrites.get(id)||{changes:{},timer:null};
+ Object.assign(pending.changes,structuredClone(changes));clearTimeout(pending.timer);
+ pending.timer=setTimeout(()=>{pendingWrites.delete(id);writeQueue=writeQueue.then(()=>repository.updateArchetype(id,pending.changes)).catch(error=>console.error('Unable to save archetype',error))},500);
+ pendingWrites.set(id,pending);
+}
+async function flushArchetypeWrites(){
+ const writes=[...pendingWrites.entries()];pendingWrites.clear();
+ for(const [id,pending] of writes){clearTimeout(pending.timer);writeQueue=writeQueue.then(()=>repository.updateArchetype(id,pending.changes))}
+ await writeQueue;
+}
+function saveLooks(){queueArchetypeWrite(target,{look:looks[target]})}
+const libraryActionDialog=document.getElementById('libraryActionDialog'),libraryActionInput=document.getElementById('libraryActionInput');
+function askLibraryAction({title,label='NAME',value='',message='',confirm='CONFIRM',requireInput=true}){
+ document.getElementById('libraryActionTitle').textContent=title;
+ document.getElementById('libraryActionLabel').textContent=label;
+ document.getElementById('libraryActionLabel').hidden=!requireInput;
+ libraryActionInput.hidden=!requireInput;libraryActionInput.required=requireInput;libraryActionInput.value=value;
+ document.getElementById('libraryActionMessage').textContent=message;
+ document.getElementById('confirmLibraryAction').textContent=confirm;
+ libraryActionDialog.showModal();if(requireInput)libraryActionInput.focus();
+ return new Promise(resolve=>{
+  const finish=result=>{libraryActionDialog.close();resolve(result)};
+  document.getElementById('libraryActionForm').onsubmit=event=>{event.preventDefault();finish(requireInput?libraryActionInput.value.trim():true)};
+  document.getElementById('cancelLibraryAction').onclick=()=>finish(null);
+  document.getElementById('closeLibraryAction').onclick=()=>finish(null);
+  libraryActionDialog.oncancel=()=>resolve(null);
  });
-}catch(error){console.error('Unable to load custom archetypes',error)}
-let storedLooks=null;
-try{storedLooks=JSON.parse(localStorage.getItem(LOOK_STORAGE_KEY)||'null')}catch{}
-let looks=archetypes.map((arch,index)=>normalizeLook(Array.isArray(storedLooks)?storedLooks[index]??lookForArchetype(arch,index):lookForArchetype(arch,index)));
-function saveLooks(){try{localStorage.setItem(LOOK_STORAGE_KEY,JSON.stringify(looks))}catch(error){console.error('Unable to save looks',error)}}
-if(!Array.isArray(storedLooks)||storedLooks.length!==looks.length)saveLooks();
+}
 const lookPanel=document.getElementById('lookPanel'),lookPreset=document.getElementById('lookPreset');
-lookPreset.innerHTML='<option value="">Select a factory look…</option><option value="blank">Blank</option>';
-FACTORY_LOOKS.forEach((preset,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=preset.name;lookPreset.appendChild(option)});
+function renderProjectLookPresets(){
+ lookPreset.innerHTML='<option value="">Select a look…</option><option value="blank">Blank</option>';
+ FACTORY_LOOKS.forEach(preset=>{const option=document.createElement('option');option.value='factory:'+preset.id;option.textContent=preset.name;lookPreset.appendChild(option)});
+ const list=document.getElementById('projectLookPresetList');list.replaceChildren();
+ projectLookPresets.forEach(preset=>{
+  const option=document.createElement('option');option.value='project:'+preset.id;option.textContent='Project · '+preset.name;lookPreset.appendChild(option);
+  const row=document.createElement('div');row.className='projectLookPresetRow';const label=document.createElement('span');label.textContent=preset.name;row.appendChild(label);
+  for(const [glyph,title,action] of [['pencil','Rename look preset',async()=>{const name=await askLibraryAction({title:'RENAME LOOK PRESET',value:preset.name,confirm:'RENAME'});if(name)await repository.updateLookPreset(preset.id,{name})}],
+    ['trash-2','Delete look preset',async()=>{if(await askLibraryAction({title:'DELETE LOOK PRESET',message:`Delete “${preset.name}” from this project?`,confirm:'DELETE',requireInput:false}))await repository.deleteLookPreset(preset.id)}]]){
+    const button=document.createElement('button');button.className='iconAction';button.innerHTML=icon(glyph);button.setAttribute('aria-label',title+' '+preset.name);button.dataset.tooltip=title;
+    button.onclick=async()=>{try{await action();projectLookPresets=await repository.listLookPresets(activeProject.id);renderProjectLookPresets()}catch(error){alert(error.message)}};row.appendChild(button)
+  }list.appendChild(row);
+ });
+}
 function closeLookEditor(){lookPanel.classList.remove('open')}
 function updateLookRoutingWarning(){
  const map=routingMaps[target],empty=routeSources.every(source=>routeTargets.every(key=>!Number(map?.[source]?.[key])));
@@ -94,41 +138,21 @@ function renderLookEditor(){
 }
 document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeMappingMatrix();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
 document.getElementById('closeLook').onclick=closeLookEditor;
-lookPreset.onchange=()=>{
+lookPreset.onchange=async()=>{
  const value=lookPreset.value;if(!value)return;
- const label=value==='blank'?'Blank':FACTORY_LOOKS[+value].name;
- if(!confirm(`Replace ${archetypes[target].name}'s current look with ${label}? This cannot be undone.`)){lookPreset.value='';return}
- looks[target]=normalizeLook(value==='blank'?NEUTRAL_LOOK:FACTORY_LOOKS[+value].look);saveLooks();renderLookEditor();
+ const factory=FACTORY_LOOKS.find(preset=>value==='factory:'+preset.id),projectPreset=projectLookPresets.find(preset=>value==='project:'+preset.id);
+ const label=value==='blank'?'Blank':factory?.name||projectPreset?.name;if(!label){lookPreset.value='';return}
+ if(!await askLibraryAction({title:'REPLACE LOOK',message:`Replace ${archetypes[target].name}'s current look with ${label}? This cannot be undone.`,confirm:'REPLACE',requireInput:false})){lookPreset.value='';return}
+ looks[target]=normalizeLook(value==='blank'?NEUTRAL_LOOK:factory?.look||projectPreset.look);saveLooks();renderLookEditor();
 };
-let routingMaps=JSON.parse(JSON.stringify(defaultRoutingMaps));
+document.getElementById('saveLookPreset').onclick=async()=>{
+ if(!activeProject||!archetypes[target])return;const name=await askLibraryAction({title:'SAVE LOOK PRESET',confirm:'SAVE'});if(!name)return;
+ try{await repository.createLookPreset(activeProject.id,name,looks[target]);projectLookPresets=await repository.listLookPresets(activeProject.id);renderProjectLookPresets()}
+ catch(error){alert(error.message)}
+};
+let routingMaps=[];
 const addedTargetKeys=new Set(['rotate','spiral','tiles']);
-function normalizeRoutingMap(source,fallback){
- const map=blankMap();
- routeSources.forEach(s=>routeTargets.forEach(t=>{
-   if(source?.[s]?.[t]!=null)map[s][t]=source[s][t];
-   else if(addedTargetKeys.has(t))map[s][t]=fallback?.[s]?.[t]??0;
- }));
- return map;
-}
-try{
- const candidates=[
-   localStorage.getItem('arv_v043_routing_maps'),
-   localStorage.getItem('arv_v042_routing_maps'),
-   localStorage.getItem('arv_v041_routing_maps')
- ].filter(Boolean);
- for(const saved of candidates){
-   try{
-     const p=JSON.parse(saved);
-     if(!Array.isArray(p)) continue;
-     if(p.length>=6){ routingMaps=p; break; }
-     if(p.length===5){ routingMaps=p.map((m)=>{const n=blankMap();routeSources.forEach(s=>routeTargets.forEach(t=>{if(m&&m[s]&&m[s][t]!=null)n[s][t]=m[s][t]}));return n}); routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[5]))); break; }
-     if(p.length===4){ routingMaps=p.map((m)=>{const n=blankMap();routeSources.forEach(s=>routeTargets.forEach(t=>{if(m&&m[s]&&m[s][t]!=null)n[s][t]=m[s][t]}));return n}); routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[4]))); routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[5]))); break; }
-   }catch(err){}
- }
- // normalize shape
- routingMaps=archetypes.map((_,i)=>normalizeRoutingMap(routingMaps[i]||defaultRoutingMaps[i],defaultRoutingMaps[i]));
-}catch(e){}
-function saveRoutingMaps(){try{localStorage.setItem('arv_v043_routing_maps',JSON.stringify(routingMaps))}catch(e){}}
+function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]})}
 function renderMatrixEditor(){
  const a=(typeof target==='number')?target:0;document.getElementById('matrixArchName').textContent=archetypes[a].name;
  let h='<table class="mapTable"><thead><tr><th>SOURCE ↓ / TARGET →</th>';routeTargets.forEach(t=>h+='<th>'+targetLabels[t]+'</th>');h+='</tr></thead><tbody>';
@@ -206,12 +230,8 @@ document.querySelectorAll('[data-solo]').forEach(btn=>btn.onclick=()=>{
   btn.classList.toggle('active',modState.solo[k]);
 });
 
-let musicPresets=archetypes.map(()=>[]);
-try{
-  const saved=JSON.parse(localStorage.getItem('arv_v044_music_presets')||'null');
-  if(Array.isArray(saved))musicPresets=archetypes.map((_,i)=>Array.isArray(saved[i])?saved[i]:[]);
-}catch(e){}
-function saveMusicPresets(){try{localStorage.setItem('arv_v044_music_presets',JSON.stringify(musicPresets))}catch(e){}}
+let musicPresets=[];
+function saveMusicPresets(){queueArchetypeWrite(target,{musicPresets:musicPresets[target]})}
 function captureMusicPreset(name){
   const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
   const intensity={},reactivity={};routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
@@ -239,6 +259,8 @@ function applyMusicPreset(p){
 }
 function syncPresetActions(){
   const hasSelection=document.getElementById('presetSelect').value!=='';
+  document.getElementById('presetSelect').disabled=!archetypes.length;
+  document.getElementById('presetSave').disabled=!archetypes.length;
   document.getElementById('presetUpdate').disabled=!hasSelection;
   document.getElementById('presetDelete').disabled=!hasSelection;
 }
@@ -319,28 +341,11 @@ function computeGlobalMapping(Eff,now){
 }
 
 
-function factoryProfileIndex(index){return archetypes[index]?.templateIndex??(index<builtInArchetypeCount?index:0)}
 function mediaUrl(source){return typeof source==='string'?source:source.url}
 function mediaIsVideo(source){return typeof source!=='string'&&source.type?.startsWith('video/')}
-function createDefaultImageConfig(idx){
- const profile=factoryProfileIndex(idx),count=IMAGE_SETS[idx].length;
- const transitionSettings=(pool,duration=2.2)=>({pool,pickOrder:'cycle',duration,durationBeats:.5,easing:'linear',wipeDirection:'left'});
- return {
- mode:'auto',source:profile===0?'open':profile===1?'drive':profile===2?'bright':profile===3?'energy':'boombap',
- timeBase:'seconds',orderMode:'sequential',triggers:{timed:transitionSettings(['crossfade']),event:transitionSettings(['cut'],.05),manual:transitionSettings(['crossfade'])},threshold:.55,
- images:Array.from({length:count},(_,i)=>({enabled:true,duration:[10,10,12,9,11][i%5],durationBeats:4,order:i}))
- }}
-const defaultImageConfigs=archetypes.map((_,idx)=>createDefaultImageConfig(idx));
-let imageConfigs=JSON.parse(JSON.stringify(defaultImageConfigs));
-try{
- let s=localStorage.getItem(IMAGE_CONFIG_STORAGE_KEY);
- if(!s)s=localStorage.getItem('arv_v043_image_configs');
- if(!s)s=localStorage.getItem('arv_v042b_image_configs');
- if(!s)s=localStorage.getItem('arv_v042_image_configs');
- if(s)imageConfigs=normalizeImageConfigStore(JSON.parse(s),defaultImageConfigs).configs;
-}catch(e){}
-imageConfigs=normalizeImageConfigStore({configs:imageConfigs},defaultImageConfigs).configs;
-function saveImageConfigs(){try{localStorage.setItem(IMAGE_CONFIG_STORAGE_KEY,JSON.stringify(normalizeImageConfigStore({configs:imageConfigs},defaultImageConfigs)))}catch(e){}}
+const defaultImageConfigs=[];
+let imageConfigs=[];
+function saveImageConfigs(){queueArchetypeWrite(target,{imageConfig:imageConfigs[target]})}
 function createSequenceState(){return {current:0,next:1,blend:0,rawProgress:0,transitioning:false,loading:false,loadingTarget:null,pendingRequest:null,poolStates:{timed:{},event:{},manual:{}},orderState:{},shownHistory:[0],shownHistoryCursor:0,nextAutoAt:null,lastReliableBpm:0,scheduledTempo:null,transStart:0,durationMs:0,transitionId:'crossfade',transitionShaderId:transitionShaderId('crossfade'),seed:0,param:[0,0,0,0],easing:'linear',lastSwitch:performance.now(),lastMappedSignal:0}}
 const seqStates=archetypes.map(createSequenceState);
 function orderedImages(a,enabledOnly=false){
@@ -501,8 +506,9 @@ function openArchetypeCreator(){
  closeImageManager();closeMappingMatrix();closeLookEditor();
  const select=document.getElementById('customArchTemplate');select.innerHTML='';
  const blank=document.createElement('option');blank.value='blank';blank.textContent='Blank';select.appendChild(blank);
- FACTORY_LOOKS.forEach((preset,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=preset.name;select.appendChild(option)});
- select.value='0';
+ FACTORY_LOOKS.forEach(preset=>{const option=document.createElement('option');option.value='factory:'+preset.id;option.textContent=preset.name;select.appendChild(option)});
+ projectLookPresets.forEach(preset=>{const option=document.createElement('option');option.value='preset:'+preset.id;option.textContent='Project · '+preset.name;select.appendChild(option)});
+ select.value='factory:'+FACTORY_LOOKS[0].id;
  creatorPanel.classList.add('open');
 }
 document.getElementById('closeCreator').onclick=closeArchetypeCreator;
@@ -553,24 +559,19 @@ creatorGenerateButton.onclick=async()=>{
  finally{creatorGenerateButton.disabled=false;document.getElementById('createArchetype').disabled=false}
 };
 document.getElementById('createArchetype').onclick=async()=>{
- const name=document.getElementById('customArchName').value.trim(),choice=document.getElementById('customArchTemplate').value,templateIndex=choice==='blank'?null:+choice,button=document.getElementById('createArchetype');
+ const name=document.getElementById('customArchName').value.trim(),choice=document.getElementById('customArchTemplate').value,button=document.getElementById('createArchetype');
+ if(!activeProject){creatorStatus.textContent='Create a project first.';return}
  if(!name){creatorStatus.textContent='Give the archetype a name.';return}
  if(!pendingArchetypeFiles.length){creatorStatus.textContent='Select or generate at least one image.';return}
  button.disabled=true;creatorStatus.textContent='Saving media locally…';
  try{
-   const record=await saveCustomArchetype({name,templateIndex,media:pendingArchetypeFiles});
-   const template=templateIndex==null?null:Math.max(0,Math.min(builtInArchetypeCount-1,templateIndex));
-   archetypes.push({name,customId:record.id,templateIndex:template});
-   IMAGE_SETS.push(customMediaSources(record));
-   const initialRouting=template==null?blankMap():structuredClone(defaultRoutingMaps[template]);
-   defaultRoutingMaps.push(structuredClone(initialRouting));routingMaps.push(structuredClone(initialRouting));
-   looks.push(normalizeLook(template==null?NEUTRAL_LOOK:FACTORY_LOOKS[template].look));saveLooks();
-   const newIndex=archetypes.length-1,newConfig=createDefaultImageConfig(newIndex);
-   defaultImageConfigs.push(JSON.parse(JSON.stringify(newConfig)));imageConfigs.push(newConfig);
-   const sequenceState=createSequenceState();sequenceState.next=Math.min(1,IMAGE_SETS[newIndex].length-1);seqStates.push(sequenceState);
-   musicPresets.push([]);saveRoutingMaps();saveImageConfigs();saveMusicPresets();renderArchetypeBar();
-   showChannel?.postMessage({type:'library-changed'});
-   closeArchetypeCreator();document.getElementById('customArchName').value='';await selectArchetype(newIndex);
+   const factory=choice.startsWith('factory:')?FACTORY_LOOKS.find(item=>item.id===choice.slice(8)):null;
+   const preset=choice.startsWith('preset:')?projectLookPresets.find(item=>item.id===choice.slice(7)):null;
+   const origin={type:factory?'factory':preset?'project-preset':'blank',presetId:factory?.id||preset?.id||null};
+   const media=[];for(const file of pendingArchetypeFiles){const saved=await repository.putMedia(file,file.type);media.push({mediaId:saved.id,name:file.name,mime:saved.mime,size:saved.size})}
+   const item=await repository.createArchetype(activeProject.id,{name,origin,look:normalizeLook(factory?.look||preset?.look||NEUTRAL_LOOK),
+     routingMap:factory?structuredClone(factory.starter.routingMap):blankMap(),imageConfig:defaultImageConfig(media.length,factory?.starter.imageSource),musicPresets:[],media});
+   closeArchetypeCreator();document.getElementById('customArchName').value='';await openProject(activeProject.id,{preferredId:item.id});
  }catch(error){console.error(error);creatorStatus.textContent='Could not save this archetype in the browser.'}
  finally{button.disabled=false}
 };
@@ -644,6 +645,10 @@ function uploadMediaToSlot(role,slot,a,imgIdx){
    img.src=url;
  });
 }
+const pendingMediaLoads=new Set();
+function trackedMediaLoad(role,slot,a,imgIdx){
+ const load=uploadMediaToSlot(role,slot,a,imgIdx);pendingMediaLoads.add(load);load.finally(()=>pendingMediaLoads.delete(load));return load;
+}
 function swapTextureSlots(role){
  const tmp=texObjs[role][0];texObjs[role][0]=texObjs[role][1];texObjs[role][1]=tmp;
  const media=texMedia[role][0];texMedia[role][0]=texMedia[role][1];texMedia[role][1]=media;
@@ -670,7 +675,7 @@ function beginSequenceTransition(s,transition,now,initialRawProgress=0){
  s.transStart=now-s.rawProgress*transition.duration*1000;s.durationMs=transition.duration*1000;s.transitioning=true;s.loading=false;
  s.transitionId=transition.transitionId;s.transitionShaderId=transition.transitionShaderId??transitionShaderId(transition.transitionId);s.seed=transition.seed;s.param=[...transition.param];s.easing=transition.easing;
 }
-function sequenceTransitionPayload(s,a){return {archetype:a,from:s.current,to:s.next,transitionId:s.transitionId,seed:s.seed,param:[...s.param],easing:s.easing,duration:s.durationMs/1000}}
+function sequenceTransitionPayload(s,a){return {archetypeId:archetypes[a]?.id,from:s.current,to:s.next,transitionId:s.transitionId,seed:s.seed,param:[...s.param],easing:s.easing,duration:s.durationMs/1000}}
 function advanceSequenceTransition(role,a,now){
  const s=seqStates[a];if(!s?.transitioning)return false;
  s.rawProgress=s.durationMs>0?Math.min(1,(now-s.transStart)/s.durationMs):1;
@@ -687,14 +692,15 @@ function completeSequenceTransition(role,a,now=performance.now()){
 }
 async function requestImageChange(a,idx,triggerClass=null){
  const s=seqStates[a];
- if(deletingArchetype||panicActive||!imageConfigs[a].images[idx]?.enabled)return;
+ if(projectSwitching||deletingArchetype||panicActive||!imageConfigs[a].images[idx]?.enabled)return;
  triggerClass=triggerClass||classifyImageTrigger(imageConfigs[a]);
  const request={idx,triggerClass};
  if(s.loading){s.pendingRequest=resolvePendingImageRequest(s.pendingRequest,request);return}
  if(s.transitioning)completeSequenceTransition(1,a);
  if(idx===s.current)return;
  s.loading=true;s.loadingTarget=idx;
- await uploadMediaToSlot(1,1,a,idx);
+ await trackedMediaLoad(1,1,a,idx);
+ if(projectSwitching){s.loading=false;s.loadingTarget=null;s.pendingRequest=null;return}
  s.loading=false;s.loadingTarget=null;
  if(panicActive){s.pendingRequest=null;return}
  if(s.pendingRequest){const pending=s.pendingRequest;s.pendingRequest=null;if(pending.idx!==idx){requestImageChange(a,pending.idx,pending.triggerClass);return}triggerClass=pending.triggerClass}
@@ -733,35 +739,36 @@ function updateImageSequence(now,Eff,freezeAdvances=false){
 async function loadArchetypeIntoRole(role,a){
  const s=seqStates[a],e=enabledImages(a),i0=e.includes(s.current)?s.current:(e[0]??0),i1=s.transitioning?s.next:i0;
  s.current=i0;s.next=i1;
- await Promise.all([uploadMediaToSlot(role,0,a,i0),uploadMediaToSlot(role,1,a,i1)]);
+ await Promise.all([trackedMediaLoad(role,0,a,i0),trackedMediaLoad(role,1,a,i1)]);
 }
 const remoteRoleSignatures=['',''],remoteTransitionSignatures=['',''],remoteRoleTokens=[0,0];
 function syncRemoteRole(role,a,state){
- if(!state||!IMAGE_SETS[a])return;
+ if(projectSwitching||!state||!IMAGE_SETS[a])return;
  const i0=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.current||0));
  const i1=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.next??i0));
  const signature=`${a}:${i0}:${i1}`;
  if(remoteRoleSignatures[role]===signature)return;
  remoteRoleSignatures[role]=signature;const token=++remoteRoleTokens[role];
- Promise.all([uploadMediaToSlot(role,0,a,i0),uploadMediaToSlot(role,1,a,i1)]).then(()=>{
+ Promise.all([trackedMediaLoad(role,0,a,i0),trackedMediaLoad(role,1,a,i1)]).then(()=>{
    if(token!==remoteRoleTokens[role])return;
    const seq=seqStates[a];seq.current=i0;seq.next=i1;seq.blend=0;seq.rawProgress=0;seq.transitioning=false;
  }).catch(error=>console.error('Unable to synchronize show media',error));
 }
-function remoteTransitionSignature(transition,role){return `${role}:${transition.archetype}:${transition.from}:${transition.to}:${transition.seed}`}
+function remoteTransitionSignature(transition,role){return `${role}:${transition.archetypeId}:${transition.from}:${transition.to}:${transition.seed}`}
 async function startRemoteImageTransition(transition,initialRawProgress=0,forcedRole=null){
- if(!isShowMode||!transition||!IMAGE_SETS[transition.archetype])return;
- const role=forcedRole??(transition.archetype===current&&transition.archetype!==target?0:1),signature=remoteTransitionSignature(transition,role);
+ const a=idToIndex.get(transition?.archetypeId);
+ if(projectSwitching||!isShowMode||!transition||a==null||!IMAGE_SETS[a])return;
+ const role=forcedRole??(a===current&&a!==target?0:1),signature=remoteTransitionSignature(transition,role);
  if(remoteTransitionSignatures[role]===signature)return;
- const sourceReady=remoteRoleSignatures[role].startsWith(`${transition.archetype}:${transition.from}:`);
- remoteTransitionSignatures[role]=signature;remoteRoleSignatures[role]=`${transition.archetype}:${transition.from}:${transition.to}`;
- const token=++remoteRoleTokens[role],s=seqStates[transition.archetype];s.loading=true;
+ const sourceReady=remoteRoleSignatures[role].startsWith(`${a}:${transition.from}:`);
+ remoteTransitionSignatures[role]=signature;remoteRoleSignatures[role]=`${a}:${transition.from}:${transition.to}`;
+ const token=++remoteRoleTokens[role],s=seqStates[a];s.loading=true;
  try{
-   const loads=[uploadMediaToSlot(role,1,transition.archetype,transition.to)];
-   if(!sourceReady)loads.push(uploadMediaToSlot(role,0,transition.archetype,transition.from));
+   const loads=[trackedMediaLoad(role,1,a,transition.to)];
+   if(!sourceReady)loads.push(trackedMediaLoad(role,0,a,transition.from));
    await Promise.all(loads);if(token!==remoteRoleTokens[role])return;
    beginSequenceTransition(s,{...transition,transitionShaderId:transitionShaderId(transition.transitionId),param:transition.param||resolveTransitionParam(transition.transitionId,'left',transition.seed)},performance.now(),initialRawProgress);
-   if(s.transitionId==='cut')advanceSequenceTransition(role,transition.archetype,performance.now());
+   if(s.transitionId==='cut')advanceSequenceTransition(role,a,performance.now());
  }catch(error){s.loading=false;console.error('Unable to start show transition',error)}
 }
 function syncRemoteSequence(role,a,state){
@@ -771,10 +778,10 @@ function syncRemoteSequence(role,a,state){
  remoteTransitionSignatures[role]='';syncRemoteRole(role,a,state);
 }
 function applyRemoteVisualState(state){
- if(!state||!archetypes[state.current]||!archetypes[state.target])return;
+ const indexes=resolveShowIndexes(state,activeProject?.id||null,idToIndex);if(!indexes)return;
  setBlackout(!!state.blackout);
  FinalG={...NEUTRAL_TARGETS,...state.finalG};
- current=state.current;target=state.target;archMix=Number.isFinite(state.archMix)?state.archMix:1;transitioning=!!state.transitioning;
+ current=indexes.current;target=indexes.target;archMix=Number.isFinite(state.archMix)?state.archMix:1;transitioning=!!state.transitioning;
  if(current!==target)syncRemoteSequence(0,current,state.seqA);
  syncRemoteSequence(1,target,state.seqB);
 }
@@ -782,9 +789,8 @@ function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next
 function broadcastShowFrame(now,Eff){
  if(!showChannel||now-lastShowBroadcastAt<40)return;
  lastShowBroadcastAt=now;
- showChannel.postMessage({type:'frame',state:{finalG:{...FinalG},eff:{...Eff},current,target,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
+ showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,finalG:{...FinalG},eff:{...Eff},currentId:archetypes[current]?.id||null,targetId:archetypes[target]?.id||null,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
 }
-Promise.all([loadArchetypeIntoRole(0,0),loadArchetypeIntoRole(1,0)]).then(()=>start());
 
 let analyser=null,F=null,T=null,audioObjectUrl=null;
 const audio=document.getElementById('audio');
@@ -1161,7 +1167,7 @@ let archetypeSelectionBusy=false,queuedArchetype=null;
 let deletingArchetype=false,pendingDeleteArchId=null;
 const deleteArchDialog=document.getElementById('deleteArchDialog');
 function openDeleteArchetype(id){
- const arch=archetypes.find(item=>item.customId===id);if(!arch)return;
+ const arch=archetypes.find(item=>item.id===id);if(!arch)return;
  pendingDeleteArchId=id;
  document.getElementById('deleteArchName').textContent=arch.name;
  document.getElementById('deleteArchError').hidden=true;
@@ -1172,45 +1178,124 @@ deleteArchDialog.addEventListener('cancel',event=>{if(deletingArchetype)event.pr
 document.getElementById('closeDeleteArchDialog').onclick=()=>{if(!deletingArchetype)deleteArchDialog.close()};
 document.getElementById('cancelDeleteArch').onclick=()=>{if(!deletingArchetype)deleteArchDialog.close()};
 document.getElementById('confirmDeleteArch').onclick=async()=>{
- const index=archetypes.findIndex(item=>item.customId===pendingDeleteArchId);
- if(index<builtInArchetypeCount||deletingArchetype)return;
+ const index=idToIndex.get(pendingDeleteArchId);
+ if(index==null||deletingArchetype)return;
  const error=document.getElementById('deleteArchError');
  if(archetypeSelectionBusy||seqStates.some(state=>state.loading)){error.textContent='Wait for the current media load or archetype switch to finish, then try again.';error.hidden=false;return}
  const button=document.getElementById('confirmDeleteArch');button.disabled=true;deletingArchetype=true;
  try{
-   await deleteCustomArchetype(pendingDeleteArchId);
-   if(current===index||target===index){
-     await Promise.all([loadArchetypeIntoRole(0,0),loadArchetypeIntoRole(1,0)]);
-     current=target=0;archMix=1;transitioning=false;
-   }else{
-     if(current>index)current--;
-     if(target>index)target--;
-   }
-   IMAGE_SETS[index].forEach(source=>{if(typeof source!=='string')URL.revokeObjectURL(source.url)});
-   archetypes.splice(index,1);IMAGE_SETS.splice(index,1);defaultRoutingMaps.splice(index,1);routingMaps.splice(index,1);
-   defaultImageConfigs.splice(index,1);imageConfigs.splice(index,1);seqStates.splice(index,1);musicPresets.splice(index,1);looks.splice(index,1);
-   saveRoutingMaps();saveImageConfigs();saveMusicPresets();saveLooks();renderArchetypeBar();renderPresetControls();
-   if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
-   if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
-   if(lookPanel.classList.contains('open'))renderLookEditor();
-   deleteArchDialog.close();showChannel?.postMessage({type:'library-changed'});
+   await flushArchetypeWrites();await repository.deleteArchetype(pendingDeleteArchId);
+   const remaining=activeProject.archetypeOrder.filter(id=>id!==pendingDeleteArchId);
+   await openProject(activeProject.id,{preferredId:remaining[Math.min(index,remaining.length-1)]||null});
+   deleteArchDialog.close();
  }catch(cause){console.error('Unable to delete archetype',cause);error.textContent='Could not complete deletion. Please reload the app before trying again.';error.hidden=false}
  finally{button.disabled=false;deletingArchetype=false}
 };
 renderPresetControls();
+const projectSelect=document.getElementById('projectSelect'),projectPanel=document.getElementById('projectPanel');
+async function refreshProjects(){
+ const projects=await repository.listProjects();projectSelect.replaceChildren();
+ if(!projects.length){const option=document.createElement('option');option.textContent='NO PROJECT';option.value='';projectSelect.appendChild(option)}
+ else for(const project of projects){const option=document.createElement('option');option.value=project.id;option.textContent=project.name;projectSelect.appendChild(option)}
+ projectSelect.value=activeProject?.id||'';
+ document.getElementById('projectEmptyHint').hidden=!!projects.length;
+ for(const id of ['renameProject','duplicateProject','deleteProject','exportProject'])document.getElementById(id).disabled=!activeProject;
+}
+async function openProject(projectId,{fromShow=false,preferredId=null}={}){
+ const generation=++projectSwitchGeneration;projectSwitching=true;
+ try{
+ await flushArchetypeWrites();
+ await Promise.all([...pendingMediaLoads]);
+ const nextProject=projectId?await repository.getProject(projectId):null;
+ if(projectId&&(!nextProject||nextProject.deletedAt))throw new Error('Project not found');
+ const records=nextProject?await repository.listArchetypes(nextProject.id):[];
+ const mediaRecords=new Map();
+ for(const record of records)for(const media of record.media){if(!mediaRecords.has(media.mediaId)){
+   const saved=await repository.getMedia(media.mediaId);if(!saved)throw new Error(`Missing media ${media.mediaId}`);mediaRecords.set(media.mediaId,saved);
+ }}
+ const urls=new Map();for(const [mediaId,saved] of mediaRecords)urls.set(mediaId,URL.createObjectURL(saved.blob));
+ const runtime=nextProject?buildProjectRuntime(nextProject,records,media=>({url:urls.get(media.mediaId),type:media.mime,name:media.name,mediaId:media.mediaId})):null;
+ if(generation!==projectSwitchGeneration){for(const url of urls.values())URL.revokeObjectURL(url);return}
+ for(const role of [0,1])for(const slot of [0,1])releaseTextureMedia(role,slot);
+ const oldUrls=new Set(IMAGE_SETS.flat().map(source=>typeof source==='string'?null:source.url).filter(Boolean));oldUrls.forEach(URL.revokeObjectURL);
+ archetypes.splice(0,archetypes.length,...(runtime?.archetypes||[]));IMAGE_SETS.splice(0,IMAGE_SETS.length,...(runtime?.IMAGE_SETS||[]));
+ defaultRoutingMaps.splice(0,defaultRoutingMaps.length,...(runtime?.defaultRoutingMaps||[]));routingMaps=runtime?.routingMaps||[];
+ defaultImageConfigs.splice(0,defaultImageConfigs.length,...(runtime?.defaultImageConfigs||[]));imageConfigs=runtime?.imageConfigs||[];
+ musicPresets=runtime?.musicPresets||[];looks=runtime?.looks||[];idToIndex=runtime?.idToIndex||new Map();
+ seqStates.splice(0,seqStates.length,...archetypes.map(createSequenceState));
+ remoteRoleSignatures.fill('');remoteTransitionSignatures.fill('');remoteRoleTokens[0]++;remoteRoleTokens[1]++;
+ activeProject=nextProject;current=target=idToIndex.get(preferredId)??0;archMix=1;transitioning=false;queuedArchetype=null;archetypeSelectionBusy=false;particles=[];
+ if(archetypes.length)await Promise.all([loadArchetypeIntoRole(0,target),loadArchetypeIntoRole(1,target)]);
+ if(generation!==projectSwitchGeneration)return;
+ if(!fromShow)await repository.setActiveProject(activeProject?.id||null);
+ projectLookPresets=activeProject?await repository.listLookPresets(activeProject.id):[];renderProjectLookPresets();
+ renderArchetypeBar();renderPresetControls();await refreshProjects();
+ if(lookPanel.classList.contains('open')){if(archetypes.length)renderLookEditor();else closeLookEditor()}
+ if(document.getElementById('imagePanel').classList.contains('open')){if(archetypes.length)renderImageManager();else closeImageManager()}
+ if(document.getElementById('matrixPanel').classList.contains('open')){if(archetypes.length)renderMatrixEditor();else closeMappingMatrix()}
+ document.getElementById('lookBtn').disabled=!archetypes.length;document.getElementById('imageMgrBtn').disabled=!archetypes.length;
+ document.getElementById('openMatrix').disabled=!archetypes.length;
+ if(!fromShow)showChannel?.postMessage({type:'library-changed',projectId:activeProject?.id||null});
+ }finally{if(generation===projectSwitchGeneration)projectSwitching=false}
+}
+async function initializeLibrary(){
+ const projects=await repository.listProjects(),meta=await repository.getMeta();
+ const initial=projects.find(project=>project.id===meta.lastActiveProjectId)||projects[0]||null;
+ await openProject(initial?.id||null,{fromShow:isShowMode});
+ if(!isShowMode)try{document.getElementById('legacySection').hidden=!(await legacyDataAvailable())}catch(error){console.warn('Legacy archive check failed',error)}
+ if(!projects.length&&!isShowMode)projectPanel.classList.add('open');
+}
+projectSelect.onchange=()=>openProject(projectSelect.value).catch(error=>{console.error(error);document.getElementById('projectStatus').textContent=error.message});
+document.getElementById('projectManageBtn').onclick=()=>projectPanel.classList.toggle('open');
+document.getElementById('closeProjectPanel').onclick=()=>projectPanel.classList.remove('open');
+const projectNameDialog=document.getElementById('projectNameDialog'),projectNameInput=document.getElementById('projectNameInput');
+let projectDialogAction='create';
+function openProjectDialog(action){
+ projectDialogAction=action;const deleting=action==='delete';
+ document.getElementById('projectDialogTitle').textContent=action==='create'?'CREATE PROJECT':deleting?'DELETE PROJECT':'RENAME PROJECT';
+ document.getElementById('projectDialogLabel').textContent=deleting?`TYPE “${activeProject.name}” TO CONFIRM`:'PROJECT NAME';
+ document.getElementById('confirmProjectDialog').textContent=action.toUpperCase();
+ document.getElementById('confirmProjectDialog').classList.toggle('dangerBtn',deleting);
+ projectNameInput.value=action==='rename'?activeProject.name:'';
+ document.getElementById('projectDialogError').textContent='';projectNameDialog.showModal();projectNameInput.focus();
+}
+document.getElementById('cancelProjectDialog').onclick=()=>projectNameDialog.close();
+document.getElementById('closeProjectDialog').onclick=()=>projectNameDialog.close();
+document.getElementById('projectNameForm').onsubmit=async event=>{
+ event.preventDefault();const name=projectNameInput.value.trim(),button=document.getElementById('confirmProjectDialog');
+ if(projectDialogAction==='delete'&&name!==activeProject.name){document.getElementById('projectDialogError').textContent='The name does not match.';return}
+ button.disabled=true;
+ try{
+  if(projectDialogAction==='create'){const project=await repository.createProject(name);await openProject(project.id);projectPanel.classList.remove('open')}
+  else if(projectDialogAction==='rename'){activeProject=await repository.updateProject(activeProject.id,{name});await refreshProjects()}
+  else{await flushArchetypeWrites();await repository.deleteProject(activeProject.id);const remaining=await repository.listProjects();await openProject(remaining[0]?.id||null);if(!remaining.length)projectPanel.classList.add('open')}
+  projectNameDialog.close();
+ }catch(error){document.getElementById('projectDialogError').textContent=error.message}
+ finally{button.disabled=false}
+};
+document.getElementById('createProject').onclick=()=>openProjectDialog('create');
+document.getElementById('renameProject').onclick=()=>{if(activeProject)openProjectDialog('rename')};
+document.getElementById('duplicateProject').onclick=async()=>{
+ if(!activeProject)return;try{const project=await repository.duplicateProject(activeProject.id);await openProject(project.id);projectPanel.classList.remove('open')}
+ catch(error){document.getElementById('projectStatus').textContent=error.message}
+};
+document.getElementById('deleteProject').onclick=()=>{if(activeProject)openProjectDialog('delete')};
 function renderArchetypeBar(){
  const bar=document.getElementById('archBar');bar.innerHTML='';
+ if(!archetypes.length){const empty=document.createElement('span');empty.className='archEmpty';empty.textContent=activeProject?'No archetypes yet — create one or import a package.':'Create or import a project to begin.';bar.appendChild(empty)}
  archetypes.forEach((arch,index)=>{
    const button=document.createElement('button');button.className='arch'+(index===target?' active':'');button.dataset.a=String(index);
-   const profile=factoryProfileIndex(index),subtitle=arch.customId?'custom · '+(arch.templateIndex==null?'blank':FACTORY_LOOKS[profile].name.toLowerCase()):FACTORY_LOOKS[index].subtitle;
+   const origin=arch.origin?.type||'blank',subtitle=origin==='factory'?(FACTORY_LOOKS.find(preset=>preset.id===arch.origin.presetId)?.subtitle||'factory look'):origin==='project-preset'?'project look preset':origin==='import'?'imported':'blank look';
    button.innerHTML='<b></b><span></span>';button.querySelector('b').textContent=(index+1)+' · '+arch.name;button.querySelector('span').textContent=subtitle;button.onclick=()=>selectArchetype(index);
-   if(arch.customId){
-     const item=document.createElement('div');item.className='archItem';item.appendChild(button);
-     const remove=document.createElement('button');remove.type='button';remove.className='iconAction archDelete';remove.innerHTML=icon('trash-2');remove.setAttribute('aria-label','Delete archetype '+arch.name);remove.dataset.tooltip='Delete archetype';remove.onclick=()=>openDeleteArchetype(arch.customId);item.appendChild(remove);bar.appendChild(item);
-   }else bar.appendChild(button);
+   const item=document.createElement('div');item.className='archItem';item.appendChild(button);
+   const actions=[['pencil','Rename archetype',async()=>{const name=await askLibraryAction({title:'RENAME ARCHETYPE',value:arch.name,confirm:'RENAME'});if(!name)return;await repository.updateArchetype(arch.id,{name});arch.name=name;renderArchetypeBar();if(lookPanel.classList.contains('open'))renderLookEditor()}],
+    ['copy','Duplicate archetype',async()=>{await flushArchetypeWrites();const duplicate=await repository.duplicateArchetype(arch.id);await openProject(activeProject.id,{preferredId:duplicate.id})}],
+    ['chevron-left','Move archetype earlier',async()=>{if(index===0)return;const order=[...activeProject.archetypeOrder];[order[index-1],order[index]]=[order[index],order[index-1]];await repository.reorderArchetypes(activeProject.id,order);await openProject(activeProject.id,{preferredId:arch.id})}],
+    ['chevron-right','Move archetype later',async()=>{if(index===archetypes.length-1)return;const order=[...activeProject.archetypeOrder];[order[index],order[index+1]]=[order[index+1],order[index]];await repository.reorderArchetypes(activeProject.id,order);await openProject(activeProject.id,{preferredId:arch.id})}],
+    ['trash-2','Delete archetype',()=>openDeleteArchetype(arch.id)]];
+   const toolbar=document.createElement('div');toolbar.className='archToolbar';for(const [glyph,label,action] of actions){const control=document.createElement('button');control.type='button';control.className='iconAction';control.innerHTML=icon(glyph);control.setAttribute('aria-label',label+' '+arch.name);control.dataset.tooltip=label;control.onclick=()=>Promise.resolve(action()).catch(error=>{console.error(error);alert(error.message)});toolbar.appendChild(control)}item.appendChild(toolbar);bar.appendChild(item);
  });
- const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=openArchetypeCreator;bar.appendChild(createButton);
- const exportButton=document.createElement('button');exportButton.className='libraryFooter';exportButton.innerHTML=icon('download')+' EXPORT LIBRARY';exportButton.title='Export library package';exportButton.onclick=exportLibrary;bar.appendChild(exportButton);
+ const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=()=>activeProject?openArchetypeCreator():projectPanel.classList.add('open');bar.appendChild(createButton);
  const verifyButton=document.createElement('button');verifyButton.className='libraryFooter';verifyButton.innerHTML=icon('file-check-2')+' VERIFY PACKAGE';verifyButton.title='Verify library package without importing it';verifyButton.onclick=()=>document.getElementById('verifyPackageFile').click();bar.appendChild(verifyButton);
 }
 const packageDialog=document.createElement('dialog');packageDialog.className='packageDialog';packageDialog.innerHTML='<div class="packageDialogHead"><h2>LIBRARY PACKAGE</h2><button type="button" class="iconAction closeAction" aria-label="Close package report" data-tooltip="Close package report">'+icon('x')+'</button></div><p id="packageMessage"></p><progress id="packageProgress" max="1" value="0" hidden></progress><pre id="packageReport"></pre><div id="packageConfirmation" hidden><button type="button" id="packageContinue">CONTINUE EXPORT</button><button type="button" id="packageCancel">CANCEL</button></div>';document.body.appendChild(packageDialog);
@@ -1229,23 +1314,10 @@ function localStorageBackup(){
 function libraryFilename(date=new Date()){
  const digits=value=>String(value).padStart(2,'0');return `eyes4beat-library-${date.getFullYear()}${digits(date.getMonth()+1)}${digits(date.getDate())}-${digits(date.getHours())}${digits(date.getMinutes())}.zip`;
 }
-async function exportLibrary(){
- const exportButton=document.querySelector('.libraryFooter');exportButton.disabled=true;
+async function exportPackage(snapshot,{kind='legacy-library',project=null,lookPresets=[],button=null}={}){
+ if(button)button.disabled=true;
  try{
   packageStatus('Checking library size…');
-  const customRecords=new Map((await loadCustomArchetypes()).map(record=>[record.id,record]));
-  const snapshot=archetypes.map((arch,index)=>{
-   const record=arch.customId?customRecords.get(arch.customId):null;
-   if(arch.customId&&!record)throw new Error(`Stored media for ${arch.name} could not be found`);
-   const sources=record?(record.media||record.images||[]):IMAGE_SETS[index];
-   const media=orderedImages(index,false).map(mediaIndex=>{
-    const source=sources[mediaIndex];if(!source)throw new Error(`Missing media ${mediaIndex+1} for ${arch.name}`);
-    return record?{name:source.name||`media-${mediaIndex+1}`,mime:source.type||'application/octet-stream',blob:source}:
-     {name:source.split('/').pop(),mime:'',url:new URL(source,location.href).href};
-   });
-   return {kind:record?'custom':'builtin',legacyIndex:index,legacyId:record?record.id:arch.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''),name:arch.name,
-    profile:factoryProfileIndex(index),templateIndex:record?arch.templateIndex:null,behavior:{},look:structuredClone(looks[index]),routingMap:structuredClone(routingMaps[index]),imageConfig:structuredClone(imageConfigs[index]),musicPresets:structuredClone(musicPresets[index]),media};
-  });
   let estimated=0,sizeUnknown=false;
   for(const arch of snapshot)for(const item of arch.media){
    if(item.blob)estimated+=item.blob.size;
@@ -1266,12 +1338,23 @@ async function exportLibrary(){
    item.mime=item.mime||blob.type||'application/octet-stream';item.bytes=new Uint8Array(await blob.arrayBuffer());delete item.blob;delete item.url;loaded++;
   }
   packageStatus('Packing and checking media…',{done:0,total});
-  const result=await buildLibraryPackage({archetypes:snapshot,localStorage:localStorageBackup(),appVersion:packageInfo.version,userAgent:navigator.userAgent},async(done,count)=>{packageStatus(`Hashing media ${done} of ${count}…`,{done,total:count});await new Promise(resolve=>requestAnimationFrame(resolve))});
-  const blob=new Blob([result.zip],{type:'application/zip'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=libraryFilename();document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  const result=await buildLibraryPackage({archetypes:snapshot,localStorage:kind==='legacy-library'?localStorageBackup():{},appVersion:packageInfo.version,userAgent:navigator.userAgent,kind,project,lookPresets},async(done,count)=>{packageStatus(`Hashing media ${done} of ${count}…`,{done,total:count});await new Promise(resolve=>requestAnimationFrame(resolve))});
+  const blob=new Blob([result.zip],{type:'application/zip'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=kind==='project'?libraryFilename().replace('library','project'):libraryFilename();document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
   packageStatus('Export complete.',null,`${result.manifest.archetypes.length} archetypes · ${result.uniqueMediaCount} unique media files · ${(blob.size/1024/1024).toFixed(1)} MB package`);
  }catch(error){console.error('Library export failed',error);packageStatus('Export failed.',null,error.message||String(error))}
- finally{exportButton.disabled=false}
+ finally{if(button)button.disabled=false}
 }
+document.getElementById('exportLegacy').onclick=async event=>exportPackage(await collectLegacyLibrary(),{button:event.currentTarget});
+document.getElementById('exportBuiltins').onclick=async event=>exportPackage(await collectLegacyLibrary({builtinsOnly:true}),{button:event.currentTarget});
+document.getElementById('exportProject').onclick=async event=>{
+ if(!activeProject)return;await flushArchetypeWrites();
+ const records=new Map((await repository.listArchetypes(activeProject.id)).map(record=>[record.id,record]));
+ const snapshot=[];for(const id of activeProject.archetypeOrder){const record=records.get(id);if(!record)continue;
+   const media=[];for(const [sourceIndex,ref] of record.media.entries()){const saved=await repository.getMedia(ref.mediaId);if(!saved)throw new Error('Missing project media '+ref.mediaId);media.push({...ref,sourceIndex,blob:saved.blob})}
+   snapshot.push({id:record.id,name:record.name,origin:record.origin,look:record.look,routingMap:record.routingMap,imageConfig:record.imageConfig,musicPresets:record.musicPresets,media});
+ }
+ await exportPackage(snapshot,{kind:'project',project:activeProject,lookPresets:projectLookPresets,button:event.currentTarget});
+};
 verifyPackageFile.onchange=async()=>{
  const file=verifyPackageFile.files?.[0];verifyPackageFile.value='';if(!file)return;
  try{
@@ -1281,15 +1364,59 @@ verifyPackageFile.onchange=async()=>{
    `Format version: ${report.formatVersion}${report.supported?'':' (unsupported)'}\nArchetypes: ${report.archetypeCount}\nMedia files: ${report.mediaCount}\nMissing files: ${report.missingFiles.length}${report.missingFiles.length?'\n'+report.missingFiles.join('\n'):''}\nChecksum mismatches: ${report.checksumMismatches.length}${report.checksumMismatches.length?'\n'+report.checksumMismatches.join('\n'):''}\nInvalid entries: ${report.invalidEntries.length}${report.invalidEntries.length?'\n'+report.invalidEntries.join('\n'):''}`);
  }catch(error){console.error('Package verification failed',error);packageStatus('Could not verify package.',null,error.message||String(error))}
 };
+document.getElementById('importPackage').onclick=()=>document.getElementById('importPackageFile').click();
+document.getElementById('importPackageFile').onchange=async event=>{
+ const file=event.target.files?.[0];event.target.value='';if(!file)return;
+ try{
+  const zip=new Uint8Array(await file.arrayBuffer()),report=await verifyLibraryPackage(zip);
+  if(!report.valid)throw new Error(`Package validation failed: ${report.missingFiles.length} missing, ${report.checksumMismatches.length} corrupt, ${report.invalidEntries.length} invalid entries.`);
+  const {manifest,files}=readPackage(zip),projects=await repository.listProjects();
+  const dialog=document.createElement('dialog');dialog.className='packageDialog importDialog';
+  const heading=document.createElement('div');heading.className='packageDialogHead';const title=document.createElement('h2');title.textContent=`IMPORT · ${manifest.archetypes.length} ARCHETYPES`;heading.appendChild(title);
+  const close=document.createElement('button');close.type='button';close.className='iconAction closeAction';close.innerHTML=icon('x');close.setAttribute('aria-label','Close import');close.dataset.tooltip='Close import';close.onclick=()=>dialog.close();heading.appendChild(close);dialog.appendChild(heading);
+  const destination=document.createElement('select');destination.setAttribute('aria-label','Import destination project');
+  const newOption=document.createElement('option');newOption.value='';newOption.textContent='New project';destination.appendChild(newOption);
+  projects.forEach(project=>{const option=document.createElement('option');option.value=project.id;option.textContent=project.name;destination.appendChild(option)});dialog.appendChild(destination);
+  const name=document.createElement('input');name.type='text';name.value=manifest.kind==='project'?manifest.project.name:file.name.replace(/\.zip$/i,'');name.placeholder='New project name';name.setAttribute('aria-label','New project name');dialog.appendChild(name);
+  destination.onchange=()=>{name.hidden=!!destination.value};
+  const list=document.createElement('div');list.className='importChoices';const boxes=[];
+  manifest.archetypes.forEach((arch,index)=>{const row=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=true;boxes.push(box);row.append(box,document.createTextNode(`${index+1}. ${arch.name} · ${arch.media.length} media`));list.appendChild(row)});dialog.appendChild(list);
+  const status=document.createElement('p');status.setAttribute('role','status');dialog.appendChild(status);
+  const controls=document.createElement('div');controls.className='dialogActions';
+  const cancel=document.createElement('button');cancel.textContent='CANCEL';cancel.onclick=()=>dialog.close();
+  const apply=document.createElement('button');apply.textContent='IMPORT SELECTED';controls.append(cancel,apply);dialog.appendChild(controls);document.body.appendChild(dialog);
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+  apply.onclick=async()=>{
+   const selected=manifest.archetypes.filter((_,index)=>boxes[index].checked);
+   if(!selected.length){status.textContent='Select at least one archetype.';return}
+   if(!destination.value&&!name.value.trim()){status.textContent='Enter a project name.';return}
+   apply.disabled=true;
+   try{
+    const project=destination.value?await repository.getProject(destination.value):await repository.createProject(name.value.trim());
+    const presetIds=new Map();
+    if(manifest.kind==='project')for(const preset of manifest.lookPresets){const saved=await repository.createLookPreset(project.id,preset.name,normalizeLook(preset.look));presetIds.set(preset.id,saved.id)}
+    for(const [index,source] of selected.entries()){
+      status.textContent=`Importing ${index+1} of ${selected.length}: ${source.name}`;
+      const prepared=prepareImportedArchetype(source,manifest.formatVersion),media=[];
+      for(const ref of prepared.media){const blob=new Blob([files[ref.path]],{type:ref.mime});const saved=await repository.putMedia(blob,ref.mime);media.push({mediaId:saved.id,name:ref.name,mime:ref.mime,size:ref.size})}
+      if(presetIds.has(source.origin?.presetId))prepared.origin.presetId=presetIds.get(source.origin.presetId);
+      await repository.createArchetype(project.id,{...prepared,media});
+    }
+    dialog.close();projectPanel.classList.remove('open');await openProject(project.id);
+   }catch(error){console.error('Import failed',error);status.textContent=`Import stopped: ${error.message}. Data already imported remains in the project.`;apply.disabled=false}
+  };
+ }catch(error){console.error('Package validation failed',error);document.getElementById('projectStatus').textContent=error.message}
+};
 async function selectArchetype(a){
  if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
- if(deletingArchetype)return;
+ if(projectSwitching||deletingArchetype)return;
  if(a===target)return;
  if(archetypeSelectionBusy){queuedArchetype=a;return}
  archetypeSelectionBusy=true;
  const previous=target;
  try{
    await Promise.all([loadArchetypeIntoRole(0,previous),loadArchetypeIntoRole(1,a)]);
+   if(projectSwitching)return;
    current=previous;target=a;
    document.querySelectorAll('.arch').forEach(x=>x.classList.toggle('active',+x.dataset.a===a));
    if(mode==='cut'||panicActive){current=target;archMix=1;transitioning=false}
@@ -1304,7 +1431,6 @@ async function selectArchetype(a){
    if(queued!=null&&queued!==target)selectArchetype(queued);
  }
 }
-renderArchetypeBar();
 const archBarToggle=document.getElementById('archBarToggle'),uiRoot=document.querySelector('.ui'),archBar=document.getElementById('archBar');
 function updateFooterMetrics(){uiRoot.style.setProperty('--footer-height',`${Math.ceil(archBar.getBoundingClientRect().height)}px`)}
 new ResizeObserver(updateFooterMetrics).observe(archBar);updateFooterMetrics();
@@ -1377,6 +1503,12 @@ function start(){requestAnimationFrame(frame)}
 function frame(now){
  resize();
  const dt=Math.min(.05,(now-last)/1000);last=now;
+ if(!archetypes.length){
+   if(!isShowMode){analyze(now);if(showChannel&&now-lastShowBroadcastAt>=40){lastShowBroadcastAt=now;showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,currentId:null,targetId:null,blackout:blackoutActive,finalG:{...NEUTRAL_TARGETS}}})}}
+   else if(remoteVisualState)setBlackout(!!remoteVisualState.blackout);
+   gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
+   requestAnimationFrame(frame);return;
+ }
  let Eff;
  if(isShowMode){
    if(remoteVisualState){applyRemoteVisualState(remoteVisualState);BPM=remoteVisualState.bpm||0;BeatPulse=remoteVisualState.beat||0;KickFast=remoteVisualState.kick||0;SnareFast=remoteVisualState.snare||0}
@@ -1399,7 +1531,7 @@ function frame(now){
    if(panicReleaseStartedAt!=null&&now-panicReleaseStartedAt>=300)panicReleaseStartedAt=null;
    routeTargets.forEach(key=>{document.getElementById('gf-'+key).textContent=FinalG[key].toFixed(2)});
    if(transitioning&&current!==target&&seqStates[current]?.transitioning)advanceSequenceTransition(0,current,now);
-   updateImageSequence(now,Eff,panicActive);
+   if(!projectSwitching)updateImageSequence(now,Eff,panicActive);
    if(transitioning){
      let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
      if(x>=1){current=target;archMix=1;transitioning=false}
@@ -1437,3 +1569,5 @@ function frame(now){
    'Beat '+BeatPulse.toFixed(2)+' · Kick '+KickFast.toFixed(2)+' · Snare '+SnareFast.toFixed(2)+' · '+archetypes[target].name+' IMG '+(seqStates[target].current+1)+' ['+imageConfigs[target].mode.toUpperCase()+'] · Zoom '+FinalG.zoom.toFixed(2)+' · '+(BPM>0?Math.round(BPM)+' BPM':'learning');
  requestAnimationFrame(frame);
 }
+await initializeLibrary();
+start();

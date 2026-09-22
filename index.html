@@ -29,6 +29,7 @@
       <input id="volume" class="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
     </section>
     <div class="headerTools">
+      <div class="projectSwitch"><select id="projectSelect" aria-label="Active project" title="Active project"></select><button id="projectManageBtn" class="iconAction headerIcon" type="button" aria-label="Manage projects" data-tooltip="Manage projects"><i data-lucide="folder-open"></i></button></div>
       <div class="modeSwitch" aria-label="Transition mode"><button id="smooth" class="active">SMOOTH</button><button id="cut">CUT</button></div>
       <select id="react" aria-label="Global reactivity" title="Global reactivity">
         <option value=".55">LOW</option>
@@ -49,6 +50,16 @@
     </div>
   </div>
   <div id="safetyStatus" class="safetyStatus" aria-live="assertive"><span id="blackoutStatus">BLACKOUT</span><span id="panicStatus">PANIC · TARGETS NEUTRAL</span></div>
+  <div class="projectPanel" id="projectPanel">
+    <div class="imageTop"><div class="sectionTitle"><h2>PROJECTS</h2><button class="infoTip" type="button" aria-label="About local projects" data-tooltip="Projects, archetypes, looks, presets and media are stored in this browser. Export a package to move them elsewhere."><i data-lucide="info"></i></button></div><button id="closeProjectPanel" class="iconAction closeAction" type="button" aria-label="Close projects" data-tooltip="Close projects"><i data-lucide="x"></i></button></div>
+    <p id="projectEmptyHint">Create a local project or import a library package to begin.</p>
+    <div class="projectActions"><button id="createProject" type="button">CREATE PROJECT</button><button id="importPackage" type="button">IMPORT PACKAGE</button><input id="importPackageFile" type="file" accept=".zip,application/zip"><button id="renameProject" type="button">RENAME</button><button id="duplicateProject" type="button">DUPLICATE</button><button id="deleteProject" type="button">DELETE</button><button id="exportProject" type="button">EXPORT PROJECT</button></div>
+    <section id="legacySection" class="legacySection" hidden><h3>LEGACY DATA</h3><p>Back up the previous archetype library before removing it.</p><button id="exportLegacy" type="button">EXPORT LIBRARY</button></section>
+    <section class="legacySection"><h3>BUILT-IN STARTERS</h3><button id="exportBuiltins" type="button">EXPORT BUILT-INS</button></section>
+    <div id="projectStatus" class="tiny" role="status"></div>
+  </div>
+  <dialog id="projectNameDialog" class="presetDialog"><form id="projectNameForm"><div class="packageDialogHead"><h2 id="projectDialogTitle">PROJECT</h2><button id="closeProjectDialog" class="iconAction closeAction" type="button" aria-label="Close project dialog" data-tooltip="Close project dialog"><i data-lucide="x"></i></button></div><label for="projectNameInput" id="projectDialogLabel">PROJECT NAME</label><input id="projectNameInput" type="text" required autocomplete="off"><p id="projectDialogError" role="alert"></p><div class="dialogActions"><button id="cancelProjectDialog" type="button">CANCEL</button><button id="confirmProjectDialog" class="primaryBtn" type="submit">CREATE</button></div></form></dialog>
+  <dialog id="libraryActionDialog" class="presetDialog"><form id="libraryActionForm"><div class="packageDialogHead"><h2 id="libraryActionTitle">ACTION</h2><button id="closeLibraryAction" class="iconAction closeAction" type="button" aria-label="Close dialog" data-tooltip="Close dialog"><i data-lucide="x"></i></button></div><label for="libraryActionInput" id="libraryActionLabel">NAME</label><input id="libraryActionInput" type="text" autocomplete="off"><p id="libraryActionMessage"></p><div class="dialogActions"><button id="cancelLibraryAction" type="button">CANCEL</button><button id="confirmLibraryAction" class="primaryBtn" type="submit">CONFIRM</button></div></form></dialog>
   <div class="footerDock" id="footerDock">
     <button id="archBarToggle" class="archBarToggle" aria-expanded="true" aria-controls="archBar"><i data-lucide="chevron-down" class="chevronDownIcon"></i><i data-lucide="chevron-up" class="chevronUpIcon"></i><span>HIDE ARCHETYPES</span></button>
     <div class="bottom" id="archBar">
@@ -139,7 +150,7 @@
   <dialog id="deleteArchDialog" class="presetDialog" aria-labelledby="deleteArchDialogTitle">
     <div class="deleteArchDialogBody">
       <div class="shortcutDialogHead"><h2 id="deleteArchDialogTitle">DELETE ARCHETYPE</h2><button id="closeDeleteArchDialog" class="iconAction closeAction" type="button" aria-label="Close delete confirmation" data-tooltip="Close"><i data-lucide="x"></i></button></div>
-      <p>Delete <strong id="deleteArchName"></strong>? Its locally saved images/videos, image settings, routing and musical presets will be permanently removed from this browser.</p>
+      <p>Delete <strong id="deleteArchName"></strong> from this project? It will be hidden from the app; its media remain in local storage until a future cleanup.</p>
       <p id="deleteArchError" class="deleteArchError" role="alert" hidden></p>
       <div class="dialogActions"><button id="cancelDeleteArch" type="button">CANCEL</button><button id="confirmDeleteArch" class="dangerBtn" type="button">DELETE ARCHETYPE</button></div>
     </div>
@@ -226,7 +237,8 @@
 
   <div class="lookPanel" id="lookPanel">
     <div class="imageTop"><div class="sectionTitle"><h2>LOOK · <span id="lookArchName">DEEP DRIFT</span></h2><button class="infoTip" type="button" aria-label="About archetype looks" data-tooltip="A look defines visual distortion, grading and particle vocabulary. Musical targets still control how strongly these react."><i data-lucide="info"></i></button></div><button id="closeLook" class="iconAction closeAction" type="button" aria-label="Close look editor" data-tooltip="Close look editor"><i data-lucide="x"></i></button></div>
-    <div class="lookPresetBar"><label for="lookPreset">LOAD PRESET</label><select id="lookPreset"><option value="">Select a factory look…</option></select></div>
+    <div class="lookPresetBar"><label for="lookPreset">LOAD PRESET</label><select id="lookPreset"><option value="">Select a look…</option></select><button id="saveLookPreset" type="button" title="Save current look as project preset">SAVE AS PROJECT PRESET</button></div>
+    <div id="projectLookPresetList" class="projectLookPresetList"></div>
     <div id="lookRoutingWarning" class="lookWarning" hidden>No musical routing active. Connect a source to a target to make this look music-responsive.</div>
     <div id="lookFields" class="lookFields"></div>
     <p class="lookHint">Distortion is visible only when the Distortion target is routed and active. Changes save automatically for this archetype.</p>

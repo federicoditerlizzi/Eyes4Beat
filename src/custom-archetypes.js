@@ -2,10 +2,11 @@ const DATABASE_NAME = 'eyesforbeats';
 const DATABASE_VERSION = 1;
 const STORE_NAME = 'custom-archetypes';
 
-function openDatabase() {
+function openDatabase(create = true) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
     request.onupgradeneeded = () => {
+      if (!create) { request.transaction.abort(); return; }
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE_NAME)) {
         database.createObjectStore(STORE_NAME, { keyPath: 'id' });
@@ -17,7 +18,9 @@ function openDatabase() {
 }
 
 export async function loadCustomArchetypes() {
-  const database = await openDatabase();
+  let database;
+  try { database = await openDatabase(false); }
+  catch (error) { if (error.name === 'AbortError') return []; throw error; }
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, 'readonly');
     const request = transaction.objectStore(STORE_NAME).getAll();

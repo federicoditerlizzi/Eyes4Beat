@@ -1,3 +1,5 @@
+import { blankMap } from './config.js';
+
 export const LOOK_STORAGE_KEY = 'arv_v047_looks';
 
 export const LOOK_FIELDS = {
@@ -43,6 +45,24 @@ export const FACTORY_LOOKS = names.map((name, index) => {
     color: { gain, tint, tintAmount },
     particles: { density, speed: 1, style, motion, color: '#beebff', motionFactor, waveAmount, jitterAmount, depthOffset, streakSlant },
   } };
+});
+
+function starterMap(entries) {
+  const map = blankMap();
+  for (const [source, target, weight] of entries) map[source][target] = weight;
+  map.energy.rotate = .45; map.drive.spiral = .55; map.kick.tiles = .7;
+  return map;
+}
+const starterRoutes = [
+  [['energy','luma',.55],['bright','glow',.70],['open','luma',.38],['open','glow',.28],['open','zoom',-.25],['tension','dist',.38],['density','parts',.42],['kick','pulse',.28],['snare','glow',.34]],
+  [['energy','pulse',.72],['energy','zoom',.18],['drive','pulse',.42],['boombap','luma',.38],['boombap','sat',.20],['density','parts',.55],['tension','dist',.42],['kick','pulse',.55],['snare','glow',.46]],
+  [['energy','sat',.35],['energy','luma',.18],['bright','glow',.55],['bright','luma',.28],['open','glow',.42],['open','zoom',-.38],['density','parts',.45],['kick','pulse',.20],['snare','glow',.24]],
+  [['energy','dist',.58],['energy','pulse',.48],['energy','zoom',.28],['boombap','dist',.38],['boombap','zoom',.15],['tension','dist',.68],['density','parts',.78],['drive','parts',.32],['kick','pulse',.68],['snare','luma',.55],['snare','glow',.48]],
+  [['energy','luma',.48],['energy','sat',.42],['energy','pulse',.35],['boombap','zoom',.14],['tension','dist',.45],['bright','glow',.55],['density','parts',.48],['kick','pulse',.88],['snare','glow',.58],['snare','luma',.40]],
+  [['energy','pulse',.72],['energy','glow',.44],['energy','luma',.28],['density','parts',.36],['boombap','sat',.32],['boombap','zoom',.18],['tension','dist',.40],['bright','glow',.62],['open','zoom',-.12],['kick','pulse',1.10],['snare','glow',.52]],
+];
+FACTORY_LOOKS.forEach((preset, index) => {
+  preset.starter = { routingMap: starterMap(starterRoutes[index]), imageSource: ['open','drive','bright','energy','boombap','boombap'][index] };
 });
 
 const clampNumber = (value, fallback, limits) => Number.isFinite(Number(value)) && value !== null && value !== ''

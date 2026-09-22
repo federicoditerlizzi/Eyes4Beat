@@ -9,17 +9,17 @@ Eyes4Beat is a browser-based visual instrument for live music performances. It a
 - The maintained application is a Vite-powered vanilla JavaScript module project.
 - `index.html` is the application shell and `src/styles.css` owns presentation.
 - `src/main.js` orchestrates the UI, audio analysis, sequencing and render frame.
-- `src/config.js` owns archetypes, image paths, routing labels and defaults.
+- `src/config.js` owns routing sources, targets, labels and the blank map; it no longer defines the runtime library.
 - `src/routing.js` is the pure, tested source-to-target calculation module.
 - `src/audio-input.js` owns the Web Audio graph, live capture, device enumeration and source switching.
 - `src/input-calibration.js` owns pure trim, meter and noise-floor math.
 - `src/transitions.js` is the single source of truth for media-transition ids, shader ids, labels, parameters and generated GLSL defines.
 - `src/image-sequencer.js` owns pure easing, effective-duration, trigger classification, transition-pool and sequence-order selection, beat-time conversion/quantization, latest-pending resolution and image-config normalization/migration logic.
 - `src/shaders.js` owns the WebGL2 shader sources.
-- `src/custom-archetypes.js` persists user-created archetypes and image/video blobs in IndexedDB.
-- `src/package-format.js` builds and validates versioned ZIP library backups with SHA-256 media deduplication; it does not import or mutate app data.
-- `src/looks.js` owns per-archetype look normalization, six factory presets, shader uniforms and pure particle movement.
-- `public/assets/images/` contains the 30 visual source images.
+- `src/library/local-repository.js` owns all active library IndexedDB access; `src/library/runtime.js` builds renderer arrays by project order and resolves ID-based Show messages; `src/library/package-mapping.js` normalizes imported archetypes.
+- `src/legacy/` and `src/custom-archetypes.js` read the old library only for export. `public/assets/images/` contains the 30 legacy built-in images.
+- `src/package-format.js` builds, reads and verifies ZIP packages with SHA-256 media deduplication.
+- `src/looks.js` owns look normalization, six factory looks with starter routing/image source, shader uniforms and pure particle movement.
 - `test/routing.test.js` covers essential routing invariants.
 - `legacy/index_v044.html` is an archived reference, not the maintained entry point.
 
@@ -56,7 +56,7 @@ Everything runs on the main browser thread:
 6. The PERF/CTX slider blends `Fast` and `Context` into `S`.
 7. `getEffectiveState()` applies each continuous source's enable/solo state and amount; Beat, Kick, and Snare have the same source controls in the routing stage.
 8. `computeGlobalMapping()` routes sources through the current archetype's matrix only while `inputActive` is true: FILE requires active playback, LIVE requires a live stream track. `frame(now)` then passes the routed result through `applyPanicTargets()` before assigning the shader-facing `FinalG` controls.
-9. `frame(now)` advances or freezes image sequencing according to PANIC, classifying automatic requests as timed or event triggers. Auto scheduling uses either seconds or a beat-grid deadline fixed after the previous change; it never follows tempo wobble frame by frame. Manual controls enter the same sequencer with the manual trigger class. It eases any active media-transition progress in JavaScript, sends the safe target and per-role transition state to GLSL, draws a full-screen triangle, updates the 2D particle canvas, broadcasts Show state, and refreshes diagnostics.
+9. Opening a project reads ordered archetypes through the repository and rebuilds parallel runtime arrays plus an ID/index map. `frame(now)` advances or freezes image sequencing according to PANIC, classifying automatic requests as timed or event triggers. Auto scheduling uses either seconds or a beat-grid deadline fixed after the previous change; it never follows tempo wobble frame by frame. Manual controls enter the same sequencer with the manual trigger class. It eases any active media-transition progress in JavaScript, sends the safe target and per-role transition state to GLSL, draws a full-screen triangle, updates the 2D particle canvas, broadcasts Show state, and refreshes diagnostics. Zero archetypes clear both canvases dark while analysis continues.
 
 The two rendering layers are:
 
@@ -65,7 +65,7 @@ The two rendering layers are:
 
 ## Show output architecture
 
-`?show=1` starts a clean output window in which `.ui` is hidden and audio analysis/mapping/automatic image sequencing are disabled. The controller remains authoritative and broadcasts `FinalG`, effective musical state, archetype transition state and image sequence snapshots over `eyesforbeats-show-v1`. Media changes additionally send a `transition-start` event; the Show window loads its own destination slot and starts its local transition clock only when that load finishes. Periodic snapshots can reconstruct a missed start event but do not drive blend frame by frame. The Show renderer keeps its own WebGL context, loads built-in or IndexedDB media into its own texture slots and applies the received state. Do not make the Show window analyze or play audio: that would introduce drift and duplicate sound output. `library-changed` reloads the Show window after a custom archetype is created.
+`?show=1` starts a clean output window in which `.ui` is hidden and audio analysis/mapping/automatic image sequencing are disabled. The controller remains authoritative and broadcasts active project ID, current/target archetype IDs, `FinalG`, effective musical state, transition state and image sequence snapshots over `eyesforbeats-show-v1`. Media changes additionally send a `transition-start` event; the Show window loads its own destination slot and starts its local transition clock only when that load finishes. Periodic snapshots can reconstruct a missed start event but do not drive blend frame by frame. The Show renderer keeps its own WebGL context and reads the same-origin local project/media records. `library-changed` reopens the active project after structural edits. Do not make Show analyze or play audio.
 
 Controller-only live shortcuts are resolved in `src/shortcuts.js`: number-row direct archetype selection, arrows or A/D archetype navigation, Alt/Option plus the same number/navigation keys for presets, S/C transition mode and `?` help. They must stay disabled for repeated keydown events, editable controls, open dialogs and Show mode. Archetype loading is serialized in `selectArchetype()` so rapid commands resolve to the latest queued selection without racing GPU texture uploads.
 Keep live shortcuts available while the Image Manager is open, but not when focus is in an editable control. Automatic media changes must update only its runtime status/current-card styling, not rebuild form controls: replacing a focused input during a performance steals focus and can turn numeric editing into an archetype shortcut.
@@ -106,7 +106,7 @@ Treat these as perceptual heuristics, not production-grade source separation or 
 
 ## Archetypes and transitions
 
-The app ships with six built-in archetypes:
+The six former built-in archetypes now exist only as factory looks and legacy export assets:
 
 1. Deep Drift
 2. Funk Elastic
@@ -117,8 +117,7 @@ The app ships with six built-in archetypes:
 
 An archetype is a purely visual world: its image sequence, chromatic identity, shader interpretation of each target, and particle vocabulary. It must not decide which musical feature drives a target. Musical behavior belongs to the routing matrix and named musical presets. Different archetypes may interpret the same target differently (for example bubbles, streaks, or geometric particles), but target intensity and reactivity remain user-controlled.
 
-Users can create additional archetypes from the footer action. A custom archetype contains a name and one or more image/video blobs. **Start from Blank** creates a neutral look with empty routing; a factory preset seeds the look, routing and image config of the corresponding original profile. Existing customs retain `templateIndex` for migration/defaults only. Videos are muted, looped and uploaded into the same live WebGL texture slots as still images. Every custom archetype receives its own routing, media sequence configuration and musical preset list.
-Only custom archetypes expose a trash action in the footer. After confirmation, deletion removes their IndexedDB record, object URLs and matching index in each parallel runtime/persistence array (routing maps, image configs, sequence states and music presets). If the deleted archetype is active, both renderer roles switch to built-in Deep Drift first; Show peers reload their library. Never leave the arrays out of alignment or offer deletion for built-ins.
+First launch starts with no projects; create one or import a package. A project orders its archetypes by stable UUID. The footer creator requires image/video media and offers Blank, a factory starter (look + routing + image source), or a project look preset (look only, empty routing). Videos are muted and looped in the same WebGL texture slots as images. Footer actions rename, duplicate, reorder and soft-delete any project archetype. Project switching rebuilds all parallel runtime arrays by ID, resets current/target/transition state and releases previous object URLs. A project with no archetypes renders dark. The legacy six assets remain available only through the export panel.
 
 The creator can also generate still-image sequences through `/api/generate-image`, a Cloudflare Pages Function that calls OpenAI with the server-side `OPENAI_API_KEY`. The endpoint generates one bounded 1536×1024 WebP per request; the client calls it sequentially to expose progress and limit response size. Generated images become ordinary `File` objects and remain in local IndexedDB. They are not currently shared across browsers or stored in R2/D1.
 
@@ -126,11 +125,11 @@ When animation-sequence mode is enabled, frame one uses the generations endpoint
 
 `current` is the rendered source archetype and `target` is the selected destination. In smooth mode the shader blends them over 6.5 seconds using `archMix`; cut mode changes immediately. That system is unchanged and separate from configurable media transitions within an archetype. The shader transition function is nevertheless role-based so the same library can be reused for archetype transitions later.
 
-Per-archetype looks in `src/looks.js` replace the old `behavior` object and profile branches. The six factory looks preserve their original distortion, grading and particle constants. The LOOK editor applies changes live and persists them under `arv_v047_looks`; loading a factory or Blank preset overwrites only the current look after confirmation. Shader roles each receive warp and grading uniforms, while particles use the target archetype's look. Musical routing remains independent; an empty routing map triggers a LOOK-panel warning.
+Per-archetype looks in `src/looks.js` replace the old `behavior` object and profile branches. The six factory looks preserve their original distortion, grading and particle constants. The LOOK editor applies changes live and persists them in the archetype repository record; loading a factory, Blank or project preset overwrites only the current look after confirmation. Project look presets can be saved, renamed and soft-deleted. Shader roles each receive warp and grading uniforms, while particles use the target archetype's look. Musical routing remains independent; an empty routing map triggers a LOOK-panel warning.
 
 ## Image sequencing
 
-`IMAGE_SETS` contains public asset paths for built-ins and object URLs for custom IndexedDB blobs. Image counts are variable. Version 3 of the `imageConfigs` schema stores:
+Runtime `IMAGE_SETS` contains object URLs built from the active project's content-addressed IndexedDB media. Image counts are variable. Version 3 of the `imageConfigs` schema stores:
 
 - sequence mode: `auto`, `manual`, or `mapped`;
 - sequence order: `sequential`, `ping-pong`, `random-no-repeat`, or `shuffle`;
@@ -144,21 +143,13 @@ Auto mode advances after the current image's dwell time and uses the timed pool.
 
 ## Persistence and compatibility
 
-Routing maps, image-manager settings, and named per-archetype musical presets persist via `localStorage`:
+All active library reads and writes use `LocalLibraryRepository` against IndexedDB `eyes4beat-library` (schema 1). Stores are `projects`, `archetypes`, `media`, `lookPresets`, and `meta`. Projects and archetypes have UUIDs, version/updatedAt fields and soft-deletion timestamps; media records are shared by SHA-256 and are not purged on deletion. `meta` remembers the last active project. Look, routing, image config and music-preset edits are debounced about 500 ms and written by archetype ID. `src/library/repository.js` is the abstract boundary for a future remote implementation. The old `eyesforbeats/custom-archetypes` database and `arv_` localStorage keys remain untouched and are read only by legacy export.
 
-- current keys: `arv_v043_routing_maps`, `arv_v045_image_configs` (an object containing `schemaVersion` and `configs`);
-- musical presets: `arv_v044_music_presets` (source controls, target On/Solo/intensity/reactivity, PERF/CTX, global reactivity, and routing; never image sequencing). Presets saved before target On/Solo existed default to all targets enabled and no solos;
-- fallback migration keys: routing `v042`/`v041`, images `v043`/`v042b`/`v042`. Phase-2 configs migrate to seconds plus sequential order without changing their existing dwell or transition values. Phase-1 single-transition values migrate into the timed pool with unchanged settings; event defaults to cut and manual to crossfade. Older `crossfade` values first become the equivalent timed crossfade with the same duration and linear easing.
-- audio input device: `eyes4beat_input_device`;
-- per-input analysis trim: `eyes4beat_input_trim`;
-- per-input noise-floor profiles: `eyes4beat_input_calibrations`.
-- per-archetype visual looks: `arv_v047_looks`, aligned with the runtime archetype list. Missing entries migrate from built-in index or custom `templateIndex`; Blank customs use the neutral look.
+Device-local settings remain in localStorage: `eyes4beat_input_device`, `eyes4beat_input_trim`, `eyes4beat_input_calibrations`, and `eyesforbeats_footer_collapsed`. Musical presets still contain source/target controls, routing, PERF/CTX and reactivity, but not image sequencing. Persistence is origin-specific; localhost and deployed hosts do not share the library.
 
-Most other UI settings reset on reload. Persistence is origin-specific, so `file://`, `localhost`, and a deployed host do not share configuration. If the schema changes, add normalization/migration rather than assuming saved data has the new shape.
+## Library packages
 
-## Library package v2
-
-The archetype footer offers **EXPORT LIBRARY** and read-only **VERIFY PACKAGE**. Export snapshots each currently loaded archetype's normalized in-memory look, routing, image config and musical presets, plus legacy profile metadata and ordered media. Built-in files come from their asset URLs; custom Blobs come from IndexedDB. `src/package-format.js` writes `manifest.json` (`format: eyes4beat-package`, `formatVersion: 2`, `kind: legacy-library`), deduplicated uncompressed `media/<sha256>.<ext>` entries, and `raw/local-storage.json` containing keys beginning `arv_` or `eyes4beat`. Verification accepts legacy version 1 (without looks) and version 2. The ZIP is named `eyes4beat-library-YYYYMMDD-HHMM.zip`. There is no import path in this phase. Browser origins do not share data: back up each browser/computer separately before migration.
+`src/package-format.js` builds and verifies `eyes4beat-package` ZIPs with deduplicated uncompressed `media/<sha256>.<ext>` entries. Legacy-library v1/v2 packages remain supported; v1 looks derive from the stored profile. Project packages use version 3 and include project name, archetypes in project order, project look presets, all settings and `sourceIndex` on every media entry. `src/library/package-mapping.js` reconstructs source alignment for older packages lacking `sourceIndex` by the media order `(imageConfig.images[i].order, i)`. Import validates checksums before showing per-archetype selection and creates new IDs; it never mutates legacy storage. Legacy export can still package the old built-ins and old browser data, with `raw/local-storage.json` as a forensic snapshot. Use VERIFY PACKAGE for read-only checks. Browser origins do not share data; back up each origin separately.
 
 ## Renderer texture model
 
@@ -181,7 +172,7 @@ The renderer uses four fragment samplers: current A/B and target A/B. Only the t
 - Prefer targeted reads and small patches around the relevant JavaScript functions.
 - Use `rg -n` to locate symbols, then patch the smallest possible region.
 - Avoid unrelated full-file formatting so functional changes remain easy to review.
-- Keep musical state names and routing keys stable unless a localStorage migration accompanies the rename.
+- Keep musical state names and routing keys stable unless a repository/package migration accompanies the rename.
 - Extend visual language through the per-archetype look model. User-created archetypes should go through the creator flow; do not add permanent texture samplers.
 - When changing audio heuristics, test with quiet, dense, transient-heavy, and beatless material; a change that looks good on one track can destabilize another.
 - Preserve the separation between slow contextual motion and fast rhythmic accents: the code intentionally prevents micro-transients from driving the whole visual world.
