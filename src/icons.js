@@ -1,14 +1,14 @@
 import {
   Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft,
-  ChevronRight, ChevronUp, FileAudio, Images, Info, Keyboard, Maximize,
-  Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare,
+  ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, Images, Info, Keyboard, Maximize,
+  Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare, SlidersHorizontal,
   Trash2, Volume2, VolumeX, X, createElement, createIcons,
 } from 'lucide';
 
 const ICONS = {
   Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft,
-  ChevronRight, ChevronUp, FileAudio, Images, Info, Keyboard, Maximize,
-  Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare,
+  ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, Images, Info, Keyboard, Maximize,
+  Minimize, MonitorOff, OctagonAlert, Pause, Play, Plus, Save, ScreenShare, SlidersHorizontal,
   Trash2, Volume2, VolumeX, X,
 };
 
@@ -22,7 +22,9 @@ const iconByName = {
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,
   'chevron-up': ChevronUp,
+  download: Download,
   'file-audio': FileAudio,
+  'file-check-2': FileCheck2,
   images: Images,
   info: Info,
   keyboard: Keyboard,
@@ -35,6 +37,7 @@ const iconByName = {
   plus: Plus,
   save: Save,
   'screen-share': ScreenShare,
+  'sliders-horizontal': SlidersHorizontal,
   'trash-2': Trash2,
   'volume-2': Volume2,
   'volume-x': VolumeX,

@@ -8,6 +8,9 @@ import { applyPanicTargets } from './show-safety.js';
 import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
 import { averageNoiseFloor, computeDbfsMeter, spectralSubtract, subtractRmsNoise } from './input-calibration.js';
 import { icon, initIcons } from './icons.js';
+import { buildLibraryPackage, verifyLibraryPackage } from './package-format.js';
+import { FACTORY_LOOKS, LOOK_FIELDS, LOOK_STORAGE_KEY, NEUTRAL_LOOK, hexRgb, lookForArchetype, lookUniforms, normalizeLook, particleSpeed, stepParticle } from './looks.js';
+import packageInfo from '../package.json';
 import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS, resolveTransitionParam, transitionShaderId } from './transitions.js';
 import { DWELL_BEAT_OPTIONS, IMAGE_CONFIG_STORAGE_KEY, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS, applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, normalizeImageConfigStore, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from './image-sequencer.js';
 
@@ -45,11 +48,58 @@ try{
  const storedArchetypes=await loadCustomArchetypes();
  storedArchetypes.forEach(record=>{
    const template=Math.max(0,Math.min(builtInArchetypeCount-1,record.templateIndex||0));
-   archetypes.push({name:record.name,behavior:{...archetypes[template].behavior},customId:record.id,templateIndex:template});
+   archetypes.push({name:record.name,customId:record.id,templateIndex:record.templateIndex == null ? null : template});
    IMAGE_SETS.push(customMediaSources(record));
-   defaultRoutingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[template])));
+   defaultRoutingMaps.push(record.templateIndex == null ? blankMap() : JSON.parse(JSON.stringify(defaultRoutingMaps[template])));
  });
 }catch(error){console.error('Unable to load custom archetypes',error)}
+let storedLooks=null;
+try{storedLooks=JSON.parse(localStorage.getItem(LOOK_STORAGE_KEY)||'null')}catch{}
+let looks=archetypes.map((arch,index)=>normalizeLook(Array.isArray(storedLooks)?storedLooks[index]??lookForArchetype(arch,index):lookForArchetype(arch,index)));
+function saveLooks(){try{localStorage.setItem(LOOK_STORAGE_KEY,JSON.stringify(looks))}catch(error){console.error('Unable to save looks',error)}}
+if(!Array.isArray(storedLooks)||storedLooks.length!==looks.length)saveLooks();
+const lookPanel=document.getElementById('lookPanel'),lookPreset=document.getElementById('lookPreset');
+lookPreset.innerHTML='<option value="">Select a factory look…</option><option value="blank">Blank</option>';
+FACTORY_LOOKS.forEach((preset,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=preset.name;lookPreset.appendChild(option)});
+function closeLookEditor(){lookPanel.classList.remove('open')}
+function updateLookRoutingWarning(){
+ const map=routingMaps[target],empty=routeSources.every(source=>routeTargets.every(key=>!Number(map?.[source]?.[key])));
+ document.getElementById('lookRoutingWarning').hidden=!empty;
+}
+function renderLookEditor(){
+ document.getElementById('lookArchName').textContent=archetypes[target].name;
+ const root=document.getElementById('lookFields');root.replaceChildren();
+ const groups=[
+  ['distortion','DISTORTION',[['amplitude','Amplitude'],['speed','Speed'],['mode','Mode'],['angle','Angle (degrees)'],['directionStrength','Direction strength']]],
+  ['color','COLOR',[['gain','Gain'],['tint','Tint'],['tintAmount','Tint amount']]],
+  ['particles','PARTICLES',[['density','Density'],['speed','Speed'],['style','Style'],['motion','Motion'],['color','Color'],['motionFactor','Motion factor'],['waveAmount','Wave amount'],['jitterAmount','Jitter amount'],['depthOffset','Depth offset'],['streakSlant','Streak slant']]],
+ ];
+ const options={mode:['directional','radial'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']};
+ for(const [group,title,fields] of groups){
+  const section=document.createElement('section');section.className='lookGroup';const heading=document.createElement('h3');heading.textContent=title;section.appendChild(heading);
+  for(const [key,label] of fields){
+   const row=document.createElement('label');row.className='lookField';row.dataset.field=key;
+   const caption=document.createElement('span');caption.textContent=label;row.appendChild(caption);
+   const value=looks[target][group][key];let input;
+   if(options[key]){input=document.createElement('select');for(const choice of options[key]){const item=document.createElement('option');item.value=choice;item.textContent=choice.replaceAll('-',' ');input.appendChild(item)}input.value=value}
+   else{input=document.createElement('input');input.type=key==='tint'||key==='color'?'color':'number';input.value=String(value);if(input.type==='number'){const [min,max,step]=LOOK_FIELDS[group][key];input.min=String(min);input.max=String(max);input.step=String(step)}}
+   input.setAttribute('aria-label',`${title.toLowerCase()} ${label.toLowerCase()}`);
+   input.addEventListener('input',()=>{if(input.type==='number'&&!Number.isFinite(input.valueAsNumber))return;looks[target]=normalizeLook({...looks[target],[group]:{...looks[target][group],[key]:input.type==='number'?input.valueAsNumber:input.value}});saveLooks();if(group==='distortion'&&key==='mode')section.querySelector('[data-field="angle"]').hidden=input.value!=='directional'});
+   row.appendChild(input);section.appendChild(row);
+  }
+  if(group==='distortion')section.querySelector('[data-field="angle"]').hidden=looks[target].distortion.mode!=='directional';
+  root.appendChild(section);
+ }
+ lookPreset.value='';updateLookRoutingWarning();
+}
+document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeMappingMatrix();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
+document.getElementById('closeLook').onclick=closeLookEditor;
+lookPreset.onchange=()=>{
+ const value=lookPreset.value;if(!value)return;
+ const label=value==='blank'?'Blank':FACTORY_LOOKS[+value].name;
+ if(!confirm(`Replace ${archetypes[target].name}'s current look with ${label}? This cannot be undone.`)){lookPreset.value='';return}
+ looks[target]=normalizeLook(value==='blank'?NEUTRAL_LOOK:FACTORY_LOOKS[+value].look);saveLooks();renderLookEditor();
+};
 let routingMaps=JSON.parse(JSON.stringify(defaultRoutingMaps));
 const addedTargetKeys=new Set(['rotate','spiral','tiles']);
 function normalizeRoutingMap(source,fallback){
@@ -83,22 +133,23 @@ function renderMatrixEditor(){
  const a=(typeof target==='number')?target:0;document.getElementById('matrixArchName').textContent=archetypes[a].name;
  let h='<table class="mapTable"><thead><tr><th>SOURCE ↓ / TARGET →</th>';routeTargets.forEach(t=>h+='<th>'+targetLabels[t]+'</th>');h+='</tr></thead><tbody>';
  routeSources.forEach(s=>{h+='<tr><td class="srcLabel">'+sourceLabels[s]+'</td>';routeTargets.forEach(t=>{const v=Number(routingMaps[a][s][t]||0);h+='<td><input class="mapCell '+(Math.abs(v)>.001?'nz':'')+'" data-s="'+s+'" data-t="'+t+'" type="number" min="-1.5" max="1.5" step="0.05" value="'+v.toFixed(2)+'"></td>'});h+='</tr>'});h+='</tbody></table>';
- document.getElementById('matrixHolder').innerHTML=h;document.querySelectorAll('.mapCell').forEach(el=>{el.oninput=()=>{const v=Math.max(-1.5,Math.min(1.5,parseFloat(el.value)||0));routingMaps[a][el.dataset.s][el.dataset.t]=v;el.classList.toggle('nz',Math.abs(v)>.001);saveRoutingMaps()}})
+ document.getElementById('matrixHolder').innerHTML=h;document.querySelectorAll('.mapCell').forEach(el=>{el.oninput=()=>{const v=Math.max(-1.5,Math.min(1.5,parseFloat(el.value)||0));routingMaps[a][el.dataset.s][el.dataset.t]=v;el.classList.toggle('nz',Math.abs(v)>.001);saveRoutingMaps();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()}})
 }
 function closeMappingMatrix(){saveRoutingMaps();document.getElementById('matrixPanel').classList.remove('open')}
-document.getElementById('openMatrix').onclick=()=>{closeImageManager();renderMatrixEditor();document.getElementById('matrixPanel').classList.add('open')};
+document.getElementById('openMatrix').onclick=()=>{closeImageManager();closeLookEditor();renderMatrixEditor();document.getElementById('matrixPanel').classList.add('open')};
 document.getElementById('closeMatrix').onclick=closeMappingMatrix;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){
    const openDialog=document.querySelector('dialog[open]');if(openDialog){openDialog.close();return}
    if(document.getElementById('matrixPanel').classList.contains('open'))closeMappingMatrix();
    if(document.getElementById('imagePanel').classList.contains('open'))closeImageManager();
+   if(lookPanel.classList.contains('open'))closeLookEditor();
    if(document.getElementById('creatorPanel').classList.contains('open'))closeArchetypeCreator();
    if(document.getElementById('audioInputPanel').classList.contains('open'))document.getElementById('audioInputPanel').classList.remove('open');
  }
 });
-document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();renderMatrixEditor()};
-document.getElementById('resetMap').onclick=()=>{routingMaps[target]=JSON.parse(JSON.stringify(defaultRoutingMaps[target]));saveRoutingMaps();renderMatrixEditor()};
+document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
+document.getElementById('resetMap').onclick=()=>{routingMaps[target]=JSON.parse(JSON.stringify(defaultRoutingMaps[target]));saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
 
 const modState = {
  enabled:{energy:true,density:true,drive:true,boombap:true,tension:true,bright:true,open:true,beat:true,kick:true,snare:true},
@@ -268,11 +319,11 @@ function computeGlobalMapping(Eff,now){
 }
 
 
-function visualProfileIndex(index){return archetypes[index]?.templateIndex??index}
+function factoryProfileIndex(index){return archetypes[index]?.templateIndex??(index<builtInArchetypeCount?index:0)}
 function mediaUrl(source){return typeof source==='string'?source:source.url}
 function mediaIsVideo(source){return typeof source!=='string'&&source.type?.startsWith('video/')}
 function createDefaultImageConfig(idx){
- const profile=visualProfileIndex(idx),count=IMAGE_SETS[idx].length;
+ const profile=factoryProfileIndex(idx),count=IMAGE_SETS[idx].length;
  const transitionSettings=(pool,duration=2.2)=>({pool,pickOrder:'cycle',duration,durationBeats:.5,easing:'linear',wipeDirection:'left'});
  return {
  mode:'auto',source:profile===0?'open':profile===1?'drive':profile===2?'bright':profile===3?'energy':'boombap',
@@ -403,7 +454,7 @@ function renderImageManager(){
  document.querySelectorAll('[data-imgdown]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgdown,1);renderImageManager()});
 }
 function closeImageManager(){saveImageConfigs();document.getElementById('imagePanel').classList.remove('open')}
-document.getElementById('imageMgrBtn').onclick=()=>{closeMappingMatrix();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
+document.getElementById('imageMgrBtn').onclick=()=>{closeMappingMatrix();closeLookEditor();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
 document.getElementById('closeImageMgr').onclick=closeImageManager;
 const imageTutorialDialog=document.getElementById('imageTutorialDialog');
 document.getElementById('openImageTutorial').onclick=()=>{if(!imageTutorialDialog.open)imageTutorialDialog.showModal()};
@@ -447,9 +498,11 @@ function setCreatorMode(mode){
 }
 function closeArchetypeCreator(){creatorPanel.classList.remove('open');resetCreatorPreview();creatorFiles.value='';pendingArchetypeFiles=[];document.getElementById('customArchFileCount').textContent='No media selected';setCreatorMode('upload')}
 function openArchetypeCreator(){
- closeImageManager();closeMappingMatrix();
+ closeImageManager();closeMappingMatrix();closeLookEditor();
  const select=document.getElementById('customArchTemplate');select.innerHTML='';
- archetypes.slice(0,builtInArchetypeCount).forEach((arch,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=arch.name;select.appendChild(option)});
+ const blank=document.createElement('option');blank.value='blank';blank.textContent='Blank';select.appendChild(blank);
+ FACTORY_LOOKS.forEach((preset,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=preset.name;select.appendChild(option)});
+ select.value='0';
  creatorPanel.classList.add('open');
 }
 document.getElementById('closeCreator').onclick=closeArchetypeCreator;
@@ -500,17 +553,18 @@ creatorGenerateButton.onclick=async()=>{
  finally{creatorGenerateButton.disabled=false;document.getElementById('createArchetype').disabled=false}
 };
 document.getElementById('createArchetype').onclick=async()=>{
- const name=document.getElementById('customArchName').value.trim(),templateIndex=+document.getElementById('customArchTemplate').value,button=document.getElementById('createArchetype');
+ const name=document.getElementById('customArchName').value.trim(),choice=document.getElementById('customArchTemplate').value,templateIndex=choice==='blank'?null:+choice,button=document.getElementById('createArchetype');
  if(!name){creatorStatus.textContent='Give the archetype a name.';return}
  if(!pendingArchetypeFiles.length){creatorStatus.textContent='Select or generate at least one image.';return}
  button.disabled=true;creatorStatus.textContent='Saving media locally…';
  try{
    const record=await saveCustomArchetype({name,templateIndex,media:pendingArchetypeFiles});
-   const template=Math.max(0,Math.min(builtInArchetypeCount-1,templateIndex));
-   archetypes.push({name,behavior:{...archetypes[template].behavior},customId:record.id,templateIndex:template});
+   const template=templateIndex==null?null:Math.max(0,Math.min(builtInArchetypeCount-1,templateIndex));
+   archetypes.push({name,customId:record.id,templateIndex:template});
    IMAGE_SETS.push(customMediaSources(record));
-   defaultRoutingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[template])));
-   routingMaps.push(JSON.parse(JSON.stringify(defaultRoutingMaps[template])));
+   const initialRouting=template==null?blankMap():structuredClone(defaultRoutingMaps[template]);
+   defaultRoutingMaps.push(structuredClone(initialRouting));routingMaps.push(structuredClone(initialRouting));
+   looks.push(normalizeLook(template==null?NEUTRAL_LOOK:FACTORY_LOOKS[template].look));saveLooks();
    const newIndex=archetypes.length-1,newConfig=createDefaultImageConfig(newIndex);
    defaultImageConfigs.push(JSON.parse(JSON.stringify(newConfig)));imageConfigs.push(newConfig);
    const sequenceState=createSequenceState();sequenceState.next=Math.min(1,IMAGE_SETS[newIndex].length-1);seqStates.push(sequenceState);
@@ -540,7 +594,7 @@ gl.deleteShader(vertexShader);gl.deleteShader(fragmentShader);gl.useProgram(prog
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const pos=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
 
-const names=['uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uRotateAmt','uSpiralAmt','uTilesAmt','uArchA','uArchB'];
+const names=['uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uWarpA','uWarpB','uWarpDirA','uWarpDirB','uGradeA','uGradeB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uRotateAmt','uSpiralAmt','uTilesAmt'];
 const U={}; names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 const samplers=['tCurrentA','tCurrentB','tTargetA','tTargetB']; samplers.forEach((n,i)=>{U[n]=gl.getUniformLocation(prog,n);gl.uniform1i(U[n],i)});
 
@@ -728,7 +782,7 @@ function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next
 function broadcastShowFrame(now,Eff){
  if(!showChannel||now-lastShowBroadcastAt<40)return;
  lastShowBroadcastAt=now;
- showChannel.postMessage({type:'frame',state:{finalG:{...FinalG},eff:{...Eff},current,target,archMix,transitioning,blackout:blackoutActive,seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
+ showChannel.postMessage({type:'frame',state:{finalG:{...FinalG},eff:{...Eff},current,target,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
 }
 Promise.all([loadArchetypeIntoRole(0,0),loadArchetypeIntoRole(1,0)]).then(()=>start());
 
@@ -1134,10 +1188,11 @@ document.getElementById('confirmDeleteArch').onclick=async()=>{
    }
    IMAGE_SETS[index].forEach(source=>{if(typeof source!=='string')URL.revokeObjectURL(source.url)});
    archetypes.splice(index,1);IMAGE_SETS.splice(index,1);defaultRoutingMaps.splice(index,1);routingMaps.splice(index,1);
-   defaultImageConfigs.splice(index,1);imageConfigs.splice(index,1);seqStates.splice(index,1);musicPresets.splice(index,1);
-   saveRoutingMaps();saveImageConfigs();saveMusicPresets();renderArchetypeBar();renderPresetControls();
+   defaultImageConfigs.splice(index,1);imageConfigs.splice(index,1);seqStates.splice(index,1);musicPresets.splice(index,1);looks.splice(index,1);
+   saveRoutingMaps();saveImageConfigs();saveMusicPresets();saveLooks();renderArchetypeBar();renderPresetControls();
    if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
    if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+   if(lookPanel.classList.contains('open'))renderLookEditor();
    deleteArchDialog.close();showChannel?.postMessage({type:'library-changed'});
  }catch(cause){console.error('Unable to delete archetype',cause);error.textContent='Could not complete deletion. Please reload the app before trying again.';error.hidden=false}
  finally{button.disabled=false;deletingArchetype=false}
@@ -1147,7 +1202,7 @@ function renderArchetypeBar(){
  const bar=document.getElementById('archBar');bar.innerHTML='';
  archetypes.forEach((arch,index)=>{
    const button=document.createElement('button');button.className='arch'+(index===target?' active':'');button.dataset.a=String(index);
-   const profile=visualProfileIndex(index),subtitle=arch.customId?'custom · '+archetypes[profile].name.toLowerCase():(['space / contemplation','groove / elastic flow','growth / breath / living systems','pressure / momentum','heart / visceral energy','living heart / neon anatomy'][index]||'visual archetype');
+   const profile=factoryProfileIndex(index),subtitle=arch.customId?'custom · '+(arch.templateIndex==null?'blank':FACTORY_LOOKS[profile].name.toLowerCase()):FACTORY_LOOKS[index].subtitle;
    button.innerHTML='<b></b><span></span>';button.querySelector('b').textContent=(index+1)+' · '+arch.name;button.querySelector('span').textContent=subtitle;button.onclick=()=>selectArchetype(index);
    if(arch.customId){
      const item=document.createElement('div');item.className='archItem';item.appendChild(button);
@@ -1155,7 +1210,77 @@ function renderArchetypeBar(){
    }else bar.appendChild(button);
  });
  const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=openArchetypeCreator;bar.appendChild(createButton);
+ const exportButton=document.createElement('button');exportButton.className='libraryFooter';exportButton.innerHTML=icon('download')+' EXPORT LIBRARY';exportButton.title='Export library package';exportButton.onclick=exportLibrary;bar.appendChild(exportButton);
+ const verifyButton=document.createElement('button');verifyButton.className='libraryFooter';verifyButton.innerHTML=icon('file-check-2')+' VERIFY PACKAGE';verifyButton.title='Verify library package without importing it';verifyButton.onclick=()=>document.getElementById('verifyPackageFile').click();bar.appendChild(verifyButton);
 }
+const packageDialog=document.createElement('dialog');packageDialog.className='packageDialog';packageDialog.innerHTML='<div class="packageDialogHead"><h2>LIBRARY PACKAGE</h2><button type="button" class="iconAction closeAction" aria-label="Close package report" data-tooltip="Close package report">'+icon('x')+'</button></div><p id="packageMessage"></p><progress id="packageProgress" max="1" value="0" hidden></progress><pre id="packageReport"></pre><div id="packageConfirmation" hidden><button type="button" id="packageContinue">CONTINUE EXPORT</button><button type="button" id="packageCancel">CANCEL</button></div>';document.body.appendChild(packageDialog);
+packageDialog.querySelector('.closeAction').onclick=()=>packageDialog.close();
+packageDialog.querySelector('#packageCancel').onclick=()=>packageDialog.close();
+const verifyPackageFile=document.createElement('input');verifyPackageFile.id='verifyPackageFile';verifyPackageFile.type='file';verifyPackageFile.accept='.zip,application/zip';document.body.appendChild(verifyPackageFile);
+function packageStatus(message,progress=null,report=''){
+ packageDialog.querySelector('#packageMessage').textContent=message;
+ const meter=packageDialog.querySelector('#packageProgress');meter.hidden=!progress;if(progress){meter.max=progress.total||1;meter.value=progress.done}
+ packageDialog.querySelector('#packageReport').textContent=report;
+ if(!packageDialog.open)packageDialog.showModal();
+}
+function localStorageBackup(){
+ const values={};for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key.startsWith('arv_')||key.startsWith('eyes4beat'))values[key]=localStorage.getItem(key)}return values;
+}
+function libraryFilename(date=new Date()){
+ const digits=value=>String(value).padStart(2,'0');return `eyes4beat-library-${date.getFullYear()}${digits(date.getMonth()+1)}${digits(date.getDate())}-${digits(date.getHours())}${digits(date.getMinutes())}.zip`;
+}
+async function exportLibrary(){
+ const exportButton=document.querySelector('.libraryFooter');exportButton.disabled=true;
+ try{
+  packageStatus('Checking library size…');
+  const customRecords=new Map((await loadCustomArchetypes()).map(record=>[record.id,record]));
+  const snapshot=archetypes.map((arch,index)=>{
+   const record=arch.customId?customRecords.get(arch.customId):null;
+   if(arch.customId&&!record)throw new Error(`Stored media for ${arch.name} could not be found`);
+   const sources=record?(record.media||record.images||[]):IMAGE_SETS[index];
+   const media=orderedImages(index,false).map(mediaIndex=>{
+    const source=sources[mediaIndex];if(!source)throw new Error(`Missing media ${mediaIndex+1} for ${arch.name}`);
+    return record?{name:source.name||`media-${mediaIndex+1}`,mime:source.type||'application/octet-stream',blob:source}:
+     {name:source.split('/').pop(),mime:'',url:new URL(source,location.href).href};
+   });
+   return {kind:record?'custom':'builtin',legacyIndex:index,legacyId:record?record.id:arch.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''),name:arch.name,
+    profile:factoryProfileIndex(index),templateIndex:record?arch.templateIndex:null,behavior:{},look:structuredClone(looks[index]),routingMap:structuredClone(routingMaps[index]),imageConfig:structuredClone(imageConfigs[index]),musicPresets:structuredClone(musicPresets[index]),media};
+  });
+  let estimated=0,sizeUnknown=false;
+  for(const arch of snapshot)for(const item of arch.media){
+   if(item.blob)estimated+=item.blob.size;
+   else try{const response=await fetch(item.url,{method:'HEAD'});const length=Number(response.headers.get('content-length'));if(response.ok&&length>0)estimated+=length;else sizeUnknown=true}catch{sizeUnknown=true}
+  }
+  if(estimated>1024**3||sizeUnknown){
+   packageStatus(sizeUnknown?`Some media sizes could not be estimated${estimated?`; at least ${(estimated/1024**3).toFixed(2)} GB is known`:''}. Exporting may require substantial memory and disk space. Continue?`:
+    `This library contains at least ${(estimated/1024**3).toFixed(2)} GB of media. Exporting may require substantial memory and disk space. Continue?`);
+   const controls=packageDialog.querySelector('#packageConfirmation');controls.hidden=false;
+   const approved=await new Promise(resolve=>{packageDialog.querySelector('#packageContinue').onclick=()=>resolve(true);packageDialog.querySelector('#packageCancel').onclick=()=>resolve(false);packageDialog.addEventListener('close',()=>resolve(false),{once:true})});
+   controls.hidden=true;if(!approved)return;
+  }
+  const total=snapshot.reduce((sum,arch)=>sum+arch.media.length,0);let loaded=0;
+  for(const arch of snapshot)for(const item of arch.media){
+   packageStatus(`Reading media ${loaded+1} of ${total}…`,{done:loaded,total});
+   await new Promise(resolve=>requestAnimationFrame(resolve));
+   const blob=item.blob||await (async()=>{const response=await fetch(item.url);if(!response.ok)throw new Error(`Cannot fetch ${item.name}: HTTP ${response.status}`);return response.blob()})();
+   item.mime=item.mime||blob.type||'application/octet-stream';item.bytes=new Uint8Array(await blob.arrayBuffer());delete item.blob;delete item.url;loaded++;
+  }
+  packageStatus('Packing and checking media…',{done:0,total});
+  const result=await buildLibraryPackage({archetypes:snapshot,localStorage:localStorageBackup(),appVersion:packageInfo.version,userAgent:navigator.userAgent},async(done,count)=>{packageStatus(`Hashing media ${done} of ${count}…`,{done,total:count});await new Promise(resolve=>requestAnimationFrame(resolve))});
+  const blob=new Blob([result.zip],{type:'application/zip'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=libraryFilename();document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  packageStatus('Export complete.',null,`${result.manifest.archetypes.length} archetypes · ${result.uniqueMediaCount} unique media files · ${(blob.size/1024/1024).toFixed(1)} MB package`);
+ }catch(error){console.error('Library export failed',error);packageStatus('Export failed.',null,error.message||String(error))}
+ finally{exportButton.disabled=false}
+}
+verifyPackageFile.onchange=async()=>{
+ const file=verifyPackageFile.files?.[0];verifyPackageFile.value='';if(!file)return;
+ try{
+  packageStatus('Verifying package…');
+  const report=await verifyLibraryPackage(new Uint8Array(await file.arrayBuffer()));
+  packageStatus(report.valid?'Package verified: no errors.':'Package verification found problems.',null,
+   `Format version: ${report.formatVersion}${report.supported?'':' (unsupported)'}\nArchetypes: ${report.archetypeCount}\nMedia files: ${report.mediaCount}\nMissing files: ${report.missingFiles.length}${report.missingFiles.length?'\n'+report.missingFiles.join('\n'):''}\nChecksum mismatches: ${report.checksumMismatches.length}${report.checksumMismatches.length?'\n'+report.checksumMismatches.join('\n'):''}\nInvalid entries: ${report.invalidEntries.length}${report.invalidEntries.length?'\n'+report.invalidEntries.join('\n'):''}`);
+ }catch(error){console.error('Package verification failed',error);packageStatus('Could not verify package.',null,error.message||String(error))}
+};
 async function selectArchetype(a){
  if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
  if(deletingArchetype)return;
@@ -1172,6 +1297,7 @@ async function selectArchetype(a){
    renderPresetControls();
    if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
    if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+   if(lookPanel.classList.contains('open'))renderLookEditor();
  }finally{
    archetypeSelectionBusy=false;
    const queued=queuedArchetype;queuedArchetype=null;
@@ -1223,30 +1349,23 @@ function resize(){
  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}
  if(pcanvas.width!==innerWidth||pcanvas.height!==innerHeight){pcanvas.width=innerWidth;pcanvas.height=innerHeight}
 }
-function updateParticles(t){
- const a=archetypes[target].behavior;
- const profile=visualProfileIndex(target);
+function updateParticles(t,look){
+ const settings=look.particles;
  const partAmt=FinalG.parts;
- const wanted=Math.floor(150*a.particle*partAmt);
+ const wanted=Math.floor(150*settings.density*partAmt);
  while(particles.length<wanted) particles.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,z:Math.random(),r:.6+Math.random()*2.3,vx:(Math.random()-.5),vy:(Math.random()-.5),life:Math.random()*100});
  while(particles.length>wanted)particles.pop();
  ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
  ctx.globalCompositeOperation='screen';
- let speed=.12+a.particle*.22+partAmt*.42;
- for(const p of particles){
-   if(profile===1){p.x+=(1.2*speed)*(1+p.z);p.y+=Math.sin((p.x+p.life)*.01)*.16}
-   else if(profile===2){let dx=p.x-innerWidth/2,dy=p.y-innerHeight/2,dl=Math.hypot(dx,dy)||1;p.x+=dx/dl*.16*speed;p.y+=dy/dl*.16*speed}
-   else if(profile===3){p.x+=2.2*speed;p.y+=(Math.random()-.5)*.22*speed}
-   else if(profile===4){let dx=p.x-innerWidth/2,dy=p.y-innerHeight/2,dl=Math.hypot(dx,dy)||1;p.x+=dx/dl*.12*speed;p.y+=dy/dl*.12*speed}
-   else if(profile===5){p.x+=(p.z+.35)*1.5*speed;p.y+=Math.sin(t*.001+p.life)*.08*speed}
-   else{p.x+=Math.sin(t*.0002+p.life)*.12*speed;p.y-=.12*speed*(.5+p.z)}
-   if(p.x<-10)p.x=innerWidth+10;if(p.x>innerWidth+10)p.x=-10;if(p.y<-10)p.y=innerHeight+10;if(p.y>innerHeight+10)p.y=-10;
+ const speed=particleSpeed(look,partAmt),[red,green,blue]=hexRgb(settings.color);
+ for(let index=0;index<particles.length;index++){
+   const p=stepParticle(particles[index],look,t,innerWidth,innerHeight,partAmt);particles[index]=p;
    let alpha=(.08+.34*p.z)*clamp(partAmt,0,1.4);
-   ctx.fillStyle=`rgba(190,235,255,${alpha})`;
-   ctx.strokeStyle=`rgba(190,235,255,${alpha})`;
+   ctx.fillStyle=`rgba(${red},${green},${blue},${alpha})`;
+   ctx.strokeStyle=`rgba(${red},${green},${blue},${alpha})`;
    ctx.lineWidth=.6+p.z;
-   if(profile===1||profile===3||profile===5){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-(8+18*p.z)*speed,p.y+(profile===5?3:0));ctx.stroke()}
-   else if(profile===2){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.5+p.z*2),0,Math.PI*2);ctx.stroke()}
+   if(settings.style==='streaks'){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-(8+18*p.z)*speed,p.y+settings.streakSlant);ctx.stroke()}
+   else if(settings.style==='rings'){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.5+p.z*2),0,Math.PI*2);ctx.stroke()}
    else{ctx.beginPath();ctx.arc(p.x,p.y,p.r*(.6+p.z),0,Math.PI*2);ctx.fill()}
  }
  ctx.globalCompositeOperation='source-over';
@@ -1291,19 +1410,23 @@ function frame(now){
  gl.uniform2f(U.uRes,canvas.width,canvas.height);
  gl.uniform1f(U.uTime,(now-t0)/1000);
  const sequenceA=seqStates[current],sequenceB=seqStates[target];
+ const lookA=isShowMode&&remoteVisualState?.lookA?remoteVisualState.lookA:looks[current];
+ const lookB=isShowMode&&remoteVisualState?.lookB?remoteVisualState.lookB:looks[target];
+ const uniformsA=lookUniforms(lookA),uniformsB=lookUniforms(lookB);
  gl.uniform1f(U.uMorphA,sequenceA.blend);gl.uniform1f(U.uMorphB,sequenceB.blend);
  gl.uniform1i(U.uTransA,sequenceA.transitionShaderId);gl.uniform1i(U.uTransB,sequenceB.transitionShaderId);
  gl.uniform1f(U.uSeedA,sequenceA.seed);gl.uniform1f(U.uSeedB,sequenceB.seed);
  gl.uniform4fv(U.uParamA,sequenceA.param);gl.uniform4fv(U.uParamB,sequenceB.param);
  gl.uniform1f(U.uArchMix,transitioning?archMix:1);
- gl.uniform1i(U.uArchA,visualProfileIndex(current));
- gl.uniform1i(U.uArchB,visualProfileIndex(target));
+ gl.uniform4fv(U.uWarpA,uniformsA.warp);gl.uniform4fv(U.uWarpB,uniformsB.warp);
+ gl.uniform2fv(U.uWarpDirA,uniformsA.direction);gl.uniform2fv(U.uWarpDirB,uniformsB.direction);
+ gl.uniform4fv(U.uGradeA,uniformsA.grade);gl.uniform4fv(U.uGradeB,uniformsB.grade);
  gl.uniform1f(U.uMapPulse,FinalG.pulse);
  gl.uniform1f(U.uDistAmt,FinalG.dist);gl.uniform1f(U.uGlowAmt,FinalG.glow);gl.uniform1f(U.uLumAmt,FinalG.luma);gl.uniform1f(U.uSatAmt,FinalG.sat);gl.uniform1f(U.uZoomAmt,FinalG.zoom);
  gl.uniform1f(U.uRotateAmt,FinalG.rotate);gl.uniform1f(U.uSpiralAmt,FinalG.spiral);gl.uniform1f(U.uTilesAmt,FinalG.tiles);
  refreshVideoTextures();
  gl.drawArrays(gl.TRIANGLES,0,3);
- updateParticles(now);
+ updateParticles(now,lookB);
  const vals=[['E',Eff.energy],['D',Eff.density],['R',Eff.drive],['K',Eff.boombap],['T',Eff.tension],['B',Eff.bright],['O',Eff.open]];
  vals.forEach(([k,v])=>{document.getElementById('v'+k).textContent=v.toFixed(2);document.getElementById('f'+k).style.width=(v*100)+'%'});
  document.getElementById('vBeat').textContent=BeatPulse.toFixed(2);

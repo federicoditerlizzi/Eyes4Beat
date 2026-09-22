@@ -95,7 +95,11 @@ The controller supports direct archetype selection with `1–9`, `0` for archety
 
 ## Custom archetypes
 
-Use the creation button after the footer archetype list to build an archetype from local images and short videos. Videos play muted and loop through the same WebGL treatment as images. Choose a built-in visual language as the initial shader/particle vocabulary; routing and musical presets remain independent and editable. Custom media are stored locally in IndexedDB and restored on the same browser and origin. The creator limits videos to 25 MB each and the complete selection to 100 MB.
+Use the creation button after the footer archetype list to build an archetype from local images and short videos. Videos play muted and loop through the same WebGL treatment as images. **Start from Blank** for a neutral look and empty musical routing, or choose one of six factory presets for the original visual vocabulary, routing and image-sequence defaults. Custom media are stored locally in IndexedDB and restored on the same browser and origin. The creator limits videos to 25 MB each and the complete selection to 100 MB.
+
+## Archetype looks
+
+Every archetype owns editable distortion, color and particle parameters. Open **LOOK** in the header to change them live; changes are saved per archetype under `arv_v047_looks`. The six original visual profiles are now factory presets with matching rendering constants. **Load preset** replaces only the current look after confirmation; it does not change routing, media or musical presets. A blank look has no distortion, color tint or particles. Distortion still requires a routed, active Distortion musical target. The editor warns when the archetype has no musical routing at all.
 
 The creator can also generate image sequences through the server-side Cloudflare Pages Function at `/api/generate-image`. Generated images become normal local archetype media; the API key is never sent to the browser. For local Pages development, add `OPENAI_API_KEY=...` to a git-ignored `.dev.vars`, run `npm run build`, then `npx wrangler pages dev dist`. The optional `OPENAI_IMAGE_MODEL` binding defaults to `gpt-image-1.5`.
 
@@ -109,6 +113,12 @@ npm run deploy
 ```
 
 Set account-level budgets and alerts in the OpenAI API dashboard as an additional spending safeguard.
+
+## Backup and export
+
+Use **EXPORT LIBRARY** in the archetype footer before changing the data model or moving browsers. It downloads one ZIP containing a version-2 manifest of every currently loaded built-in and custom archetype, their effective look, routing, image configuration, musical presets and ordered media. Built-in assets and custom image/video Blobs are included; duplicate media are stored once, with SHA-256 checksums. The package also contains `raw/local-storage.json` as a recovery snapshot of `arv_` and `eyes4beat` settings. Verification accepts both version-1 and version-2 packages. Packages are backups only: this version does not import them.
+
+Use **VERIFY PACKAGE** to check a saved ZIP without changing the app. The report includes archetype and media counts, format version, missing files and checksum mismatches. Data is per browser and origin, so export separately from every browser/computer where you have worked (including localhost and the deployed site). Keep the ZIP in a safe place outside browser storage.
 
 ## Private deployment
 

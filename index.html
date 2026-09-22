@@ -41,6 +41,7 @@
       <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="iconAction headerIcon safetyBtn blackoutBtn" type="button" aria-label="Blackout" data-tooltip="Blackout (B)" aria-pressed="false"><i data-lucide="monitor-off"></i></button><button id="panicBtn" class="iconAction headerIcon safetyBtn panicBtn" type="button" aria-label="Panic" data-tooltip="Panic safe state (P)" aria-pressed="false"><i data-lucide="octagon-alert"></i></button></div>
       <button id="audioInputBtn" class="iconAction headerIcon audioInputBtn" type="button" aria-label="Audio input" data-tooltip="Audio input"><i data-lucide="audio-lines"></i></button>
       <button id="imageMgrBtn" class="iconAction headerIcon" data-tooltip="Image manager" aria-label="Image manager"><i data-lucide="images"></i></button>
+      <button id="lookBtn" class="iconAction headerIcon" data-tooltip="Edit archetype look" aria-label="Edit archetype look"><i data-lucide="sliders-horizontal"></i></button>
       <button id="diagBtn" class="iconAction headerIcon" data-tooltip="Toggle diagnostics" aria-label="Toggle diagnostics"><i data-lucide="activity"></i></button>
       <button id="shortcutHelpBtn" class="iconAction headerIcon" data-tooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><i data-lucide="keyboard"></i></button>
       <button id="showModeBtn" class="iconAction headerIcon" data-tooltip="Open show output" aria-label="Open show output"><i data-lucide="screen-share"></i></button>
@@ -109,7 +110,7 @@
     </div>
     <div class="creatorGrid">
       <div class="creatorField"><label>NAME</label><input id="customArchName" maxlength="40" placeholder="e.g. Liquid Constellations"></div>
-      <div class="creatorField"><label>VISUAL LANGUAGE</label><select id="customArchTemplate"></select><span>Defines distortion, colour treatment and particle style—not musical routing.</span></div>
+      <div class="creatorField"><label>START FROM</label><select id="customArchTemplate"></select><span>Blank starts with a neutral look and empty routing. Factory presets reproduce the original visual languages.</span></div>
       <div class="creatorField creatorSourceField"><label>MEDIA SOURCE</label><div class="creatorSourceSwitch"><button id="creatorUploadMode" class="active" type="button">UPLOAD</button><button id="creatorAiMode" type="button">GENERATE AI</button></div><span>Upload your media or generate a coherent image sequence.</span></div>
     </div>
     <div id="creatorUploadFields" class="creatorModePanel">
@@ -222,6 +223,14 @@
     </div>
   </div>
 
+
+  <div class="lookPanel" id="lookPanel">
+    <div class="imageTop"><div class="sectionTitle"><h2>LOOK · <span id="lookArchName">DEEP DRIFT</span></h2><button class="infoTip" type="button" aria-label="About archetype looks" data-tooltip="A look defines visual distortion, grading and particle vocabulary. Musical targets still control how strongly these react."><i data-lucide="info"></i></button></div><button id="closeLook" class="iconAction closeAction" type="button" aria-label="Close look editor" data-tooltip="Close look editor"><i data-lucide="x"></i></button></div>
+    <div class="lookPresetBar"><label for="lookPreset">LOAD PRESET</label><select id="lookPreset"><option value="">Select a factory look…</option></select></div>
+    <div id="lookRoutingWarning" class="lookWarning" hidden>No musical routing active. Connect a source to a target to make this look music-responsive.</div>
+    <div id="lookFields" class="lookFields"></div>
+    <p class="lookHint">Distortion is visible only when the Distortion target is routed and active. Changes save automatically for this archetype.</p>
+  </div>
 
   <div class="imagePanel" id="imagePanel">
     <div class="imageTop">

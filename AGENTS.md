@@ -17,6 +17,8 @@ Eyes4Beat is a browser-based visual instrument for live music performances. It a
 - `src/image-sequencer.js` owns pure easing, effective-duration, trigger classification, transition-pool and sequence-order selection, beat-time conversion/quantization, latest-pending resolution and image-config normalization/migration logic.
 - `src/shaders.js` owns the WebGL2 shader sources.
 - `src/custom-archetypes.js` persists user-created archetypes and image/video blobs in IndexedDB.
+- `src/package-format.js` builds and validates versioned ZIP library backups with SHA-256 media deduplication; it does not import or mutate app data.
+- `src/looks.js` owns per-archetype look normalization, six factory presets, shader uniforms and pure particle movement.
 - `public/assets/images/` contains the 30 visual source images.
 - `test/routing.test.js` covers essential routing invariants.
 - `legacy/index_v044.html` is an archived reference, not the maintained entry point.
@@ -115,7 +117,7 @@ The app ships with six built-in archetypes:
 
 An archetype is a purely visual world: its image sequence, chromatic identity, shader interpretation of each target, and particle vocabulary. It must not decide which musical feature drives a target. Musical behavior belongs to the routing matrix and named musical presets. Different archetypes may interpret the same target differently (for example bubbles, streaks, or geometric particles), but target intensity and reactivity remain user-controlled.
 
-Users can create additional archetypes from the footer action. A custom archetype contains a name, one or more image/video blobs, and a `templateIndex` selecting one built-in visual language. Videos are muted, looped and uploaded into the same live WebGL texture slots as still images. The template provides shader and particle interpretation only; the custom archetype receives its own routing, media sequence configuration and musical preset list.
+Users can create additional archetypes from the footer action. A custom archetype contains a name and one or more image/video blobs. **Start from Blank** creates a neutral look with empty routing; a factory preset seeds the look, routing and image config of the corresponding original profile. Existing customs retain `templateIndex` for migration/defaults only. Videos are muted, looped and uploaded into the same live WebGL texture slots as still images. Every custom archetype receives its own routing, media sequence configuration and musical preset list.
 Only custom archetypes expose a trash action in the footer. After confirmation, deletion removes their IndexedDB record, object URLs and matching index in each parallel runtime/persistence array (routing maps, image configs, sequence states and music presets). If the deleted archetype is active, both renderer roles switch to built-in Deep Drift first; Show peers reload their library. Never leave the arrays out of alignment or offer deletion for built-ins.
 
 The creator can also generate still-image sequences through `/api/generate-image`, a Cloudflare Pages Function that calls OpenAI with the server-side `OPENAI_API_KEY`. The endpoint generates one bounded 1536×1024 WebP per request; the client calls it sequentially to expose progress and limit response size. Generated images become ordinary `File` objects and remain in local IndexedDB. They are not currently shared across browsers or stored in R2/D1.
@@ -124,7 +126,7 @@ When animation-sequence mode is enabled, frame one uses the generations endpoint
 
 `current` is the rendered source archetype and `target` is the selected destination. In smooth mode the shader blends them over 6.5 seconds using `archMix`; cut mode changes immediately. That system is unchanged and separate from configurable media transitions within an archetype. The shader transition function is nevertheless role-based so the same library can be reused for archetype transitions later.
 
-The `behavior` object currently affects particle quantity/motion; several fields (`warp`, `zoom`, `pan`, `glow`, `pulse`, `dir`) are descriptive or only partially consumed because much of the archetype behavior is hard-coded in GLSL conditionals.
+Per-archetype looks in `src/looks.js` replace the old `behavior` object and profile branches. The six factory looks preserve their original distortion, grading and particle constants. The LOOK editor applies changes live and persists them under `arv_v047_looks`; loading a factory or Blank preset overwrites only the current look after confirmation. Shader roles each receive warp and grading uniforms, while particles use the target archetype's look. Musical routing remains independent; an empty routing map triggers a LOOK-panel warning.
 
 ## Image sequencing
 
@@ -150,12 +152,17 @@ Routing maps, image-manager settings, and named per-archetype musical presets pe
 - audio input device: `eyes4beat_input_device`;
 - per-input analysis trim: `eyes4beat_input_trim`;
 - per-input noise-floor profiles: `eyes4beat_input_calibrations`.
+- per-archetype visual looks: `arv_v047_looks`, aligned with the runtime archetype list. Missing entries migrate from built-in index or custom `templateIndex`; Blank customs use the neutral look.
 
 Most other UI settings reset on reload. Persistence is origin-specific, so `file://`, `localhost`, and a deployed host do not share configuration. If the schema changes, add normalization/migration rather than assuming saved data has the new shape.
 
+## Library package v2
+
+The archetype footer offers **EXPORT LIBRARY** and read-only **VERIFY PACKAGE**. Export snapshots each currently loaded archetype's normalized in-memory look, routing, image config and musical presets, plus legacy profile metadata and ordered media. Built-in files come from their asset URLs; custom Blobs come from IndexedDB. `src/package-format.js` writes `manifest.json` (`format: eyes4beat-package`, `formatVersion: 2`, `kind: legacy-library`), deduplicated uncompressed `media/<sha256>.<ext>` entries, and `raw/local-storage.json` containing keys beginning `arv_` or `eyes4beat`. Verification accepts legacy version 1 (without looks) and version 2. The ZIP is named `eyes4beat-library-YYYYMMDD-HHMM.zip`. There is no import path in this phase. Browser origins do not share data: back up each browser/computer separately before migration.
+
 ## Renderer texture model
 
-The renderer uses four fragment samplers: current A/B and target A/B. Only the two archetypes involved in a transition occupy GPU texture slots, so the number of user-created archetypes is no longer constrained by `MAX_TEXTURE_IMAGE_UNITS`. Custom archetypes send their built-in `templateIndex` to the shader and particle renderer while retaining their own image sequence.
+The renderer uses four fragment samplers: current A/B and target A/B. Only the two archetypes involved in a transition occupy GPU texture slots, so the number of user-created archetypes is no longer constrained by `MAX_TEXTURE_IMAGE_UNITS`. Each role sends its own look uniforms to the shader; particle motion uses the target look. No profile integer is sent to rendering.
 
 ## Other risks and constraints
 
@@ -175,7 +182,7 @@ The renderer uses four fragment samplers: current A/B and target A/B. Only the t
 - Use `rg -n` to locate symbols, then patch the smallest possible region.
 - Avoid unrelated full-file formatting so functional changes remain easy to review.
 - Keep musical state names and routing keys stable unless a localStorage migration accompanies the rename.
-- Built-in visual languages still require shader/particle work. User-created archetypes should go through the creator flow and use a built-in `templateIndex`; do not add permanent texture samplers.
+- Extend visual language through the per-archetype look model. User-created archetypes should go through the creator flow; do not add permanent texture samplers.
 - When changing audio heuristics, test with quiet, dense, transient-heavy, and beatless material; a change that looks good on one track can destabilize another.
 - Preserve the separation between slow contextual motion and fast rhythmic accents: the code intentionally prevents micro-transients from driving the whole visual world.
 - Check `git diff --stat` after edits and keep functional changes focused.

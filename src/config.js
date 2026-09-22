@@ -43,12 +43,8 @@ export const IMAGE_SETS = [
  ]
 ];
 export const archetypes = [
- {name:'DEEP DRIFT', behavior:{warp:.16, zoom:.025, pan:.012, glow:.45, particle:.34, pulse:.22, dir:0}},
- {name:'FUNK ELASTIC', behavior:{warp:.34, zoom:.035, pan:.040, glow:.50, particle:.58, pulse:.55, dir:1}},
- {name:'ORGANIC BLOOM', behavior:{warp:.24, zoom:.040, pan:.020, glow:.78, particle:.52, pulse:.30, dir:2}},
- {name:'DENSE PROPULSION', behavior:{warp:.43, zoom:.065, pan:.028, glow:.76, particle:.90, pulse:.76, dir:3}},
- {name:'HEART PULSE', behavior:{warp:.38, zoom:.055, pan:.022, glow:.88, particle:.70, pulse:.90, dir:4}},
- {name:'CYBER HEART', behavior:{warp:.36, zoom:.060, pan:.018, glow:.92, particle:.62, pulse:1.00, dir:5}}
+ {name:'DEEP DRIFT'}, {name:'FUNK ELASTIC'}, {name:'ORGANIC BLOOM'},
+ {name:'DENSE PROPULSION'}, {name:'HEART PULSE'}, {name:'CYBER HEART'}
 ];
 
 export const routeSources=['energy','density','drive','boombap','tension','bright','open','beat','kick','snare'];
