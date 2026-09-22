@@ -12,6 +12,7 @@ export function resolvePerformanceShortcut(event, archetypeCount) {
   if (code === 'Slash' && event.shiftKey) return { type: 'help' };
   if (code === 'KeyB') return { type: 'safety', control: 'blackout' };
   if (code === 'KeyP') return { type: 'safety', control: 'panic' };
+  if (code === 'KeyL') return { type: 'live-lock' };
   if (code === 'BracketLeft') return { type: 'media-step', direction: -1 };
   if (code === 'BracketRight') return { type: 'media-step', direction: 1 };
   if (code === 'ArrowRight' || code === 'KeyD') return { type: 'step', direction: 1 };

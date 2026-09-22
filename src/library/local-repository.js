@@ -41,6 +41,15 @@ export class LocalLibraryRepository extends LibraryRepository {
 
   get(store, key) { return this.request(store, 'readonly', objectStore => objectStore.get(key)); }
   getAll(store) { return this.request(store, 'readonly', objectStore => objectStore.getAll()); }
+  replaceRecord(store, value) { return this.serializeWrite(() => this.write([store], (transaction, finish) => { transaction.objectStore(store).put(copy(value));finish(value); })); }
+  removeRecord(store, key) { return this.serializeWrite(() => this.write([store], (transaction, finish) => { transaction.objectStore(store).delete(key);finish(key); })); }
+  removeProjectCache(projectId) { return this.serializeWrite(() => this.write(['projects', 'archetypes', 'lookPresets'], (transaction, finish) => {
+    transaction.objectStore('projects').delete(projectId);
+    for (const storeName of ['archetypes', 'lookPresets']) {
+      const store = transaction.objectStore(storeName);store.getAll().onsuccess = event => event.target.result.filter(item => item.projectId === projectId).forEach(item => store.delete(item.id));
+    }
+    finish(projectId);
+  })); }
   serializeWrite(action) {
     const result = this.writeQueue.then(action);
     this.writeQueue = result.catch(() => {});

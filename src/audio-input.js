@@ -1,4 +1,5 @@
 import { dbToGain } from './input-calibration.js';
+import analysisWorkletUrl from './analysis/worklet.js?worker&url';
 
 export const INPUT_DEVICE_KEY = 'eyes4beat_input_device';
 
@@ -19,11 +20,11 @@ export function readableInputError(error) {
 }
 
 export class AudioInputController {
-  constructor(audioElement, { onDeviceChange, onTrackEnded } = {}) {
+  constructor(audioElement, { onDeviceChange, onTrackEnded, onFeatures, onAnalysisError } = {}) {
     this.audio = audioElement;
     this.onDeviceChange = onDeviceChange;
-    this.onTrackEnded = onTrackEnded;
-    this.context = null;this.analyser = null;this.trimGain = null;this.silentPull = null;
+    this.onTrackEnded = onTrackEnded;this.onFeatures = onFeatures;this.onAnalysisError = onAnalysisError;
+    this.context = null;this.analysisNode = null;this.trimGain = null;this.silentPull = null;
     this.mediaSource = null;this.liveSource = null;this.liveStream = null;this.liveTrack = null;
     this.mode = 'file';this.deviceId = 'file';this.deviceLabel = '';
     this.boundDeviceChange = () => this.onDeviceChange?.();
@@ -34,10 +35,18 @@ export class AudioInputController {
     if (!this.context) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.context = new AudioContextClass({ latencyHint: 'interactive' });
-      this.trimGain = this.context.createGain();
-      this.analyser = this.context.createAnalyser();this.analyser.fftSize = 1024;this.analyser.smoothingTimeConstant = .56;
-      this.silentPull = this.context.createGain();this.silentPull.gain.value = 0;
-      this.trimGain.connect(this.analyser);this.analyser.connect(this.silentPull);this.silentPull.connect(this.context.destination);
+      try {
+        this.trimGain = this.context.createGain();
+        if (!this.context.audioWorklet || !window.AudioWorkletNode) throw new Error('AudioWorklet is unavailable in this browser. Real-time analysis cannot start.');
+        await this.context.audioWorklet.addModule(analysisWorkletUrl);
+        this.analysisNode = new AudioWorkletNode(this.context, 'eyesforbeats-analysis', { processorOptions: { fftSize: 2048, hopSize: 512 } });
+        this.analysisNode.port.onmessage = event => this.onFeatures?.(event.data);
+        this.analysisNode.onprocessorerror = event => this.onAnalysisError?.(event);
+        this.silentPull = this.context.createGain();this.silentPull.gain.value = 0;
+        this.trimGain.connect(this.analysisNode);this.analysisNode.connect(this.silentPull);this.silentPull.connect(this.context.destination);
+      } catch (error) {
+        await this.context.close().catch(()=>{});this.context = null;this.trimGain = null;this.analysisNode = null;this.silentPull = null;throw error;
+      }
     }
     if (this.context.state === 'suspended') await this.context.resume();
     return this.context;
@@ -89,10 +98,14 @@ export class AudioInputController {
   }
 
   get inputActive() {
-    if (!this.analyser) return false;
+    if (!this.analysisNode) return false;
     if (this.mode === 'file') return !this.audio.paused && !this.audio.ended;
     return this.liveTrack?.readyState === 'live' && this.liveTrack.enabled;
   }
+
+  resetAnalysis() { this.analysisNode?.port.postMessage({ type: 'reset' }); }
+  setAnalysisCalibration(value) { this.analysisNode?.port.postMessage({ type: 'calibration', value }); }
+  setCalibrationCapture(value) { this.analysisNode?.port.postMessage({ type: 'capture-calibration', value: !!value }); }
 
   diagnostics() {
     const settings = this.liveTrack?.getSettings?.() || {};

@@ -3,12 +3,12 @@ import { routeSources, routeTargets, sourceLabels, targetLabels, blankMap } from
 import { computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
 import { collectLegacyLibrary, legacyDataAvailable } from './legacy/export.js';
+import { SyncedLibraryRepository } from './library/synced-repository.js';
 import { LocalLibraryRepository } from './library/local-repository.js';
 import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, resolveShowIndexes, starterRoutingForOrigin } from './library/runtime.js';
 import { resolvePerformanceShortcut } from './shortcuts.js';
 import { applyPanicTargets } from './show-safety.js';
 import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
-import { averageNoiseFloor, computeDbfsMeter, spectralSubtract, subtractRmsNoise } from './input-calibration.js';
 import { icon, initIcons } from './icons.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from './package-format.js';
 import { prepareImportedArchetype } from './library/package-mapping.js';
@@ -53,12 +53,22 @@ showChannel?.addEventListener('message',event=>{
  if(!isShowMode&&message.type==='show-ready')lastShowPeerAt=Date.now();
 });
 
-let libraryVersionChanged=false;
-const repository=new LocalLibraryRepository(undefined,()=>{
- libraryVersionChanged=true;
- const notice=document.getElementById('libraryNotice');notice.replaceChildren(document.createTextNode('Library updated in another tab — reload this page to continue. '));notice.hidden=false;
- const button=document.createElement('button');button.type='button';button.textContent='RELOAD';button.title='Reload after library update';button.onclick=()=>location.reload();notice.appendChild(button);
-});
+let libraryVersionChanged=false,syncReloadTimer=null,lastConflictKey=null,remoteRefreshPending=false;
+function renderSyncState(state){
+ const status=document.getElementById('syncStatus');if(!status)return;
+ document.getElementById('accountEmail').textContent=state.email||'Offline cache';status.textContent=state.status.toUpperCase().replace('-',' ');
+ document.getElementById('syncLast').textContent='Last sync: '+(state.lastSync?new Date(state.lastSync).toLocaleString():'never');
+ if(state.status==='session-expired'){const notice=document.getElementById('libraryNotice');notice.textContent='Session expired — reload to sign in. Cached projects remain available.';notice.hidden=false}
+ const lock=document.getElementById('liveLockBtn'),badge=document.getElementById('liveLockBadge');lock.setAttribute('aria-pressed',String(state.liveLock));badge.hidden=!state.liveLock;badge.querySelector('span').textContent=String(state.pending||0);
+ if(state.conflict){lastConflictKey=state.conflict.key;const notice=document.getElementById('libraryNotice');notice.replaceChildren(document.createTextNode(`${state.conflict.name} was changed by ${state.conflict.updatedBy||'another user'}. `));notice.hidden=false;const button=document.createElement('button');button.textContent='RESTORE MY VERSION';button.onclick=()=>repository.restoreConflict(lastConflictKey).catch(console.error);notice.appendChild(button)}
+}
+function onSyncedLibraryChanged(change={}){
+ if(change.userChanged){clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(()=>location.reload(),50);return}
+ if(change.deferredApplied){remoteRefreshPending=true;return}
+ if(projectSwitching)return;clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(async()=>{const projects=await repository.listProjects(),wanted=activeProject&&projects.some(item=>item.id===activeProject.id)?activeProject.id:projects[0]?.id||null;await openProject(wanted,{preferredId:archetypes[target]?.id})},250);
+}
+const repository=new SyncedLibraryRepository({ readOnly:isShowMode, onState:renderSyncState, onLibraryChanged:onSyncedLibraryChanged });
+window.EyesForBeatsSync={sync:()=>repository.sync(),setLiveLock:value=>repository.setLiveLock(value),toggleLiveLock:()=>repository.setLiveLock(!repository.state.liveLock)};
 let activeProject=null,projectLookPresets=[],idToIndex=new Map();
 let projectSwitching=false,projectSwitchGeneration=0;
 const archetypes=[],IMAGE_SETS=[],defaultRoutingMaps=[];
@@ -808,7 +818,7 @@ function broadcastShowFrame(now,Eff){
  showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,finalG:{...FinalG},eff:{...Eff},currentId:archetypes[current]?.id||null,targetId:archetypes[target]?.id||null,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
 }
 
-let analyser=null,F=null,T=null,audioObjectUrl=null;
+let audioObjectUrl=null,latestAnalysis=null;
 const audio=document.getElementById('audio');
 const playButton=document.getElementById('play');
 const seekControl=document.getElementById('seek');
@@ -817,7 +827,7 @@ const muteButton=document.getElementById('mute');
 const trackName=document.getElementById('trackName');
 const timeDisplay=document.getElementById('timeDisplay');
 const audioDevice=document.getElementById('audioDevice'),inputTrim=document.getElementById('inputTrim');
-const inputController=new AudioInputController(audio,{onDeviceChange:handleDeviceChange,onTrackEnded:handleInputLost});
+const inputController=new AudioInputController(audio,{onDeviceChange:handleDeviceChange,onTrackEnded:handleInputLost,onFeatures:applyAnalysisFeatures,onAnalysisError:()=>{document.getElementById('inputWarning').textContent='Audio analysis stopped. Reload the page before performing.'}});
 let seeking=false,inputMode='file',inputLostDevice='',currentInputDiagnostics=null,clipHoldUntil=0,calibrationRun=null;
 const INPUT_TRIM_KEY='eyes4beat_input_trim',INPUT_CALIBRATION_KEY='eyes4beat_input_calibrations';
 let inputTrims={},inputCalibrations={};
@@ -827,9 +837,9 @@ function inputKey(){return inputMode==='live'?(inputController.deviceId||audioDe
 function saveInputSettings(){try{localStorage.setItem(INPUT_TRIM_KEY,JSON.stringify(inputTrims));localStorage.setItem(INPUT_CALIBRATION_KEY,JSON.stringify(inputCalibrations))}catch{}}
 function currentTrimDb(){return Number(inputTrims[inputKey()]??0)}
 function currentCalibration(){const item=inputCalibrations[inputKey()];return item&&Number(item.trimDb)===currentTrimDb()?item:null}
-function syncAnalysisNodes(){analyser=inputController.analyser;if(analyser&&(!F||F.length!==analyser.frequencyBinCount)){F=new Uint8Array(analyser.frequencyBinCount);T=new Uint8Array(analyser.fftSize)}}
-function applyStoredTrim(immediate=true){const value=currentTrimDb();inputTrim.value=String(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';inputController.setTrimDb(value,immediate);renderCalibrationStatus()}
-function resetBeatTracking(){beatHistory.length=0;BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;lastBpmEstimateAt=0;prevLow=0;prevSnare=0}
+function syncAnalysisNodes(){inputController.setAnalysisCalibration(currentCalibration())}
+function applyStoredTrim(immediate=true){const value=currentTrimDb();inputTrim.value=String(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';inputController.setTrimDb(value,immediate);inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus()}
+function resetBeatTracking(){BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;inputController.resetAnalysis()}
 
 function formatTime(seconds){
  if(!Number.isFinite(seconds)||seconds<0)return '0:00';
@@ -856,24 +866,26 @@ let Raw={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
 let Fast={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
 let Context={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
 let S={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
-let prevEnergy=0,driveMem=0,lastAnalysisAt=0, prevLow=0, prevSnare=0, boomMem=0, KickFast=0, SnareFast=0;
-let BPM=0, BPMConfidence=0, beatAnchorSec=null, BeatPulse=0, lastBpmEstimateAt=0;
-const beatHistory=[];
+let KickFast=0, SnareFast=0;
+let BPM=0, BPMConfidence=0, beatAnchorSec=null, BeatPulse=0;
 const history=[];
-function neutralizeInputState(){resetBeatTracking();Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals};history.length=0;prevEnergy=0;driveMem=0;boomMem=0}
+function neutralizeInputState(){resetBeatTracking();Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals};history.length=0}
 async function ensureAudio(){
- await inputController.ensureContext();syncAnalysisNodes();applyStoredTrim();
+ try{await inputController.ensureContext();syncAnalysisNodes();applyStoredTrim()}
+ catch(error){const message=readableInputError(error);document.getElementById('inputWarning').textContent=message;throw error}
 }
 document.getElementById('file').onchange=async e=>{
  const f=e.target.files[0]; if(!f)return;
  if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
  audioObjectUrl=URL.createObjectURL(f);audio.src=audioObjectUrl;
- inputMode='file';resetBeatTracking();await inputController.activateFile();syncAnalysisNodes();applyStoredTrim();
+ inputMode='file';resetBeatTracking();
+ try{await inputController.activateFile();syncAnalysisNodes();applyStoredTrim()}
+ catch(error){document.getElementById('inputWarning').textContent=readableInputError(error);return}
  trackName.dataset.fileName=f.name.replace(/\.[^.]+$/,'');trackName.textContent=trackName.dataset.fileName;
  updateInputModeUi();updateInputDiagnostics(inputController.diagnostics());updateTransportState();
  try{await audio.play()}catch(error){document.getElementById('audioInputStatus').textContent='File loaded. Press play to start.'}
 };
-playButton.onclick=async()=>{if(inputMode!=='file')return;await ensureAudio();audio.paused?audio.play():audio.pause()};
+playButton.onclick=async()=>{if(inputMode!=='file')return;try{await ensureAudio();audio.paused?await audio.play():audio.pause()}catch{}};
 audio.addEventListener('loadedmetadata',()=>{seekControl.disabled=false;seekControl.value='0';updateTimeDisplay(0)});
 audio.addEventListener('timeupdate',()=>{
  if(!seeking&&Number.isFinite(audio.duration)&&audio.duration>0)seekControl.value=String(Math.round(audio.currentTime/audio.duration*1000));
@@ -893,7 +905,7 @@ function updateInputModeUi(){
 function updateInputDiagnostics(info){
  currentInputDiagnostics=info;const flag=value=>value===true?'ON':value===false?'OFF':'UNSUPPORTED';
  const latency=typeof info?.baseLatency==='number'?(info.baseLatency*1000).toFixed(1)+' ms':String(info?.baseLatency??'—');
- document.getElementById('inputDiagnostics').textContent=info?`${info.mode.toUpperCase()} · ${info.label} · ${info.sampleRate} Hz · ${info.channelCount} ch · EC ${flag(info.echoCancellation)} · NS ${flag(info.noiseSuppression)} · AGC ${flag(info.autoGainControl)} · latency ${latency}`:'Waiting for source';
+ const diagnostics=document.getElementById('inputDiagnostics');diagnostics.textContent=info?`${info.mode.toUpperCase()} · ${info.label} · ${info.sampleRate} Hz · ${info.channelCount} ch · EC ${flag(info.echoCancellation)} · NS ${flag(info.noiseSuppression)} · AGC ${flag(info.autoGainControl)} · latency ${latency}`:'Waiting for source';diagnostics.title=diagnostics.textContent;
  const warning=document.getElementById('inputWarning');warning.textContent=info?.warning||'';warning.classList.toggle('active',!!info?.warning);
 }
 async function refreshInputDevices(){
@@ -931,11 +943,14 @@ function renderCalibrationStatus(){
 }
 function beginNoiseCalibration(){
  if(!inputController.inputActive){document.getElementById('audioInputStatus').textContent='Start playback or live input before calibrating.';return}
- calibrationRun={endsAt:performance.now()+3000,samples:[]};document.getElementById('calibrateNoise').disabled=true;document.getElementById('calibrationStatus').classList.remove('calibrated');
+ calibrationRun={endsAt:performance.now()+3000,samples:[]};inputController.setCalibrationCapture(true);document.getElementById('calibrateNoise').disabled=true;document.getElementById('calibrationStatus').classList.remove('calibrated');
 }
 function finishNoiseCalibration(){
+ inputController.setCalibrationCapture(false);
  if(!calibrationRun?.samples.length){calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;document.getElementById('audioInputStatus').textContent='Calibration failed: no audio samples received.';renderCalibrationStatus();return}
- const result=averageNoiseFloor(calibrationRun.samples);inputCalibrations[inputKey()]={rms:result.rms,bins:[...result.bins],trimDb:currentTrimDb(),createdAt:Date.now()};saveInputSettings();calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;renderCalibrationStatus();
+ const count=calibrationRun.samples.length,binCount=calibrationRun.samples.find(sample=>sample.spectrum)?.spectrum?.length||0,bins=new Array(binCount).fill(0);
+ for(const sample of calibrationRun.samples)for(let index=0;index<binCount;index++)bins[index]+=(sample.spectrum?.[index]||0)/count;
+ const rms=Math.sqrt(calibrationRun.samples.reduce((sum,sample)=>sum+sample.rms**2,0)/count);inputCalibrations[inputKey()]={rms,bins,trimDb:currentTrimDb(),createdAt:Date.now()};saveInputSettings();calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus();
 }
 function renderInputMeter(meter,now){
  document.getElementById('inputLevelFill').style.width=(Math.max(0,Math.min(100,(meter.peakDb+60)/60*100)))+'%';document.getElementById('inputRms').textContent='RMS '+meter.rmsDb.toFixed(1)+' dBFS';document.getElementById('inputPeak').textContent='PEAK '+meter.peakDb.toFixed(1)+' dBFS';
@@ -946,9 +961,9 @@ document.getElementById('audioInputBtn').onclick=async()=>{closeImageManager();c
 document.getElementById('closeAudioInput').onclick=()=>document.getElementById('audioInputPanel').classList.remove('open');
 document.getElementById('fileModeBtn').onclick=activateFileMode;document.getElementById('liveModeBtn').onclick=()=>startLiveInput();document.getElementById('startLiveInput').onclick=()=>startLiveInput();
 audioDevice.onchange=()=>{try{localStorage.setItem(INPUT_DEVICE_KEY,audioDevice.value)}catch{}if(inputMode==='live')startLiveInput(audioDevice.value)};
-inputTrim.oninput=()=>{const value=+inputTrim.value;inputTrims[inputKey()]=value;saveInputSettings();inputController.setTrimDb(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';if(calibrationRun){calibrationRun=null;document.getElementById('calibrateNoise').disabled=false}renderCalibrationStatus()};
+inputTrim.oninput=()=>{const value=+inputTrim.value;inputTrims[inputKey()]=value;saveInputSettings();inputController.setTrimDb(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';if(calibrationRun){calibrationRun=null;inputController.setCalibrationCapture(false);document.getElementById('calibrateNoise').disabled=false}renderCalibrationStatus()};
 document.getElementById('calibrateNoise').onclick=beginNoiseCalibration;
-document.getElementById('clearCalibration').onclick=()=>{delete inputCalibrations[inputKey()];saveInputSettings();renderCalibrationStatus()};
+document.getElementById('clearCalibration').onclick=()=>{delete inputCalibrations[inputKey()];saveInputSettings();inputController.setAnalysisCalibration(null);renderCalibrationStatus()};
 refreshInputDevices();updateInputModeUi();renderCalibrationStatus();
 const fullscreenButton=document.getElementById('fullscreen');
 function updateFullscreenButton(){const active=!!document.fullscreenElement;fullscreenButton.classList.toggle('fullscreenActive',active);fullscreenButton.setAttribute('aria-label',active?'Exit full screen':'Full screen');fullscreenButton.dataset.tooltip=active?'Exit full screen':'Full screen'}
@@ -997,185 +1012,24 @@ setInterval(()=>{
  showModeButton.title=connected?'Show output connected':'Open show output';
 },1000);
 
-function analyze(now){
- if(!analyser)return;
- // Rhythm analysis runs at ~25 Hz for tighter kick/snare and beat timing.
- if(now-lastAnalysisAt<40)return;
- lastAnalysisAt=now;
-
- analyser.getByteFrequencyData(F); analyser.getByteTimeDomainData(T);
- const meter=computeDbfsMeter(T);
- if(calibrationRun)calibrationRun.samples.push({rms:meter.rms,bins:Uint8Array.from(F)});
- renderInputMeter(meter,now);
- const calibration=currentCalibration();
- if(calibration)F.set(spectralSubtract(F,calibration.bins,2));
- let low=0,mid=0,high=0,all=0,n=F.length;
- for(let i=0;i<n;i++){
-   let v=F[i]/255; all+=v;
-   if(i<n*.10)low+=v;
-   else if(i<n*.38)mid+=v;
-   else high+=v;
- }
- low/=n*.10; mid/=n*.28; high/=n*.62; all/=n;
-
- let rms=calibration?subtractRmsNoise(meter.rms,calibration.rms,1.5):meter.rms;
-
- // Raw instantaneous layer: useful only as micro-detail.
- let energy=Math.min(1,rms*4.0);
- let flux=Math.max(0,energy-prevEnergy); prevEnergy=energy;
- driveMem=driveMem*.84+Math.min(1,flux*5.0+low*.48)*.16;
- let density=Math.min(1,all*1.18+mid*.30);
- let bright=Math.min(1,(high*1.55)/(low+.20));
-
- // BoomBap estimates kick/snare emphasis:
- // - kick side: low band transient + low band presence
- // - snare side: low-mid / mid transient + brightness presence
- let lowFlux=Math.max(0,low-prevLow); prevLow=low;
- let snareBand=Math.max(0,(mid*1.08 + high*0.35) - low*0.25);
- let snareFlux=Math.max(0,snareBand-prevSnare); prevSnare=snareBand;
- let kickHit=Math.min(1, lowFlux*4.4 + low*0.50);
- let snareHit=Math.min(1, snareFlux*4.8 + snareBand*0.28);
-
- // Short hit envelopes for actual visual accents.
- KickFast = KickFast*0.52 + kickHit*0.48;
- SnareFast = SnareFast*0.50 + snareHit*0.50;
-
- // Onset envelope used by the BPM/beat-clock estimator.
- let onsetStrength=Math.min(1, lowFlux*2.7 + snareFlux*2.8 + flux*1.35);
- const nowSec=now/1000;
- beatHistory.push({t:nowSec,o:onsetStrength,k:kickHit,s:snareHit});
- while(beatHistory.length && beatHistory[0].t<nowSec-12) beatHistory.shift();
-
- // Lightweight autocorrelation BPM estimator, recalculated about once per second.
- // Candidate tempo range: 65–155 BPM.
- if(now-lastBpmEstimateAt>900 && beatHistory.length>110){
-   lastBpmEstimateAt=now;
-   const vals=beatHistory.map(x=>x.o);
-   const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
-   const centered=vals.map(v=>v-mean);
-   let energyNorm=centered.reduce((a,v)=>a+v*v,0)+1e-6;
-   let bestBpm=BPM||92, bestScore=-1;
-   const sampleDt=Math.max(.035,Math.min(.055,(beatHistory[beatHistory.length-1].t-beatHistory[0].t)/Math.max(1,beatHistory.length-1)));
-
-   function corrForLag(lag){
-     let num=0,a2=0,b2=0;
-     for(let i=lag;i<centered.length;i++){
-       const a=centered[i], b=centered[i-lag];
-       num+=a*b; a2+=a*a; b2+=b*b;
-     }
-     return num/(Math.sqrt(a2*b2)+1e-6);
-   }
-
-   for(let bpm=65;bpm<=155;bpm+=1){
-     const lag=Math.max(2,Math.round((60/bpm)/sampleDt));
-     if(lag*2>=centered.length) continue;
-     const c1=corrForLag(lag);
-     const c2=corrForLag(lag*2);
-     const halfLag=Math.max(2,Math.round(lag/2));
-     const ch=corrForLag(halfLag);
-     let score=c1*.68+c2*.24+ch*.08;
-     if(BPM>0) score-=Math.min(.10,Math.abs(bpm-BPM)*.0018);
-     if(score>bestScore){bestScore=score;bestBpm=bpm;}
-   }
-
-   const conf=Math.max(0,Math.min(1,(bestScore-.04)/.42));
-   BPMConfidence=BPMConfidence*.72+conf*.28;
-   if(conf>.10){
-     if(BPM===0) BPM=bestBpm;
-     else BPM=BPM*.78+bestBpm*.22;
-   }
- }
-
- // Establish/snap the beat grid to strong percussive onsets.
- if(BPM>0){
-   const period=60/BPM;
-   const strongHit=Math.max(kickHit,snareHit,onsetStrength);
-   if(beatAnchorSec===null && strongHit>.52){
-     beatAnchorSec=nowSec;
-   } else if(beatAnchorSec!==null && strongHit>.58){
-     const nBeat=Math.round((nowSec-beatAnchorSec)/period);
-     const predicted=beatAnchorSec+nBeat*period;
-     const err=nowSec-predicted;
-     if(Math.abs(err)<period*.22) beatAnchorSec+=err*.20;
-   }
- }
-
- // BOOMBAP is now groove strength, not BPM itself:
- // regular beat confidence + current kick/snare activity + drive.
- let percussivePresence=Math.min(1,(kickHit+snareHit)*.55);
- let boombapInstant=Math.min(1,BPMConfidence*.58 + percussivePresence*.30 + driveMem*.12);
- boomMem=boomMem*.76 + boombapInstant*.24;
-
- let tension=Math.min(1,bright*.22+flux*1.55+Math.max(0,mid-low*.65)*.26);
- let openness=Math.max(0,Math.min(1,.80-density*.42-tension*.14+bright*.08));
-
- Raw={energy,density,drive:driveMem,boombap:boomMem,tension,bright,open:openness};
-
+function applyAnalysisFeatures(features){
+ latestAnalysis=features;if(!inputController.inputActive)return neutralizeInputState();
+ const now=performance.now();renderInputMeter(features.meter,now);
+ if(calibrationRun&&features.spectrum)calibrationRun.samples.push({rms:features.meter.rms,spectrum:features.spectrum});
+ Raw={...features.raw};BPM=features.tempo.bpm;BPMConfidence=features.tempo.confidence;beatAnchorSec=BPM>0?features.timestamp-features.tempo.phase*60/BPM:null;
+ BeatPulse=features.events.beat?Math.max(.35,BPMConfidence):Math.exp(-features.tempo.phase*8)*BPMConfidence;
+ KickFast=features.events.kick?1:KickFast*.72;SnareFast=features.events.snare?1:SnareFast*.70;
  const lerp=(a,b,k)=>a+(b-a)*k;
-
- // FAST LAYER: ~0.3–1.0 s. It can add accents, but cannot drive the world.
- Fast.energy=lerp(Fast.energy,Raw.energy,.30);
- Fast.density=lerp(Fast.density,Raw.density,.22);
- Fast.drive=lerp(Fast.drive,Raw.drive,.26);
- Fast.boombap=lerp(Fast.boombap,Raw.boombap,.30);
- Fast.bright=lerp(Fast.bright,Raw.bright,.18);
- Fast.tension=lerp(Fast.tension,Raw.tension,.13);
- Fast.open=lerp(Fast.open,Raw.open,.10);
-
- // Keep a 20-second rolling history.
- history.push({t:now/1000,...Raw});
- const oldest=now/1000-20;
- while(history.length && history[0].t<oldest) history.shift();
-
- function rolling(key,seconds,fallback){
-   const cutoff=now/1000-seconds;
-   let sum=0,count=0;
-   for(let i=history.length-1;i>=0;i--){
-     const s=history[i];
-     if(s.t<cutoff)break;
-     sum+=s[key];count++;
-   }
-   return count ? sum/count : fallback;
- }
-
- // CONTEXT LAYER: deliberately different windows for different perceptions.
- // Energy 3s, Density 6s, Drive 4s, BoomBap 4s, Brightness 6s,
- // Tension 12s, Openness 15s.
- const targetContext={
-   energy:rolling('energy',3,Fast.energy),
-   density:rolling('density',6,Fast.density),
-   drive:rolling('drive',4,Fast.drive),
-   boombap:rolling('boombap',4,Fast.boombap),
-   bright:rolling('bright',6,Fast.bright),
-   tension:rolling('tension',12,Fast.tension),
-   open:rolling('open',15,Fast.open)
- };
-
- // Extra inertia stops contextual meters from wobbling as the window changes.
- Context.energy=lerp(Context.energy,targetContext.energy,.18);
- Context.density=lerp(Context.density,targetContext.density,.12);
- Context.drive=lerp(Context.drive,targetContext.drive,.15);
- Context.boombap=lerp(Context.boombap,targetContext.boombap,.16);
- Context.bright=lerp(Context.bright,targetContext.bright,.10);
- Context.tension=lerp(Context.tension,targetContext.tension,.065);
- Context.open=lerp(Context.open,targetContext.open,.05);
-
- // Global slider: 0 = performance / immediate layer, 1 = context / phrase layer.
- // Small per-variable shaping keeps the personality of each dimension while still allowing pure performance mode.
- const mix=+document.getElementById('ctxPerf').value;
- function blend(f,c,shape){
-   const w=Math.max(0,Math.min(1,mix*shape));
-   return f*(1-w)+c*w;
- }
- S.energy=blend(Fast.energy,Context.energy,0.95);
- S.density=blend(Fast.density,Context.density,1.00);
- S.drive=blend(Fast.drive,Context.drive,0.92);
- // Rhythm is intentionally much more performance-led than the other states.
- const bbContextWeight=Math.min(.20,(+document.getElementById('ctxPerf').value)*.20);
- S.boombap=Fast.boombap*(1-bbContextWeight)+Context.boombap*bbContextWeight;
- S.bright=blend(Fast.bright,Context.bright,1.00);
- S.tension=blend(Fast.tension,Context.tension,1.08);
- S.open=blend(Fast.open,Context.open,1.12);
+ Fast.energy=lerp(Fast.energy,Raw.energy,.30);Fast.density=lerp(Fast.density,Raw.density,.22);Fast.drive=lerp(Fast.drive,Raw.drive,.26);
+ Fast.boombap=lerp(Fast.boombap,Raw.boombap,.30);Fast.bright=lerp(Fast.bright,Raw.bright,.18);Fast.tension=lerp(Fast.tension,Raw.tension,.13);Fast.open=lerp(Fast.open,Raw.open,.10);
+ history.push({t:features.timestamp,...Raw});while(history.length&&history[0].t<features.timestamp-20)history.shift();
+ const rolling=(key,seconds,fallback)=>{let sum=0,count=0;for(let i=history.length-1;i>=0;i--){if(history[i].t<features.timestamp-seconds)break;sum+=history[i][key];count++}return count?sum/count:fallback};
+ const targetContext={energy:rolling('energy',3,Fast.energy),density:rolling('density',6,Fast.density),drive:rolling('drive',4,Fast.drive),boombap:rolling('boombap',4,Fast.boombap),bright:rolling('bright',6,Fast.bright),tension:rolling('tension',12,Fast.tension),open:rolling('open',15,Fast.open)};
+ Context.energy=lerp(Context.energy,targetContext.energy,.18);Context.density=lerp(Context.density,targetContext.density,.12);Context.drive=lerp(Context.drive,targetContext.drive,.15);Context.boombap=lerp(Context.boombap,targetContext.boombap,.16);Context.bright=lerp(Context.bright,targetContext.bright,.10);Context.tension=lerp(Context.tension,targetContext.tension,.065);Context.open=lerp(Context.open,targetContext.open,.05);
+ const mix=+document.getElementById('ctxPerf').value,blend=(fast,context,shape)=>{const weight=Math.max(0,Math.min(1,mix*shape));return fast*(1-weight)+context*weight};
+ S.energy=blend(Fast.energy,Context.energy,.95);S.density=blend(Fast.density,Context.density,1);S.drive=blend(Fast.drive,Context.drive,.92);S.boombap=Fast.boombap*.8+Context.boombap*.2;S.bright=blend(Fast.bright,Context.bright,1);S.tension=blend(Fast.tension,Context.tension,1.08);S.open=blend(Fast.open,Context.open,1.12);
+ const bands=Object.entries(features.bands).map(([name,value])=>{const [low,high]=features.bandRanges[name];return `${name} ${low}–${Math.round(high)} Hz ${value.toFixed(1)}`}).join(' · '),ranges=Object.entries(features.normalization).map(([name,value])=>`${name} ${value.low.toFixed(2)}…${value.high.toFixed(2)}`).join(' · ');
+ const diagnostics=document.getElementById('analysisDiagnostics');diagnostics.textContent=`${inputController.context.sampleRate} Hz · ${bands} dBFS · onset ${features.onset.toFixed(3)} · BPM ${BPM?BPM.toFixed(1):'—'} · confidence ${BPMConfidence.toFixed(2)} · phase ${features.tempo.phase.toFixed(2)} · kick ${features.events.kick?'HIT':'—'} · snare ${features.events.snare?'HIT':'—'} · gate ${features.gate?'CLOSED':'OPEN'} · norm ${ranges}`;diagnostics.title=diagnostics.textContent;
 }
 
 let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;
@@ -1225,12 +1079,17 @@ async function updateStorageStatus(){
 }
 async function refreshProjects(){
  const projects=await repository.listProjects();projectSelect.replaceChildren();
+ const summary=document.getElementById('projectSummary');summary.replaceChildren();
  if(!projects.length){const option=document.createElement('option');option.textContent='NO PROJECT';option.value='';projectSelect.appendChild(option)}
- else for(const project of projects){const option=document.createElement('option');option.value=project.id;option.textContent=project.name;projectSelect.appendChild(option)}
+ else for(const project of projects){const option=document.createElement('option');option.value=project.id;option.textContent=project.name+(project.ownerEmail&&project.ownerEmail!==repository.email?' · SHARED':'');projectSelect.appendChild(option);const row=document.createElement('p');const ready=await repository.projectReadyOffline(project.id);row.textContent=`${project.name} · ${project.ownerEmail||'local'} · ${(project.visibility||'private').toUpperCase()} · ${ready?'READY OFFLINE':'MEDIA MISSING'}`;summary.appendChild(row)}
  projectSelect.value=activeProject?.id||'';
  renderLastExported();
  document.getElementById('projectEmptyHint').hidden=!!projects.length;
  for(const id of ['renameProject','duplicateProject','deleteProject','exportProject'])document.getElementById(id).disabled=!activeProject;
+ const owner=!!activeProject&&activeProject.ownerEmail===repository.email;document.getElementById('deleteProject').hidden=!!activeProject&&!owner;document.getElementById('projectVisibility').hidden=!owner;
+ if(activeProject)document.getElementById('projectVisibility').textContent=activeProject.visibility==='shared'?'MAKE PRIVATE':'SHARE';
+ const ready=activeProject?await repository.projectReadyOffline(activeProject.id):false,offline=document.getElementById('offlineReady');offline.textContent=activeProject?`Offline readiness: ${ready?'Ready offline':'Media missing'}`:'Offline readiness: no project';offline.className='offlineReady '+(ready?'ready':'missing');
+ const accountButton=document.getElementById('accountBtn');accountButton.classList.toggle('offlineReadyHeader',!!activeProject&&ready);accountButton.dataset.tooltip=activeProject?(ready?'Account and sync · ready offline':'Account and sync · media missing'):'Account and sync';
 }
 async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  if(libraryVersionChanged)throw new Error('Library updated in another tab; reload this page');
@@ -1240,6 +1099,7 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  await Promise.all([...pendingMediaLoads]);
  const nextProject=projectId?await repository.getProject(projectId):null;
  if(projectId&&(!nextProject||nextProject.deletedAt))throw new Error('Project not found');
+ if(nextProject&&!isShowMode&&repository.online)await repository.hydrateProject(nextProject.id,(done,total)=>{document.getElementById('projectStatus').textContent=`Caching media ${done}/${total}…`}).catch(()=>{});
  const records=nextProject?await repository.listArchetypes(nextProject.id):[];
  const mediaRecords=new Map(),missingArchetypes=new Set();
  for(const record of records)for(const media of record.media){if(!mediaRecords.has(media.mediaId)){
@@ -1269,6 +1129,7 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  if(document.getElementById('matrixPanel').classList.contains('open')){if(archetypes.length)renderMatrixEditor();else closeMappingMatrix()}
  document.getElementById('lookBtn').disabled=!archetypes.length;document.getElementById('imageMgrBtn').disabled=!archetypes.length;
  document.getElementById('openMatrix').disabled=!archetypes.length;
+ document.getElementById('projectStatus').textContent='';
  if(!fromShow)showChannel?.postMessage({type:'library-changed',projectId:activeProject?.id||null});
  }finally{if(generation===projectSwitchGeneration)projectSwitching=false}
 }
@@ -1279,6 +1140,15 @@ async function initializeLibrary(){
  await openProject(initial?.id||null,{fromShow:isShowMode});
  if(!isShowMode)try{document.getElementById('legacySection').hidden=!(await legacyDataAvailable())}catch(error){console.warn('Legacy archive check failed',error)}
  if(!projects.length&&!isShowMode)projectPanel.classList.add('open');
+ if(!isShowMode)void repository.initialize().then(async()=>{
+   const migrationKey=`eyes4beat_local_migration_${repository.email}`;if(!repository.email||localStorage.getItem(migrationKey))return;
+   const legacy=new LocalLibraryRepository('eyes4beat-library');const localProjects=await legacy.listProjects();
+   if(!localProjects.length){localStorage.setItem(migrationKey,'empty');await legacy.close();return}
+   const upload=confirm(`Upload ${localProjects.length} local project${localProjects.length===1?'':'s'} to your account? The local database will be kept.`);
+   localStorage.setItem(migrationKey,upload?'uploading':'skipped');
+   if(upload)try{await repository.migrateLocalProjects(legacy);localStorage.setItem(migrationKey,'complete');await repository.sync();location.reload()}catch(error){localStorage.removeItem(migrationKey);document.getElementById('projectStatus').textContent='Local project upload failed: '+error.message}
+   await legacy.close();
+ }).catch(()=>{});
 }
 projectSelect.onchange=()=>openProject(projectSelect.value).catch(error=>{console.error(error);document.getElementById('projectStatus').textContent=error.message});
 document.getElementById('projectManageBtn').onclick=()=>projectPanel.classList.toggle('open');
@@ -1315,6 +1185,13 @@ document.getElementById('duplicateProject').onclick=async()=>{
  catch(error){document.getElementById('projectStatus').textContent=error.message}
 };
 document.getElementById('deleteProject').onclick=()=>{if(activeProject)openProjectDialog('delete')};
+document.getElementById('projectVisibility').onclick=async()=>{if(!activeProject)return;try{activeProject=await repository.setProjectVisibility(activeProject.id,activeProject.visibility==='shared'?'private':'shared');await repository.sync();await refreshProjects()}catch(error){document.getElementById('projectStatus').textContent=error.message}};
+document.getElementById('accountBtn').onclick=()=>projectPanel.classList.toggle('open');
+document.getElementById('syncNow').onclick=()=>repository.sync().catch(error=>{document.getElementById('projectStatus').textContent=error.message});
+document.getElementById('signOut').onclick=()=>{location.href='/cdn-cgi/access/logout'};
+document.getElementById('liveLockBtn').onclick=()=>repository.setLiveLock(!repository.state.liveLock).catch(console.error);
+addEventListener('focus',()=>{if(!isShowMode)void repository.sync().catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(!isShowMode&&document.visibilityState==='visible')void repository.sync().catch(()=>{})});
 function renderArchetypeBar(){
  const bar=document.getElementById('archBar');bar.innerHTML='';
  if(!archetypes.length){const empty=document.createElement('span');empty.className='archEmpty';empty.textContent=activeProject?'No archetypes yet — create one or import a package.':'Create or import a project to begin.';bar.appendChild(empty)}
@@ -1450,6 +1327,7 @@ document.getElementById('importPackageFile').onchange=async event=>{
 };
 async function selectArchetype(a){
  if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
+ if(remoteRefreshPending){const wanted=archetypes[a]?.id;remoteRefreshPending=false;await openProject(activeProject.id,{preferredId:wanted});return}
  if(projectSwitching||deletingArchetype)return;
  if(a===target)return;
  if(archetypeSelectionBusy){queuedArchetype=a;return}
@@ -1495,6 +1373,7 @@ document.addEventListener('keydown',event=>{
  const action=resolvePerformanceShortcut(event,archetypes.length);if(!action)return;
  event.preventDefault();
  if(action.type==='help'){openShortcutGuide();return}
+ if(action.type==='live-lock'){void repository.setLiveLock(!repository.state.liveLock);showShortcutToast('LIVE LOCK · '+(!repository.state.liveLock?'ON':'OFF'));return}
  if(action.type==='safety'){
    const active=action.control==='blackout'?toggleBlackout():togglePanic();
    showShortcutToast(action.control.toUpperCase()+' · '+(active?'ON':'OFF'));return;
@@ -1545,7 +1424,7 @@ function frame(now){
  resize();
  const dt=Math.min(.05,(now-last)/1000);last=now;
  if(!archetypes.length){
-   if(!isShowMode){analyze(now);if(showChannel&&now-lastShowBroadcastAt>=40){lastShowBroadcastAt=now;showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,currentId:null,targetId:null,blackout:blackoutActive,finalG:{...NEUTRAL_TARGETS}}})}}
+   if(!isShowMode){if(showChannel&&now-lastShowBroadcastAt>=40){lastShowBroadcastAt=now;showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,currentId:null,targetId:null,blackout:blackoutActive,finalG:{...NEUTRAL_TARGETS}}})}}
    else if(remoteVisualState)setBlackout(!!remoteVisualState.blackout);
    gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
    requestAnimationFrame(frame);return;
@@ -1557,15 +1436,7 @@ function frame(now){
    if(seqStates[target]?.transitioning)advanceSequenceTransition(1,target,now);
    Eff=remoteVisualState?.eff||neutralVals;
  }else{
-   analyze(now);
-   // Tempo-synced pulse is calculated every visual frame from the current beat clock.
-   let beatPhase=0;
-   if(BPM>0 && beatAnchorSec!==null){
-     const period=60/BPM;
-     const pos=(now/1000-beatAnchorSec)/period;
-     beatPhase=((pos%1)+1)%1;
-     BeatPulse=Math.exp(-beatPhase*8.5)*BPMConfidence;
-   } else BeatPulse*=0.92;
+   // The render loop consumes the latest fixed-hop AudioWorklet features.
    Eff=getEffectiveState();
    const routedTargets=computeGlobalMapping(Eff,now);
    FinalG=applyPanicTargets(routedTargets,{panic:panicActive,releaseStartedAt:panicReleaseStartedAt,now,duration:300});
@@ -1604,10 +1475,11 @@ function frame(now){
  vals.forEach(([k,v])=>{document.getElementById('v'+k).textContent=v.toFixed(2);document.getElementById('f'+k).style.width=(v*100)+'%'});
  document.getElementById('vBeat').textContent=BeatPulse.toFixed(2);
  document.getElementById('fBeat').style.width=(Math.min(1,BeatPulse)*100)+'%';
+ document.getElementById('vKick').textContent=KickFast.toFixed(2);document.getElementById('fKick').style.width=(Math.min(1,KickFast)*100)+'%';
+ document.getElementById('vSnare').textContent=SnareFast.toFixed(2);document.getElementById('fSnare').style.width=(Math.min(1,SnareFast)*100)+'%';
  document.getElementById('vBPM').textContent=BPM>0?Math.round(BPM):'--';
  document.getElementById('fBpmConf').style.width=(BPMConfidence*100)+'%';
- document.getElementById('microState').textContent=
-   'Beat '+BeatPulse.toFixed(2)+' · Kick '+KickFast.toFixed(2)+' · Snare '+SnareFast.toFixed(2)+' · '+archetypes[target].name+' IMG '+(seqStates[target].current+1)+' ['+imageConfigs[target].mode.toUpperCase()+'] · Zoom '+FinalG.zoom.toFixed(2)+' · '+(BPM>0?Math.round(BPM)+' BPM':'learning');
+ const zoomLevel=Math.max(0,Math.min(1,(FinalG.zoom-.9)/.28));document.getElementById('vZoom').textContent=FinalG.zoom.toFixed(2);document.getElementById('fZoom').style.width=(zoomLevel*100)+'%';
  requestAnimationFrame(frame);
 }
 await initializeLibrary();

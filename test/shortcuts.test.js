@@ -27,6 +27,10 @@ test('navigation, transition and help shortcuts resolve', () => {
   assert.deepEqual(resolvePerformanceShortcut(key('BracketRight'), 6), { type: 'media-step', direction: 1 });
 });
 
+test('L toggles live lock', () => {
+  assert.deepEqual(resolvePerformanceShortcut({ code: 'KeyL' }, 2), { type: 'live-lock' });
+});
+
 test('Alt or Option maps number and navigation keys to presets', () => {
   assert.deepEqual(resolvePerformanceShortcut(key('Digit1', { altKey: true }), 6), { type: 'preset-select', index: 0 });
   assert.deepEqual(resolvePerformanceShortcut(key('Digit0', { altKey: true }), 6), { type: 'preset-select', index: 9 });

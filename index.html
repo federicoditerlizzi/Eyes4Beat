@@ -46,6 +46,8 @@
       <button id="diagBtn" class="iconAction headerIcon" data-tooltip="Toggle diagnostics" aria-label="Toggle diagnostics"><i data-lucide="activity"></i></button>
       <button id="shortcutHelpBtn" class="iconAction headerIcon" data-tooltip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><i data-lucide="keyboard"></i></button>
       <button id="showModeBtn" class="iconAction headerIcon" data-tooltip="Open show output" aria-label="Open show output"><i data-lucide="screen-share"></i></button>
+      <button id="liveLockBtn" class="iconAction headerIcon" data-tooltip="Live lock (L)" aria-label="Live lock" aria-pressed="false"><i data-lucide="lock"></i></button>
+      <button id="accountBtn" class="iconAction headerIcon" data-tooltip="Account and sync" aria-label="Account and sync"><i data-lucide="user-round"></i></button>
       <button id="fullscreen" class="iconAction headerIcon" data-tooltip="Full screen" aria-label="Full screen"><i data-lucide="maximize" class="maximizeIcon"></i><i data-lucide="minimize" class="minimizeIcon"></i></button>
     </div>
   </div>
@@ -53,13 +55,16 @@
   <div class="projectPanel" id="projectPanel">
     <div class="imageTop"><div class="sectionTitle"><h2>PROJECTS</h2><button class="infoTip" type="button" aria-label="About local projects" data-tooltip="Projects, archetypes, looks, presets and media are stored in this browser. Export a package to move them elsewhere."><i data-lucide="info"></i></button></div><button id="closeProjectPanel" class="iconAction closeAction" type="button" aria-label="Close projects" data-tooltip="Close projects"><i data-lucide="x"></i></button></div>
     <p id="projectEmptyHint">Create a local project or import a library package to begin.</p>
+    <section class="syncAccount"><h3>ACCOUNT &amp; SYNC</h3><p id="accountEmail">Offline cache</p><p id="syncStatus">OFFLINE</p><p id="syncLast">Last sync: never</p><p id="offlineReady">Offline readiness: checking…</p><div class="projectActions"><button id="syncNow" type="button">SYNC NOW</button><button id="signOut" type="button">SIGN OUT</button></div></section>
+    <div id="projectSummary" class="projectSummary"></div>
     <div class="projectStorage"><p id="storageStatus" role="status">Checking browser storage…</p><p id="storageUsage"></p><p id="lastExported">Last exported: never</p></div>
-    <div class="projectActions"><button id="createProject" type="button">CREATE PROJECT</button><button id="importPackage" type="button">IMPORT PACKAGE</button><input id="importPackageFile" type="file" accept=".zip,application/zip"><button id="renameProject" type="button">RENAME</button><button id="duplicateProject" type="button">DUPLICATE</button><button id="deleteProject" type="button">DELETE</button><button id="exportProject" type="button">EXPORT PROJECT</button></div>
+    <div class="projectActions"><button id="createProject" type="button">CREATE PROJECT</button><button id="importPackage" type="button">IMPORT PACKAGE</button><input id="importPackageFile" type="file" accept=".zip,application/zip"><button id="renameProject" type="button">RENAME</button><button id="projectVisibility" type="button">SHARE</button><button id="duplicateProject" type="button">DUPLICATE</button><button id="deleteProject" type="button">DELETE</button><button id="exportProject" type="button">EXPORT PROJECT</button></div>
     <section id="legacySection" class="legacySection" hidden><h3>LEGACY DATA</h3><p>Back up the previous archetype library before removing it.</p><button id="exportLegacy" type="button">EXPORT LIBRARY</button></section>
     <section class="legacySection"><h3>BUILT-IN STARTERS</h3><button id="exportBuiltins" type="button">EXPORT BUILT-INS</button></section>
     <div id="projectStatus" class="tiny" role="status"></div>
   </div>
   <div id="libraryNotice" class="libraryNotice" role="status" hidden></div>
+  <div id="liveLockBadge" class="liveLockBadge" role="status" hidden>LIVE LOCK · <span>0</span> PENDING</div>
   <div id="saveFailure" class="saveFailure" role="alert" hidden><span>Not saved — retry</span><button id="retrySave" type="button" title="Retry saving changes">RETRY</button></div>
   <dialog id="projectNameDialog" class="presetDialog"><form id="projectNameForm"><div class="packageDialogHead"><h2 id="projectDialogTitle">PROJECT</h2><button id="closeProjectDialog" class="iconAction closeAction" type="button" aria-label="Close project dialog" data-tooltip="Close project dialog"><i data-lucide="x"></i></button></div><label for="projectNameInput" id="projectDialogLabel">PROJECT NAME</label><input id="projectNameInput" type="text" required autocomplete="off"><p id="projectDialogError" role="alert"></p><div class="dialogActions"><button id="cancelProjectDialog" type="button">CANCEL</button><button id="confirmProjectDialog" class="primaryBtn" type="submit">CREATE</button></div></form></dialog>
   <dialog id="libraryActionDialog" class="presetDialog"><form id="libraryActionForm"><div class="packageDialogHead"><h2 id="libraryActionTitle">ACTION</h2><button id="closeLibraryAction" class="iconAction closeAction" type="button" aria-label="Close dialog" data-tooltip="Close dialog"><i data-lucide="x"></i></button></div><label for="libraryActionInput" id="libraryActionLabel">NAME</label><input id="libraryActionInput" type="text" autocomplete="off"><p id="libraryActionMessage"></p><div class="dialogActions"><button id="cancelLibraryAction" type="button">CANCEL</button><button id="confirmLibraryAction" class="primaryBtn" type="submit">CONFIRM</button></div></form></dialog>
@@ -278,12 +283,15 @@
     <div class="row"><span>DRIVE</span><div class="meter"><div id="fR" class="fill"></div></div><span id="vR">0.00</span></div>
     <div class="row"><span>BOOMBAP</span><div class="meter"><div id="fK" class="fill"></div></div><span id="vK">0.00</span></div>
     <div class="row"><span>BEAT</span><div class="meter"><div id="fBeat" class="fill"></div></div><span id="vBeat">0.00</span></div>
+    <div class="row"><span>KICK</span><div class="meter"><div id="fKick" class="fill"></div></div><span id="vKick">0.00</span></div>
+    <div class="row"><span>SNARE</span><div class="meter"><div id="fSnare" class="fill"></div></div><span id="vSnare">0.00</span></div>
     <div class="row"><span>BPM</span><div class="meter"><div id="fBpmConf" class="fill"></div></div><span id="vBPM">--</span></div>
     <div class="row"><span>TENSION</span><div class="meter"><div id="fT" class="fill"></div></div><span id="vT">0.00</span></div>
     <div class="row"><span>BRIGHT</span><div class="meter"><div id="fB" class="fill"></div></div><span id="vB">0.00</span></div>
     <div class="row"><span>OPENNESS</span><div class="meter"><div id="fO" class="fill"></div></div><span id="vO">0.00</span></div>
-    <div class="mini"><span id="microState">Micro layer · Energy 0.00 · Drive 0.00</span></div>
+    <div class="row"><span>ZOOM</span><div class="meter"><div id="fZoom" class="fill"></div></div><span id="vZoom">1.00</span></div>
     <div class="inputDiag"><b>AUDIO INPUT</b><span id="inputDiagnostics">Mode FILE · waiting for source</span><em id="inputWarning"></em></div>
+    <div class="inputDiag"><b>ANALYSIS</b><span id="analysisDiagnostics">Waiting for AudioWorklet features</span></div>
   </div>
 </div>
 <script type="module" src="/src/main.js"></script>
