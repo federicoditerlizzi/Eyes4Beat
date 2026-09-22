@@ -15,6 +15,7 @@ export class LibraryRepository {
   async reorderArchetypes(_projectId, _ids) { throw new Error('Not implemented'); }
   async putMedia(_blob, _mime) { throw new Error('Not implemented'); }
   async getMedia(_id) { throw new Error('Not implemented'); }
+  async importBatch(_batch) { throw new Error('Not implemented'); }
   async listLookPresets(_projectId) { throw new Error('Not implemented'); }
   async createLookPreset(_projectId, _name, _look) { throw new Error('Not implemented'); }
   async updateLookPreset(_id, _changes) { throw new Error('Not implemented'); }

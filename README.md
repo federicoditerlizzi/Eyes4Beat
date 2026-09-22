@@ -125,6 +125,8 @@ Use **EXPORT PROJECT** in the project panel to download a v3 ZIP with the ordere
 
 Use **VERIFY PACKAGE** to check a saved ZIP without changing the app. The report includes archetype and media counts, format version, missing files and checksum mismatches. Data is per browser and origin, so export separately from every browser/computer where you have worked (including localhost and the deployed site).
 
+Until account sync exists, the browser database is the only live copy. On startup the app requests persistent storage when supported and shows the result plus estimated usage/quota in the project panel; persistence is not guaranteed, so export projects regularly. The panel also shows each project's last export date on this device. A missing media record no longer prevents a project opening: it appears as a neutral placeholder, is skipped by sequencing when other media exist, and is identified in the Image Manager. Save errors show **Not saved — retry**; pending settings are also flushed when the page is hidden or closed. Project import writes its selected records in one transaction, so a failed import does not leave half a project.
+
 ## Private deployment
 
 The production deployment is configured for Cloudflare Pages. `functions/_middleware.js` protects the entire application with HTTP Basic authentication using the encrypted `BASIC_AUTH_USERNAME` and `BASIC_AUTH_PASSWORD` bindings. Never add these values to `wrangler.jsonc` or commit them to the repository.

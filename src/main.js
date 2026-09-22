@@ -53,25 +53,40 @@ showChannel?.addEventListener('message',event=>{
  if(!isShowMode&&message.type==='show-ready')lastShowPeerAt=Date.now();
 });
 
-const repository=new LocalLibraryRepository();
+let libraryVersionChanged=false;
+const repository=new LocalLibraryRepository(undefined,()=>{
+ libraryVersionChanged=true;
+ const notice=document.getElementById('libraryNotice');notice.replaceChildren(document.createTextNode('Library updated in another tab — reload this page to continue. '));notice.hidden=false;
+ const button=document.createElement('button');button.type='button';button.textContent='RELOAD';button.title='Reload after library update';button.onclick=()=>location.reload();notice.appendChild(button);
+});
 let activeProject=null,projectLookPresets=[],idToIndex=new Map();
 let projectSwitching=false,projectSwitchGeneration=0;
 const archetypes=[],IMAGE_SETS=[],defaultRoutingMaps=[];
 let looks=[];
-const pendingWrites=new Map();
+const pendingWrites=new Map(),failedWrites=new Map();
 let writeQueue=Promise.resolve();
 function queueArchetypeWrite(index,changes){
  const id=archetypes[index]?.id;if(!id||isShowMode)return;
- const pending=pendingWrites.get(id)||{changes:{},timer:null};
+ const pending=pendingWrites.get(id)||{changes:{...failedWrites.get(id)},timer:null};failedWrites.delete(id);
  Object.assign(pending.changes,structuredClone(changes));clearTimeout(pending.timer);
- pending.timer=setTimeout(()=>{pendingWrites.delete(id);writeQueue=writeQueue.then(()=>repository.updateArchetype(id,pending.changes)).catch(error=>console.error('Unable to save archetype',error))},500);
+ pending.timer=setTimeout(()=>{void flushArchetypeWrites().catch(error=>console.error('Unable to save archetype',error))},500);
  pendingWrites.set(id,pending);
 }
 async function flushArchetypeWrites(){
- const writes=[...pendingWrites.entries()];pendingWrites.clear();
- for(const [id,pending] of writes){clearTimeout(pending.timer);writeQueue=writeQueue.then(()=>repository.updateArchetype(id,pending.changes))}
- await writeQueue;
+ const writes=new Map(failedWrites);failedWrites.clear();
+ for(const [id,pending] of pendingWrites){clearTimeout(pending.timer);writes.set(id,{...(writes.get(id)||{}),...pending.changes})}
+ pendingWrites.clear();
+ const attempts=[];
+ for(const [id,changes] of writes){
+   const attempt=writeQueue.then(()=>repository.updateArchetype(id,changes));writeQueue=attempt.catch(()=>{});
+   attempts.push(attempt.catch(error=>{failedWrites.set(id,{...changes,...(failedWrites.get(id)||{})});document.getElementById('saveFailure').hidden=false;throw error}));
+ }
+ try{await Promise.all(attempts);if(!failedWrites.size)document.getElementById('saveFailure').hidden=true}
+ catch(error){document.getElementById('saveFailure').hidden=false;throw error}
 }
+document.getElementById('retrySave').onclick=()=>{void flushArchetypeWrites().catch(error=>console.error('Retry save failed',error))};
+window.addEventListener('pagehide',()=>{void flushArchetypeWrites().catch(error=>console.error('Save on pagehide failed',error))});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')void flushArchetypeWrites().catch(error=>console.error('Save while hidden failed',error))});
 function saveLooks(){queueArchetypeWrite(target,{look:looks[target]})}
 const libraryActionDialog=document.getElementById('libraryActionDialog'),libraryActionInput=document.getElementById('libraryActionInput');
 function askLibraryAction({title,label='NAME',value='',message='',confirm='CONFIRM',requireInput=true}){
@@ -349,7 +364,7 @@ function saveImageConfigs(){queueArchetypeWrite(target,{imageConfig:imageConfigs
 function createSequenceState(){return {current:0,next:1,blend:0,rawProgress:0,transitioning:false,loading:false,loadingTarget:null,pendingRequest:null,poolStates:{timed:{},event:{},manual:{}},orderState:{},shownHistory:[0],shownHistoryCursor:0,nextAutoAt:null,lastReliableBpm:0,scheduledTempo:null,transStart:0,durationMs:0,transitionId:'crossfade',transitionShaderId:transitionShaderId('crossfade'),seed:0,param:[0,0,0,0],easing:'linear',lastSwitch:performance.now(),lastMappedSignal:0}}
 const seqStates=archetypes.map(createSequenceState);
 function orderedImages(a,enabledOnly=false){
- return imageConfigs[a].images.map((im,i)=>({i,order:im.order,enabled:im.enabled})).filter(x=>!enabledOnly||x.enabled).sort((x,y)=>x.order-y.order||x.i-y.i).map(x=>x.i);
+ return imageConfigs[a].images.map((im,i)=>({i,order:im.order,enabled:im.enabled&&!IMAGE_SETS[a]?.[i]?.missing})).filter(x=>!enabledOnly||x.enabled).sort((x,y)=>x.order-y.order||x.i-y.i).map(x=>x.i);
 }
 function enabledImages(a){return orderedImages(a,true)}
 function chooseOrderedImage(a,direction=1){
@@ -436,10 +451,10 @@ function renderImageManager(){
  visualOrder.forEach((i,pos)=>{
    const im=cfg.images[i];
    let opts='';for(let p=0;p<cfg.images.length;p++)opts+='<option value="'+p+'" '+(p===pos?'selected':'')+'>'+(p+1)+'</option>';
-   const source=IMAGE_SETS[a][i],preview=mediaIsVideo(source)?'<video class="imageThumb" src="'+mediaUrl(source)+'" muted loop playsinline autoplay></video>':'<img class="imageThumb" src="'+mediaUrl(source)+'">';
+   const source=IMAGE_SETS[a][i],preview=source?.missing?'<div class="imageThumb missingThumb">MISSING MEDIA</div>':mediaIsVideo(source)?'<video class="imageThumb" src="'+mediaUrl(source)+'" muted loop playsinline autoplay></video>':'<img class="imageThumb" src="'+mediaUrl(source)+'">';
    const dwellControl=cfg.timeBase==='beats'?'<select data-imgbeats="'+i+'">'+DWELL_BEAT_OPTIONS.map(value=>'<option value="'+value+'" '+(im.durationBeats===value?'selected':'')+'>'+value+'</option>').join('')+'</select>':'<input type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'">';
    const dwellInfo=cfg.timeBase==='beats'?imageDwell(a,i):null,effective=dwellInfo&&dwellInfo.effectiveBeats!==dwellInfo.requestedBeats?'<div class="effectiveDwell">'+dwellInfo.requestedBeats+' BEAT'+(dwellInfo.requestedBeats===1?'':'S')+' → '+dwellInfo.effectiveBeats+' BEATS @ '+Math.round(dwellInfo.tempo.bpm)+' BPM</div>':'';
-   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+'> ON</label></div><div class="cardLine"><span>Dwell '+(cfg.timeBase==='beats'?'beats':'sec')+'</span>'+dwellControl+'</div>'+effective+'<div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
+   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(source?.missing?'MISSING MEDIA · ':mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+' '+(source?.missing?'disabled':'')+'> ON</label></div><div class="cardLine"><span>Dwell '+(cfg.timeBase==='beats'?'beats':'sec')+'</span>'+dwellControl+'</div>'+effective+'<div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
  });
  document.getElementById('imageGrid').innerHTML=h;
  updateImageManagerRuntimeState(a);
@@ -624,6 +639,7 @@ function uploadMediaToSlot(role,slot,a,imgIdx){
  return new Promise(resolve=>{
    const source=IMAGE_SETS[a][imgIdx],url=mediaUrl(source);
    releaseTextureMedia(role,slot);
+   if(source?.missing){bindTextureSlot(role,slot);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([12,16,22,255]));resolve();return}
    if(mediaIsVideo(source)){
      const video=document.createElement('video');video.muted=true;video.loop=true;video.playsInline=true;video.preload='auto';
      video.onloadeddata=()=>{
@@ -1193,15 +1209,31 @@ document.getElementById('confirmDeleteArch').onclick=async()=>{
 };
 renderPresetControls();
 const projectSelect=document.getElementById('projectSelect'),projectPanel=document.getElementById('projectPanel');
+const LAST_EXPORTED_KEY='eyes4beat_project_last_exported';
+function renderLastExported(){
+ let date=null;try{date=JSON.parse(localStorage.getItem(LAST_EXPORTED_KEY)||'{}')[activeProject?.id]}catch{}
+ document.getElementById('lastExported').textContent='Last exported: '+(date?new Date(date).toLocaleString():'never');
+}
+async function updateStorageStatus(){
+ const status=document.getElementById('storageStatus'),usage=document.getElementById('storageUsage');
+ let persistent=false;
+ try{persistent=!!(await navigator.storage?.persist?.())}catch{}
+ status.textContent=persistent?'Storage: persistent':'Storage may be cleared by the browser — export your projects regularly';
+ status.classList.toggle('storageWarning',!persistent);
+ try{const estimate=await navigator.storage?.estimate?.();usage.textContent=estimate?.quota!=null?`Usage: ${((estimate.usage||0)/1048576).toFixed(1)} MB / ${((estimate.quota||0)/1048576).toFixed(1)} MB quota`:'Usage/quota unavailable'}
+ catch{usage.textContent='Usage/quota unavailable'}
+}
 async function refreshProjects(){
  const projects=await repository.listProjects();projectSelect.replaceChildren();
  if(!projects.length){const option=document.createElement('option');option.textContent='NO PROJECT';option.value='';projectSelect.appendChild(option)}
  else for(const project of projects){const option=document.createElement('option');option.value=project.id;option.textContent=project.name;projectSelect.appendChild(option)}
  projectSelect.value=activeProject?.id||'';
+ renderLastExported();
  document.getElementById('projectEmptyHint').hidden=!!projects.length;
  for(const id of ['renameProject','duplicateProject','deleteProject','exportProject'])document.getElementById(id).disabled=!activeProject;
 }
 async function openProject(projectId,{fromShow=false,preferredId=null}={}){
+ if(libraryVersionChanged)throw new Error('Library updated in another tab; reload this page');
  const generation=++projectSwitchGeneration;projectSwitching=true;
  try{
  await flushArchetypeWrites();
@@ -1209,12 +1241,12 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  const nextProject=projectId?await repository.getProject(projectId):null;
  if(projectId&&(!nextProject||nextProject.deletedAt))throw new Error('Project not found');
  const records=nextProject?await repository.listArchetypes(nextProject.id):[];
- const mediaRecords=new Map();
+ const mediaRecords=new Map(),missingArchetypes=new Set();
  for(const record of records)for(const media of record.media){if(!mediaRecords.has(media.mediaId)){
-   const saved=await repository.getMedia(media.mediaId);if(!saved)throw new Error(`Missing media ${media.mediaId}`);mediaRecords.set(media.mediaId,saved);
- }}
- const urls=new Map();for(const [mediaId,saved] of mediaRecords)urls.set(mediaId,URL.createObjectURL(saved.blob));
- const runtime=nextProject?buildProjectRuntime(nextProject,records,media=>({url:urls.get(media.mediaId),type:media.mime,name:media.name,mediaId:media.mediaId})):null;
+   const saved=await repository.getMedia(media.mediaId);mediaRecords.set(media.mediaId,saved||null);
+  }if(!mediaRecords.get(media.mediaId))missingArchetypes.add(record.name)}
+ const urls=new Map();for(const [mediaId,saved] of mediaRecords)if(saved)urls.set(mediaId,URL.createObjectURL(saved.blob));
+ const runtime=nextProject?buildProjectRuntime(nextProject,records,media=>mediaRecords.get(media.mediaId)?({url:urls.get(media.mediaId),type:media.mime,name:media.name,mediaId:media.mediaId}):null):null;
  if(generation!==projectSwitchGeneration){for(const url of urls.values())URL.revokeObjectURL(url);return}
  for(const role of [0,1])for(const slot of [0,1])releaseTextureMedia(role,slot);
  const oldUrls=new Set(IMAGE_SETS.flat().map(source=>typeof source==='string'?null:source.url).filter(Boolean));oldUrls.forEach(URL.revokeObjectURL);
@@ -1225,6 +1257,8 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  seqStates.splice(0,seqStates.length,...archetypes.map(createSequenceState));
  remoteRoleSignatures.fill('');remoteTransitionSignatures.fill('');remoteRoleTokens[0]++;remoteRoleTokens[1]++;
  activeProject=nextProject;current=target=idToIndex.get(preferredId)??0;archMix=1;transitioning=false;queuedArchetype=null;archetypeSelectionBusy=false;particles=[];
+ if(!libraryVersionChanged){const notice=document.getElementById('libraryNotice');notice.hidden=!missingArchetypes.size;
+ notice.textContent=missingArchetypes.size?`Missing media in: ${[...missingArchetypes].join(', ')}. Available media will continue playing.`:''}
  if(archetypes.length)await Promise.all([loadArchetypeIntoRole(0,target),loadArchetypeIntoRole(1,target)]);
  if(generation!==projectSwitchGeneration)return;
  if(!fromShow)await repository.setActiveProject(activeProject?.id||null);
@@ -1239,6 +1273,7 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  }finally{if(generation===projectSwitchGeneration)projectSwitching=false}
 }
 async function initializeLibrary(){
+ if(!isShowMode)updateStorageStatus();
  const projects=await repository.listProjects(),meta=await repository.getMeta();
  const initial=projects.find(project=>project.id===meta.lastActiveProjectId)||projects[0]||null;
  await openProject(initial?.id||null,{fromShow:isShowMode});
@@ -1340,6 +1375,7 @@ async function exportPackage(snapshot,{kind='legacy-library',project=null,lookPr
   packageStatus('Packing and checking media…',{done:0,total});
   const result=await buildLibraryPackage({archetypes:snapshot,localStorage:kind==='legacy-library'?localStorageBackup():{},appVersion:packageInfo.version,userAgent:navigator.userAgent,kind,project,lookPresets},async(done,count)=>{packageStatus(`Hashing media ${done} of ${count}…`,{done,total:count});await new Promise(resolve=>requestAnimationFrame(resolve))});
   const blob=new Blob([result.zip],{type:'application/zip'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=kind==='project'?libraryFilename().replace('library','project'):libraryFilename();document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  if(kind==='project'&&project?.id){try{const dates=JSON.parse(localStorage.getItem(LAST_EXPORTED_KEY)||'{}');dates[project.id]=new Date().toISOString();localStorage.setItem(LAST_EXPORTED_KEY,JSON.stringify(dates));renderLastExported()}catch(error){console.warn('Could not save last export date',error)}}
   packageStatus('Export complete.',null,`${result.manifest.archetypes.length} archetypes · ${result.uniqueMediaCount} unique media files · ${(blob.size/1024/1024).toFixed(1)} MB package`);
  }catch(error){console.error('Library export failed',error);packageStatus('Export failed.',null,error.message||String(error))}
  finally{if(button)button.disabled=false}
@@ -1347,13 +1383,16 @@ async function exportPackage(snapshot,{kind='legacy-library',project=null,lookPr
 document.getElementById('exportLegacy').onclick=async event=>exportPackage(await collectLegacyLibrary(),{button:event.currentTarget});
 document.getElementById('exportBuiltins').onclick=async event=>exportPackage(await collectLegacyLibrary({builtinsOnly:true}),{button:event.currentTarget});
 document.getElementById('exportProject').onclick=async event=>{
- if(!activeProject)return;await flushArchetypeWrites();
- const records=new Map((await repository.listArchetypes(activeProject.id)).map(record=>[record.id,record]));
- const snapshot=[];for(const id of activeProject.archetypeOrder){const record=records.get(id);if(!record)continue;
-   const media=[];for(const [sourceIndex,ref] of record.media.entries()){const saved=await repository.getMedia(ref.mediaId);if(!saved)throw new Error('Missing project media '+ref.mediaId);media.push({...ref,sourceIndex,blob:saved.blob})}
-   snapshot.push({id:record.id,name:record.name,origin:record.origin,look:record.look,routingMap:record.routingMap,imageConfig:record.imageConfig,musicPresets:record.musicPresets,media});
- }
- await exportPackage(snapshot,{kind:'project',project:activeProject,lookPresets:projectLookPresets,button:event.currentTarget});
+ if(!activeProject)return;
+ try{
+  await flushArchetypeWrites();
+  const records=new Map((await repository.listArchetypes(activeProject.id)).map(record=>[record.id,record]));
+  const snapshot=[];for(const id of activeProject.archetypeOrder){const record=records.get(id);if(!record)continue;
+    const media=[];for(const [sourceIndex,ref] of record.media.entries()){const saved=await repository.getMedia(ref.mediaId);if(!saved)throw new Error(`Cannot export ${record.name}: missing media ${ref.name}`);media.push({...ref,sourceIndex,blob:saved.blob})}
+    snapshot.push({id:record.id,name:record.name,origin:record.origin,look:record.look,routingMap:record.routingMap,imageConfig:record.imageConfig,musicPresets:record.musicPresets,media});
+  }
+  await exportPackage(snapshot,{kind:'project',project:activeProject,lookPresets:projectLookPresets,button:event.currentTarget});
+ }catch(error){console.error('Project export failed',error);packageStatus('Project export unavailable.',null,error.message||String(error))}
 };
 verifyPackageFile.onchange=async()=>{
  const file=verifyPackageFile.files?.[0];verifyPackageFile.value='';if(!file)return;
@@ -1391,19 +1430,21 @@ document.getElementById('importPackageFile').onchange=async event=>{
    if(!selected.length){status.textContent='Select at least one archetype.';return}
    if(!destination.value&&!name.value.trim()){status.textContent='Enter a project name.';return}
    apply.disabled=true;
+   let imported=false;
    try{
-    const project=destination.value?await repository.getProject(destination.value):await repository.createProject(name.value.trim());
-    const presetIds=new Map();
-    if(manifest.kind==='project')for(const preset of manifest.lookPresets){const saved=await repository.createLookPreset(project.id,preset.name,normalizeLook(preset.look));presetIds.set(preset.id,saved.id)}
+    const preparedEntries=[];
     for(const [index,source] of selected.entries()){
-      status.textContent=`Importing ${index+1} of ${selected.length}: ${source.name}`;
-      const prepared=prepareImportedArchetype(source,manifest.formatVersion),media=[];
-      for(const ref of prepared.media){const blob=new Blob([files[ref.path]],{type:ref.mime});const saved=await repository.putMedia(blob,ref.mime);media.push({mediaId:saved.id,name:ref.name,mime:ref.mime,size:ref.size})}
-      if(presetIds.has(source.origin?.presetId))prepared.origin.presetId=presetIds.get(source.origin.presetId);
-      await repository.createArchetype(project.id,{...prepared,media});
+      status.textContent=`Preparing ${index+1} of ${selected.length}: ${source.name}`;
+      const prepared=prepareImportedArchetype(source,manifest.formatVersion);
+      prepared.media=prepared.media.map(ref=>({name:ref.name,mime:ref.mime,blob:new Blob([files[ref.path]],{type:ref.mime})}));
+      preparedEntries.push(prepared);
     }
+    status.textContent='Saving package atomically…';
+    const {project}=await repository.importBatch({projectId:destination.value||null,projectName:name.value.trim(),archetypes:preparedEntries,
+      lookPresets:manifest.kind==='project'?manifest.lookPresets.map(preset=>({name:preset.name,look:normalizeLook(preset.look)})):[]});
+    imported=true;
     dialog.close();projectPanel.classList.remove('open');await openProject(project.id);
-   }catch(error){console.error('Import failed',error);status.textContent=`Import stopped: ${error.message}. Data already imported remains in the project.`;apply.disabled=false}
+   }catch(error){console.error('Import failed',error);status.textContent=imported?`Import saved, but opening failed: ${error.message}`:`Import stopped: ${error.message}. No partial import was saved.`;apply.disabled=false}
   };
  }catch(error){console.error('Package validation failed',error);document.getElementById('projectStatus').textContent=error.message}
 };

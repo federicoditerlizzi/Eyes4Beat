@@ -63,3 +63,79 @@ test('project look presets are versioned and soft-deleted', async () => {
     assert.ok((await repo.get('lookPresets', preset.id)).deletedAt);
   } finally { await repo.close(); }
 });
+
+test('concurrent archetype creation retains every id in project order', async () => {
+  const repo = new LocalLibraryRepository(`test-${crypto.randomUUID()}`);
+  try {
+    const project = await repo.createProject('Concurrent');
+    const created = await Promise.all(Array.from({ length: 12 }, (_, index) => repo.createArchetype(project.id, {
+      name: `Scene ${index}`, look: NEUTRAL_LOOK, routingMap: blankMap(), imageConfig: defaultImageConfig(0), media: [],
+    })));
+    const order = (await repo.getProject(project.id)).archetypeOrder;
+    assert.equal(order.length, created.length);
+    assert.deepEqual(new Set(order), new Set(created.map(item => item.id)));
+    assert.equal((await repo.getProject(project.id)).version, created.length + 1);
+  } finally { await repo.close(); }
+});
+
+test('failed batch import rolls back project, archetypes and media', async () => {
+  const repo = new LocalLibraryRepository(`test-${crypto.randomUUID()}`);
+  try {
+    const blob = new Blob(['frame'], { type: 'image/png' });
+    await assert.rejects(repo.importBatch({ projectName: 'Broken import', archetypes: [{
+      name: 'Broken scene', origin: { type: 'import', presetId: null }, look: { invalid: () => {} },
+      routingMap: blankMap(), imageConfig: defaultImageConfig(1), musicPresets: [],
+      media: [{ name: 'frame.png', mime: 'image/png', blob }],
+    }] }));
+    assert.deepEqual(await repo.listProjects(), []);
+    assert.deepEqual(await repo.getAll('archetypes'), []);
+    assert.deepEqual(await repo.getAll('media'), []);
+  } finally { await repo.close(); }
+});
+
+test('failed import into an existing project leaves its order unchanged', async () => {
+  const repo = new LocalLibraryRepository(`test-${crypto.randomUUID()}`);
+  try {
+    const project = await repo.createProject('Existing');
+    const original = await repo.createArchetype(project.id, { name: 'Original', look: NEUTRAL_LOOK,
+      routingMap: blankMap(), imageConfig: defaultImageConfig(0), media: [] });
+    await assert.rejects(repo.importBatch({ projectId: project.id, archetypes: [{
+      name: 'Bad', origin: { type: 'import', presetId: null }, look: { invalid: () => {} },
+      routingMap: blankMap(), imageConfig: defaultImageConfig(0), musicPresets: [], media: [],
+    }] }));
+    assert.deepEqual((await repo.getProject(project.id)).archetypeOrder, [original.id]);
+    assert.deepEqual((await repo.listArchetypes(project.id)).map(item => item.id), [original.id]);
+  } finally { await repo.close(); }
+});
+
+test('failed composite delete leaves project and archetypes active', async () => {
+  const repo = new LocalLibraryRepository(`test-${crypto.randomUUID()}`);
+  try {
+    const project = await repo.createProject('Keep');
+    const item = await repo.createArchetype(project.id, { name: 'Keep scene', look: NEUTRAL_LOOK,
+      routingMap: blankMap(), imageConfig: defaultImageConfig(0), media: [] });
+    await assert.rejects(repo.serializeWrite(() => repo.write(['projects', 'archetypes'], (transaction, finish, abort) => {
+      const store = transaction.objectStore('projects');
+      store.put({ ...project, deletedAt: new Date().toISOString() });
+      abort(new Error('Injected failure'));
+      finish(null);
+    })), /Injected failure/);
+    assert.equal((await repo.getProject(project.id)).deletedAt, null);
+    assert.equal((await repo.getArchetype(item.id)).deletedAt, null);
+  } finally { await repo.close(); }
+});
+
+test('a schema upgrade in another tab closes the old connection', async () => {
+  const name = `test-${crypto.randomUUID()}`;
+  let notified = 0;
+  const repo = new LocalLibraryRepository(name, () => { notified++; });
+  await repo.database();
+  const upgraded = await new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 2);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  assert.equal(notified, 1);
+  upgraded.close();
+  await repo.close();
+});

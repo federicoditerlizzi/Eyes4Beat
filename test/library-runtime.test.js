@@ -19,6 +19,18 @@ test('project order builds aligned runtime arrays and id-based show indexes', ()
   assert.equal(buildProjectRuntime({ id: 'empty', archetypeOrder: [] }, []).archetypes.length, 0);
 });
 
+test('missing media resolves to a placeholder without dropping the archetype', () => {
+  const project = { id: 'project', archetypeOrder: ['scene'] };
+  const record = { id: 'scene', projectId: project.id, name: 'Scene', origin: { type: 'blank' },
+    look: NEUTRAL_LOOK, routingMap: blankMap(), imageConfig: defaultImageConfig(2), musicPresets: [],
+    media: [{ mediaId: 'missing', name: 'lost.png', mime: 'image/png' }, { mediaId: 'present', name: 'good.png', mime: 'image/png' }] };
+  const runtime = buildProjectRuntime(project, [record], media => media.mediaId === 'present' ? { url: 'blob:present' } : null);
+  assert.equal(runtime.archetypes.length, 1);
+  assert.equal(runtime.IMAGE_SETS[0][0].missing, true);
+  assert.equal(runtime.IMAGE_SETS[0][0].name, 'lost.png');
+  assert.equal(runtime.IMAGE_SETS[0][1].url, 'blob:present');
+});
+
 test('factory starter routing and imported source mapping preserve reordered image settings', () => {
   assert.deepEqual(starterRoutingForOrigin({ type: 'factory', presetId: FACTORY_LOOKS[0].id }), FACTORY_LOOKS[0].starter.routingMap);
   const source = { name: 'Reordered', profile: 2, routingMap: blankMap(), musicPresets: [],

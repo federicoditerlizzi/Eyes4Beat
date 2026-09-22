@@ -39,7 +39,9 @@ export function buildProjectRuntime(project, records, mediaSource = media => med
   const ordered = project.archetypeOrder.map(id => byId.get(id)).filter(Boolean);
   const ids = ordered.map(item => item.id), idToIndex = new Map(ids.map((id, index) => [id, index]));
   const archetypes = ordered.map(item => ({ id: item.id, name: item.name, origin: copy(item.origin) }));
-  const imageSets = ordered.map(item => item.media.map(media => mediaSource(media)));
+  const imageSets = ordered.map(item => item.media.map(media => mediaSource(media) ?? {
+    url: null, type: media.mime, name: media.name, mediaId: media.mediaId, missing: true,
+  }));
   const defaultRoutingMaps = ordered.map(item => starterRoutingForOrigin(item.origin));
   const routingMaps = ordered.map((item, index) => normalizeRoutingMap(item.routingMap, defaultRoutingMaps[index]));
   const defaultImageConfigs = ordered.map((item, index) => defaultImageConfig(item.media.length,
