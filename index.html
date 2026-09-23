@@ -86,7 +86,7 @@
       <summary>MODULATION LAB</summary>
       <button class="infoTip accordionInfo" aria-label="About modulation" data-tooltip="Archetypes define the visual world and media sequence. Musical presets store source controls, target controls and routing. Without a routed signal, musical motion returns to neutral."><i data-lucide="info"></i></button>
       <div class="accordionBody">
-    <button class="mapOpen" id="openMatrix">OPEN SOURCE → TARGET MAPPING MATRIX</button>
+    <button class="mapOpen" id="openMatrix">OPEN TARGET MAPPING</button>
 
     <div class="pRow pHead"><span>PARAM</span><span>ON</span><span>AMOUNT</span><span>SOLO</span><span>VAL</span></div>
 
@@ -272,7 +272,8 @@
   </div>
 
   <div class="matrixPanel" id="matrixPanel">
-    <div class="matrixTop"><div class="sectionTitle"><h2>SOURCE → TARGET ROUTING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Weights range from −1.50 to +1.50. Zero disconnects a source; positive weights increase a target and negative weights invert it. Values save automatically per archetype."><i data-lucide="info"></i></button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix" class="iconAction closeAction" type="button" aria-label="Close routing matrix" data-tooltip="Close"><i data-lucide="x"></i></button></div></div>
+    <div class="matrixTop"><div class="sectionTitle"><h2>TARGET MAPPING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Choose one musical parameter per target. A parameter can drive multiple targets. Negative amounts invert the response. Changes save automatically."><i data-lucide="info"></i></button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix" class="iconAction closeAction" type="button" aria-label="Close target mapping" data-tooltip="Close"><i data-lucide="x"></i></button></div></div>
+    <p class="routingIntro">One musical parameter for each visual target. Choose None to disconnect. Changes save automatically.</p>
     <div id="matrixHolder"></div>
   </div>
 
@@ -290,7 +291,7 @@
     <div class="row"><span>BRIGHT</span><div class="meter"><div id="fB" class="fill"></div></div><span id="vB">0.00</span></div>
     <div class="row"><span>OPENNESS</span><div class="meter"><div id="fO" class="fill"></div></div><span id="vO">0.00</span></div>
     <div class="row"><span>ZOOM</span><div class="meter"><div id="fZoom" class="fill"></div></div><span id="vZoom">1.00</span></div>
-    <div class="inputDiag"><b>AUDIO INPUT</b><span id="inputDiagnostics">Mode FILE · waiting for source</span><em id="inputWarning"></em></div>
+    <div class="inputDiag"><b>AUDIO INPUT</b><span id="inputDiagnostics">Mode FILE · waiting for source</span><em id="inputWarning"></em><em id="analysisLoadWarning"></em></div>
     <div class="inputDiag"><b>ANALYSIS</b><span id="analysisDiagnostics">Waiting for AudioWorklet features</span></div>
   </div>
 </div>

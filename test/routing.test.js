@@ -71,3 +71,33 @@ test('rotation, spiral and tile shuffle respond independently and return to zero
   const muted=compute({map,sources:{energy:1},activeSources:{energy:true},activeTargets:{rotate:false,spiral:false,tiles:false}});
   for(const key of ['rotate','spiral','tiles'])assert.equal(muted[key],0);
 });
+
+test('legacy maps keep only the strongest assignment per target, including negative weights', async () => {
+  const { normalizeRoutingMap } = await import('../src/library/runtime.js');
+  const map=blankMap();map.energy.zoom=.4;map.drive.zoom=-.8;map.kick.zoom=.8;
+  const normalized=normalizeRoutingMap(map);
+  assert.equal(normalized.drive.zoom,-.8);
+  assert.equal(normalized.energy.zoom,0);
+  assert.equal(normalized.kick.zoom,0);
+  assert.deepEqual(normalizeRoutingMap(normalized),normalized);
+  assert.equal(map.energy.zoom,.4);
+  assert.equal(compute({map,sources:{energy:1,kick:1},activeSources:{energy:true,kick:true}}).zoom,1);
+});
+
+test('reassigning a target clears its previous source without affecting other targets', async () => {
+  const { assignTarget } = await import('../src/routing.js');
+  const map=blankMap();map.energy.zoom=.5;map.energy.pulse=.6;
+  assignTarget(map,'zoom','kick',-.7);
+  assert.equal(map.energy.zoom,0);assert.equal(map.kick.zoom,-.7);assert.equal(map.energy.pulse,.6);
+  assignTarget(map,'zoom','');
+  assert.equal(map.kick.zoom,0);
+});
+
+test('factory reset maps have at most one source per target', async () => {
+  const { FACTORY_LOOKS } = await import('../src/looks.js');
+  const { starterRoutingForOrigin } = await import('../src/library/runtime.js');
+  for(const preset of FACTORY_LOOKS){
+    const map=starterRoutingForOrigin({type:'factory',presetId:preset.id});
+    for(const target of routeTargets)assert.ok(Object.values(map).filter(row=>row[target]!==0).length<=1);
+  }
+});

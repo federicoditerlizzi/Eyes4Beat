@@ -1,4 +1,5 @@
 import { dbToGain } from './input-calibration.js';
+import { decodeFeatures, decodeDiagnostics } from './analysis/messages.js';
 import analysisWorkletUrl from './analysis/worklet.js?worker&url';
 
 export const INPUT_DEVICE_KEY = 'eyes4beat_input_device';
@@ -20,10 +21,10 @@ export function readableInputError(error) {
 }
 
 export class AudioInputController {
-  constructor(audioElement, { onDeviceChange, onTrackEnded, onFeatures, onAnalysisError } = {}) {
+  constructor(audioElement, { onDeviceChange, onTrackEnded, onFeatures, onCalibration, onAnalysisError } = {}) {
     this.audio = audioElement;
     this.onDeviceChange = onDeviceChange;
-    this.onTrackEnded = onTrackEnded;this.onFeatures = onFeatures;this.onAnalysisError = onAnalysisError;
+    this.onTrackEnded = onTrackEnded;this.onFeatures = onFeatures;this.onCalibration = onCalibration;this.analysisDiagnostics = null;this.diagnosticsEnabled = false;this.onAnalysisError = onAnalysisError;
     this.context = null;this.analysisNode = null;this.trimGain = null;this.silentPull = null;
     this.mediaSource = null;this.liveSource = null;this.liveStream = null;this.liveTrack = null;
     this.mode = 'file';this.deviceId = 'file';this.deviceLabel = '';
@@ -40,7 +41,21 @@ export class AudioInputController {
         if (!this.context.audioWorklet || !window.AudioWorkletNode) throw new Error('AudioWorklet is unavailable in this browser. Real-time analysis cannot start.');
         await this.context.audioWorklet.addModule(analysisWorkletUrl);
         this.analysisNode = new AudioWorkletNode(this.context, 'eyesforbeats-analysis', { processorOptions: { fftSize: 2048, hopSize: 512 } });
-        this.analysisNode.port.onmessage = event => this.onFeatures?.(event.data);
+        this.analysisNode.port.onmessage = event => {
+          const message = event.data;
+          try {
+            if (message.type === 'features') {
+              const features = decodeFeatures(message);
+              if (this.diagnosticsEnabled && this.analysisDiagnostics) Object.assign(features, this.analysisDiagnostics);
+              this.onFeatures?.(features);
+              if (features.overflow) this.onAnalysisError?.(new Error('Analysis event queue overflow: main thread stalled.'));
+            } else if (message.type === 'diagnostics') this.analysisDiagnostics = decodeDiagnostics(message, this.context.sampleRate);
+            else if (message.type === 'calibration-sample') this.onCalibration?.({ final: message.final, count: message.count, power: message.power, fftSize: message.fftSize, spectrum: message.payload.slice(0, message.bins) });
+          } finally {
+            if (message.payload) this.analysisNode.port.postMessage({ type: 'recycle', kind: message.type, slot: message.slot, payload: message.payload }, [message.payload.buffer]);
+          }
+        };
+        this.setAnalysisDiagnostics(this.diagnosticsEnabled);
         this.analysisNode.onprocessorerror = event => this.onAnalysisError?.(event);
         this.silentPull = this.context.createGain();this.silentPull.gain.value = 0;
         this.trimGain.connect(this.analysisNode);this.analysisNode.connect(this.silentPull);this.silentPull.connect(this.context.destination);
@@ -103,7 +118,8 @@ export class AudioInputController {
     return this.liveTrack?.readyState === 'live' && this.liveTrack.enabled;
   }
 
-  resetAnalysis() { this.analysisNode?.port.postMessage({ type: 'reset' }); }
+  resetAnalysis(resetLayers = false) { this.analysisNode?.port.postMessage({ type: 'reset', resetLayers }); }
+  setAnalysisDiagnostics(value) { this.diagnosticsEnabled = !!value;this.analysisNode?.port.postMessage({ type: 'diagnostics', value: this.diagnosticsEnabled }); }
   setAnalysisCalibration(value) { this.analysisNode?.port.postMessage({ type: 'calibration', value }); }
   setCalibrationCapture(value) { this.analysisNode?.port.postMessage({ type: 'capture-calibration', value: !!value }); }
 

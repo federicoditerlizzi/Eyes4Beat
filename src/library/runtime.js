@@ -1,3 +1,4 @@
+import { assignedSource, assignTarget } from '../routing.js';
 import { blankMap, routeSources, routeTargets } from '../config.js';
 import { normalizeImageConfigStore } from '../image-sequencer.js';
 import { FACTORY_LOOKS, normalizeLook } from '../looks.js';
@@ -7,9 +8,9 @@ const copy = value => structuredClone(value);
 export function starterRoutingForOrigin(origin) {
   if (origin?.type === 'factory') {
     const preset = FACTORY_LOOKS.find(item => item.id === origin.presetId);
-    return copy(preset?.starter.routingMap || blankMap());
+    return normalizeRoutingMap(preset?.starter.routingMap);
   }
-  if (origin?.type === 'import' && origin.startingRoutingMap) return copy(origin.startingRoutingMap);
+  if (origin?.type === 'import' && origin.startingRoutingMap) return normalizeRoutingMap(origin.startingRoutingMap);
   return blankMap();
 }
 
@@ -18,6 +19,10 @@ export function normalizeRoutingMap(source, fallback = blankMap()) {
   for (const src of routeSources) for (const target of routeTargets) {
     const value = Number(source?.[src]?.[target]);
     map[src][target] = Number.isFinite(value) ? Math.max(-1.5, Math.min(1.5, value)) : Number(fallback?.[src]?.[target]) || 0;
+  }
+  for (const target of routeTargets) {
+    const selected = assignedSource(map, target);
+    assignTarget(map, target, selected, selected ? map[selected][target] : 0);
   }
   return map;
 }

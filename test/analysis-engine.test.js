@@ -7,7 +7,7 @@ function kickTrain(sampleRate, bpm, seconds, gain = .7, start = .5) {
   for (let time = start; time < seconds; time += 60 / bpm) { const offset = Math.floor(time * sampleRate);for (let i = 0; i < sampleRate * .1 && offset + i < signal.length; i++) signal[offset + i] += gain * Math.sin(2 * Math.PI * 60 * i / sampleRate) * Math.exp(-i / (sampleRate * .025)); }
   return signal;
 }
-function run(signal, sampleRate) { const engine = new AnalysisEngine({ sampleRate }), frames = [];for (let index = 0; index < signal.length; index += 128) { const frame = engine.push(signal.subarray(index, index + 128));if (frame) frames.push(frame); }return { engine, frames, last: frames.at(-1) }; }
+function run(signal, sampleRate) { const engine = new AnalysisEngine({ sampleRate }), frames = [];for (let index = 0; index < signal.length; index += 128) { const frame = engine.push(signal.subarray(index, index + 128));if (frame) frames.push(structuredClone(frame)); }return { engine, frames, last: frames.at(-1) }; }
 function snareTrain(sampleRate, seconds) {
   const signal = new Float32Array(sampleRate * seconds);
   for (let time = 1; time < seconds; time += 1) { const offset = Math.floor(time * sampleRate);for (let i = 0; i < sampleRate * .1; i++) { const envelope = Math.min(1, i / (sampleRate * .008)) * Math.exp(-i / (sampleRate * .035));signal[offset + i] += .35 * (Math.sin(2 * Math.PI * 300 * i / sampleRate) + Math.sin(2 * Math.PI * 3200 * i / sampleRate) + Math.sin(2 * Math.PI * 5700 * i / sampleRate)) * envelope; } }

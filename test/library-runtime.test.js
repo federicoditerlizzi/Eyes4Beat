@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { blankMap } from '../src/config.js';
 import { FACTORY_LOOKS, NEUTRAL_LOOK } from '../src/looks.js';
-import { buildProjectRuntime, defaultImageConfig, resolveShowIndexes, starterRoutingForOrigin } from '../src/library/runtime.js';
+import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, resolveShowIndexes, starterRoutingForOrigin } from '../src/library/runtime.js';
 import { mapImportedMedia, prepareImportedArchetype } from '../src/library/package-mapping.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from '../src/package-format.js';
 
@@ -32,7 +32,7 @@ test('missing media resolves to a placeholder without dropping the archetype', (
 });
 
 test('factory starter routing and imported source mapping preserve reordered image settings', () => {
-  assert.deepEqual(starterRoutingForOrigin({ type: 'factory', presetId: FACTORY_LOOKS[0].id }), FACTORY_LOOKS[0].starter.routingMap);
+  assert.deepEqual(starterRoutingForOrigin({ type: 'factory', presetId: FACTORY_LOOKS[0].id }), normalizeRoutingMap(FACTORY_LOOKS[0].starter.routingMap));
   const source = { name: 'Reordered', profile: 2, routingMap: blankMap(), musicPresets: [],
     imageConfig: { ...defaultImageConfig(3), images: [
       { enabled: false, duration: 5, order: 2 }, { enabled: true, duration: 7, order: 0 }, { enabled: false, duration: 9, order: 1 },
@@ -61,7 +61,7 @@ test('project v3 ZIP round trip preserves settings and ordered media', async () 
   const imported = prepareImportedArchetype(manifest.archetypes[0], 3);
   assert.equal(imported.name, original.name);
   assert.deepEqual(imported.look, original.look);
-  assert.deepEqual(imported.routingMap, original.routingMap);
+  assert.deepEqual(imported.routingMap, normalizeRoutingMap(original.routingMap));
   assert.deepEqual(imported.musicPresets, original.musicPresets);
   assert.deepEqual(imported.imageConfig.images, original.imageConfig.images);
   assert.deepEqual(imported.media.map(item => item.name), original.media.map(item => item.name));

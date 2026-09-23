@@ -1,6 +1,6 @@
 import './styles.css';
 import { routeSources, routeTargets, sourceLabels, targetLabels, blankMap } from './config.js';
-import { computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
+import { assignedSource, assignTarget, computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
 import { collectLegacyLibrary, legacyDataAvailable } from './legacy/export.js';
 import { SyncedLibraryRepository } from './library/synced-repository.js';
@@ -180,9 +180,22 @@ const addedTargetKeys=new Set(['rotate','spiral','tiles']);
 function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]})}
 function renderMatrixEditor(){
  const a=(typeof target==='number')?target:0;document.getElementById('matrixArchName').textContent=archetypes[a].name;
- let h='<table class="mapTable"><thead><tr><th>SOURCE ↓ / TARGET →</th>';routeTargets.forEach(t=>h+='<th>'+targetLabels[t]+'</th>');h+='</tr></thead><tbody>';
- routeSources.forEach(s=>{h+='<tr><td class="srcLabel">'+sourceLabels[s]+'</td>';routeTargets.forEach(t=>{const v=Number(routingMaps[a][s][t]||0);h+='<td><input class="mapCell '+(Math.abs(v)>.001?'nz':'')+'" data-s="'+s+'" data-t="'+t+'" type="number" min="-1.5" max="1.5" step="0.05" value="'+v.toFixed(2)+'"></td>'});h+='</tr>'});h+='</tbody></table>';
- document.getElementById('matrixHolder').innerHTML=h;document.querySelectorAll('.mapCell').forEach(el=>{el.oninput=()=>{const v=Math.max(-1.5,Math.min(1.5,parseFloat(el.value)||0));routingMaps[a][el.dataset.s][el.dataset.t]=v;el.classList.toggle('nz',Math.abs(v)>.001);saveRoutingMaps();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()}})
+ const holder=document.getElementById('matrixHolder');
+ holder.innerHTML=routeTargets.map(t=>{
+   const source=assignedSource(routingMaps[a],t),weight=source?routingMaps[a][source][t]:1;
+   return '<div class="routeCard"><h3>'+targetLabels[t]+'</h3><label>Musical parameter<select class="routeSource" data-t="'+t+'" aria-label="Parameter for '+targetLabels[t]+'"><option value="">None</option>'+routeSources.map(s=>'<option value="'+s+'"'+(s===source?' selected':'')+'>'+sourceLabels[s]+'</option>').join('')+'</select></label><label>Amount <output>'+weight.toFixed(2)+'</output><input class="routeWeight" aria-label="Amount for '+targetLabels[t]+'" type="range" min="-1.5" max="1.5" step="0.05" value="'+weight+'"'+(!source?' disabled':'')+'></label><span class="routeHint">Negative inverts the response</span></div>';
+ }).join('');
+ holder.querySelectorAll('.routeCard').forEach(card=>{
+   const select=card.querySelector('select'),slider=card.querySelector('input'),output=card.querySelector('output');
+   const update=()=>{
+     assignTarget(routingMaps[a],select.dataset.t,select.value,+slider.value);
+     slider.disabled=!select.value;output.value=(+slider.value).toFixed(2);
+     saveRoutingMaps();if(lookPanel.classList.contains('open'))updateLookRoutingWarning();
+   };
+   select.onchange=()=>{if(select.value && +slider.value===0)slider.value=1;update()};
+   slider.oninput=update;
+ });
+
 }
 function closeMappingMatrix(){saveRoutingMaps();document.getElementById('matrixPanel').classList.remove('open')}
 document.getElementById('openMatrix').onclick=()=>{closeImageManager();closeLookEditor();renderMatrixEditor();document.getElementById('matrixPanel').classList.add('open')};
@@ -198,7 +211,7 @@ document.addEventListener('keydown',e=>{
  }
 });
 document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
-document.getElementById('resetMap').onclick=()=>{routingMaps[target]=JSON.parse(JSON.stringify(defaultRoutingMaps[target]));saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
+document.getElementById('resetMap').onclick=()=>{routingMaps[target]=normalizeRoutingMap(defaultRoutingMaps[target]);saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
 
 const modState = {
  enabled:{energy:true,density:true,drive:true,boombap:true,tension:true,bright:true,open:true,beat:true,kick:true,snare:true},
@@ -827,7 +840,7 @@ const muteButton=document.getElementById('mute');
 const trackName=document.getElementById('trackName');
 const timeDisplay=document.getElementById('timeDisplay');
 const audioDevice=document.getElementById('audioDevice'),inputTrim=document.getElementById('inputTrim');
-const inputController=new AudioInputController(audio,{onDeviceChange:handleDeviceChange,onTrackEnded:handleInputLost,onFeatures:applyAnalysisFeatures,onAnalysisError:()=>{document.getElementById('inputWarning').textContent='Audio analysis stopped. Reload the page before performing.'}});
+const inputController=new AudioInputController(audio,{onDeviceChange:handleDeviceChange,onTrackEnded:handleInputLost,onFeatures:applyAnalysisFeatures,onCalibration:sample=>{if(calibrationRun){if(sample.count)calibrationRun.samples.push(sample);if(sample.final&&calibrationRun.finishing)finishNoiseCalibration()}},onAnalysisError:()=>{document.getElementById('inputWarning').textContent='Audio analysis stopped. Reload the page before performing.'}});
 let seeking=false,inputMode='file',inputLostDevice='',currentInputDiagnostics=null,clipHoldUntil=0,calibrationRun=null;
 const INPUT_TRIM_KEY='eyes4beat_input_trim',INPUT_CALIBRATION_KEY='eyes4beat_input_calibrations';
 let inputTrims={},inputCalibrations={};
@@ -839,7 +852,7 @@ function currentTrimDb(){return Number(inputTrims[inputKey()]??0)}
 function currentCalibration(){const item=inputCalibrations[inputKey()];return item&&Number(item.trimDb)===currentTrimDb()?item:null}
 function syncAnalysisNodes(){inputController.setAnalysisCalibration(currentCalibration())}
 function applyStoredTrim(immediate=true){const value=currentTrimDb();inputTrim.value=String(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';inputController.setTrimDb(value,immediate);inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus()}
-function resetBeatTracking(){BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;inputController.resetAnalysis()}
+function resetBeatTracking(resetLayers=false){BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;inputController.resetAnalysis(resetLayers)}
 
 function formatTime(seconds){
  if(!Number.isFinite(seconds)||seconds<0)return '0:00';
@@ -868,8 +881,7 @@ let Context={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
 let S={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
 let KickFast=0, SnareFast=0;
 let BPM=0, BPMConfidence=0, beatAnchorSec=null, BeatPulse=0;
-const history=[];
-function neutralizeInputState(){resetBeatTracking();Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals};history.length=0}
+function neutralizeInputState(){resetBeatTracking(true);Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}
 async function ensureAudio(){
  try{await inputController.ensureContext();syncAnalysisNodes();applyStoredTrim()}
  catch(error){const message=readableInputError(error);document.getElementById('inputWarning').textContent=message;throw error}
@@ -946,16 +958,16 @@ function beginNoiseCalibration(){
  calibrationRun={endsAt:performance.now()+3000,samples:[]};inputController.setCalibrationCapture(true);document.getElementById('calibrateNoise').disabled=true;document.getElementById('calibrationStatus').classList.remove('calibrated');
 }
 function finishNoiseCalibration(){
- inputController.setCalibrationCapture(false);
+ if(calibrationRun&&!calibrationRun.finishing){calibrationRun.finishing=true;inputController.setCalibrationCapture(false);return}
  if(!calibrationRun?.samples.length){calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;document.getElementById('audioInputStatus').textContent='Calibration failed: no audio samples received.';renderCalibrationStatus();return}
- const count=calibrationRun.samples.length,binCount=calibrationRun.samples.find(sample=>sample.spectrum)?.spectrum?.length||0,bins=new Array(binCount).fill(0);
+ const count=calibrationRun.samples.reduce((sum,sample)=>sum+sample.count,0),binCount=calibrationRun.samples.find(sample=>sample.spectrum)?.spectrum?.length||0,bins=new Array(binCount).fill(0);
  for(const sample of calibrationRun.samples)for(let index=0;index<binCount;index++)bins[index]+=(sample.spectrum?.[index]||0)/count;
- const rms=Math.sqrt(calibrationRun.samples.reduce((sum,sample)=>sum+sample.rms**2,0)/count);inputCalibrations[inputKey()]={rms,bins,trimDb:currentTrimDb(),createdAt:Date.now()};saveInputSettings();calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus();
+ const rms=Math.sqrt(calibrationRun.samples.reduce((sum,sample)=>sum+sample.power,0)/count);inputCalibrations[inputKey()]={rms,bins,trimDb:currentTrimDb(),createdAt:Date.now()};saveInputSettings();calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus();
 }
 function renderInputMeter(meter,now){
  document.getElementById('inputLevelFill').style.width=(Math.max(0,Math.min(100,(meter.peakDb+60)/60*100)))+'%';document.getElementById('inputRms').textContent='RMS '+meter.rmsDb.toFixed(1)+' dBFS';document.getElementById('inputPeak').textContent='PEAK '+meter.peakDb.toFixed(1)+' dBFS';
  if(meter.peakDb>=-1)clipHoldUntil=now+1000;document.getElementById('inputClip').classList.toggle('active',now<clipHoldUntil);
- if(calibrationRun){const remaining=Math.max(0,calibrationRun.endsAt-now);document.getElementById('calibrationStatus').textContent='SILENCE · '+(remaining/1000).toFixed(1)+' s';if(remaining<=0)finishNoiseCalibration()}
+ if(calibrationRun){const remaining=Math.max(0,calibrationRun.endsAt-now);document.getElementById('calibrationStatus').textContent='SILENCE · '+(remaining/1000).toFixed(1)+' s';if(remaining<=0&&!calibrationRun.finishing)finishNoiseCalibration()}
 }
 document.getElementById('audioInputBtn').onclick=async()=>{closeImageManager();closeMappingMatrix();document.getElementById('creatorPanel').classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');await refreshInputDevices();renderCalibrationStatus()};
 document.getElementById('closeAudioInput').onclick=()=>document.getElementById('audioInputPanel').classList.remove('open');
@@ -968,7 +980,8 @@ refreshInputDevices();updateInputModeUi();renderCalibrationStatus();
 const fullscreenButton=document.getElementById('fullscreen');
 function updateFullscreenButton(){const active=!!document.fullscreenElement;fullscreenButton.classList.toggle('fullscreenActive',active);fullscreenButton.setAttribute('aria-label',active?'Exit full screen':'Full screen');fullscreenButton.dataset.tooltip=active?'Exit full screen':'Full screen'}
 fullscreenButton.onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();document.addEventListener('fullscreenchange',updateFullscreenButton);updateFullscreenButton();
-document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none'};
+document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none';inputController.setAnalysisDiagnostics(getComputedStyle(d).display!=='none')};
+const diagnosticVisibility=new ResizeObserver(()=>inputController.setAnalysisDiagnostics(getComputedStyle(document.getElementById('diag')).display!=='none'));diagnosticVisibility.observe(document.getElementById('diag'));
 const shortcutDialog=document.getElementById('shortcutDialog'),shortcutToast=document.getElementById('shortcutToast');
 let shortcutToastTimer=0;
 function showShortcutToast(message){
@@ -1015,21 +1028,17 @@ setInterval(()=>{
 function applyAnalysisFeatures(features){
  latestAnalysis=features;if(!inputController.inputActive)return neutralizeInputState();
  const now=performance.now();renderInputMeter(features.meter,now);
- if(calibrationRun&&features.spectrum)calibrationRun.samples.push({rms:features.meter.rms,spectrum:features.spectrum});
  Raw={...features.raw};BPM=features.tempo.bpm;BPMConfidence=features.tempo.confidence;beatAnchorSec=BPM>0?features.timestamp-features.tempo.phase*60/BPM:null;
- BeatPulse=features.events.beat?Math.max(.35,BPMConfidence):Math.exp(-features.tempo.phase*8)*BPMConfidence;
- KickFast=features.events.kick?1:KickFast*.72;SnareFast=features.events.snare?1:SnareFast*.70;
- const lerp=(a,b,k)=>a+(b-a)*k;
- Fast.energy=lerp(Fast.energy,Raw.energy,.30);Fast.density=lerp(Fast.density,Raw.density,.22);Fast.drive=lerp(Fast.drive,Raw.drive,.26);
- Fast.boombap=lerp(Fast.boombap,Raw.boombap,.30);Fast.bright=lerp(Fast.bright,Raw.bright,.18);Fast.tension=lerp(Fast.tension,Raw.tension,.13);Fast.open=lerp(Fast.open,Raw.open,.10);
- history.push({t:features.timestamp,...Raw});while(history.length&&history[0].t<features.timestamp-20)history.shift();
- const rolling=(key,seconds,fallback)=>{let sum=0,count=0;for(let i=history.length-1;i>=0;i--){if(history[i].t<features.timestamp-seconds)break;sum+=history[i][key];count++}return count?sum/count:fallback};
- const targetContext={energy:rolling('energy',3,Fast.energy),density:rolling('density',6,Fast.density),drive:rolling('drive',4,Fast.drive),boombap:rolling('boombap',4,Fast.boombap),bright:rolling('bright',6,Fast.bright),tension:rolling('tension',12,Fast.tension),open:rolling('open',15,Fast.open)};
- Context.energy=lerp(Context.energy,targetContext.energy,.18);Context.density=lerp(Context.density,targetContext.density,.12);Context.drive=lerp(Context.drive,targetContext.drive,.15);Context.boombap=lerp(Context.boombap,targetContext.boombap,.16);Context.bright=lerp(Context.bright,targetContext.bright,.10);Context.tension=lerp(Context.tension,targetContext.tension,.065);Context.open=lerp(Context.open,targetContext.open,.05);
+ BeatPulse=features.events.beat?Math.max(.35,BPMConfidence):features.beat;
+ KickFast=features.events.kick?1:features.kick;SnareFast=features.events.snare?1:features.snare;
+ Fast={...features.fast};Context={...features.context};
  const mix=+document.getElementById('ctxPerf').value,blend=(fast,context,shape)=>{const weight=Math.max(0,Math.min(1,mix*shape));return fast*(1-weight)+context*weight};
  S.energy=blend(Fast.energy,Context.energy,.95);S.density=blend(Fast.density,Context.density,1);S.drive=blend(Fast.drive,Context.drive,.92);S.boombap=Fast.boombap*.8+Context.boombap*.2;S.bright=blend(Fast.bright,Context.bright,1);S.tension=blend(Fast.tension,Context.tension,1.08);S.open=blend(Fast.open,Context.open,1.12);
+ const analysisLoadWarning=document.getElementById('analysisLoadWarning');
+ analysisLoadWarning.textContent=features.overloaded?'Analysis CPU above 40% of the audio budget'+(features.mode===2?' · minimum resolution active':' · reducing resolution if sustained'):features.mode?'Analysis running at reduced resolution to protect audio':'';
+ if(!features.bands)return;
  const bands=Object.entries(features.bands).map(([name,value])=>{const [low,high]=features.bandRanges[name];return `${name} ${low}–${Math.round(high)} Hz ${value.toFixed(1)}`}).join(' · '),ranges=Object.entries(features.normalization).map(([name,value])=>`${name} ${value.low.toFixed(2)}…${value.high.toFixed(2)}`).join(' · ');
- const diagnostics=document.getElementById('analysisDiagnostics');diagnostics.textContent=`${inputController.context.sampleRate} Hz · ${bands} dBFS · onset ${features.onset.toFixed(3)} · BPM ${BPM?BPM.toFixed(1):'—'} · confidence ${BPMConfidence.toFixed(2)} · phase ${features.tempo.phase.toFixed(2)} · kick ${features.events.kick?'HIT':'—'} · snare ${features.events.snare?'HIT':'—'} · gate ${features.gate?'CLOSED':'OPEN'} · norm ${ranges}`;diagnostics.title=diagnostics.textContent;
+ const diagnostics=document.getElementById('analysisDiagnostics');diagnostics.textContent=`${inputController.context.sampleRate} Hz · worklet ${features.processingMs.toFixed(3)} ms/quantum · ${(features.processingMs/(128/inputController.context.sampleRate*1000)*100).toFixed(1)}% audio budget (${features.clock} clock) · mode ${['2048 FFT / 512 hop','2048 FFT / 1024 hop','1024 FFT / 1024 hop'][features.mode]} · ${bands} dBFS · onset ${features.onset.toFixed(3)} · BPM ${BPM?BPM.toFixed(1):'—'} · confidence ${BPMConfidence.toFixed(2)} · phase ${features.tempo.phase.toFixed(2)} · kick ${features.events.kick?'HIT':'—'} · snare ${features.events.snare?'HIT':'—'} · gate ${features.gate?'CLOSED':'OPEN'} · norm ${ranges}`;diagnostics.title=diagnostics.textContent;
 }
 
 let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;

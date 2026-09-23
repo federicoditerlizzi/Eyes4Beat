@@ -18,6 +18,28 @@ export const NEUTRAL_TARGETS = Object.freeze({
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const shape = (value) => Math.sign(value) * Math.sqrt(Math.abs(value));
 
+// Legacy maps resolve deterministically: strongest absolute weight, source order on ties.
+export function assignedSource(map, target) {
+  let selected = null, strongest = 0;
+  for (const source of routeSources) {
+    const weight = Number(map?.[source]?.[target]);
+    if (Number.isFinite(weight) && Math.abs(weight) > strongest) {
+      selected = source;
+      strongest = Math.abs(weight);
+    }
+  }
+  return selected;
+}
+
+export function assignTarget(map, target, source, weight = 1) {
+  const value = Number(weight);
+  for (const key of routeSources) {
+    map[key] ??= {};
+    map[key][target] = key === source && Number.isFinite(value) ? clamp(value, -1.5, 1.5) : 0;
+  }
+  return map;
+}
+
 export function resolveTargetActivity({ enabled, solo }) {
   const anySolo = routeTargets.some(target => !!solo[target]);
   return Object.fromEntries(routeTargets.map(target => [target, anySolo ? !!solo[target] : enabled[target] !== false]));
@@ -38,8 +60,8 @@ export function computeTargetState({
     const unipolar = UNIPOLAR_TARGETS.has(target);
     let sum = 0;
 
-    for (const source of routeSources) {
-      if (!activeSources[source]) continue;
+    const source = assignedSource(map, target);
+    if (source && activeSources[source]) {
       const weight = map[source]?.[target] ?? 0;
       const value = clamp(sources[source] ?? 0, 0, 1.5);
       sum += unipolar && weight < 0
