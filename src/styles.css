@@ -120,3 +120,5 @@
   @media(max-width:1200px){.lab{width:290px}.brand{font-size:14px}.trackInfo{display:none}.audioPlayer{grid-template-columns:32px 34px minmax(65px,1fr) 62px 32px 44px}}
   @media(max-width:1000px){.top{grid-template-columns:max-content minmax(0,1fr)}.brand{grid-column:1;grid-row:1}.headerTools{justify-self:end;grid-column:2;grid-row:1}.audioPlayer{grid-column:1/-1;grid-row:2;max-width:none}.lab{top:124px;max-height:calc(100vh - 148px - var(--footer-height,68px))}.lab:has(.labAccordion[open]){height:calc(100vh - 148px - var(--footer-height,68px))}}
   @media(max-width:900px){.diag{display:none}.sub{display:none}.brand{font-size:10px}.arch{min-width:0}.arch span{display:none}.lab{display:none}}
+
+.lookField input[type=checkbox]{width:18px;height:18px;align-self:flex-start;accent-color:#8de8ff}.lookGroup.burstGroup{margin-top:12px;padding:10px 0 0;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent}

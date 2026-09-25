@@ -1,5 +1,10 @@
 import './styles.css';
-import { routeSources, routeTargets, sourceLabels, targetLabels, blankMap } from './config.js';
+import { createRotationState, stepRotation, rotationCover, rotationAt, createWaveState, stepWaves, waveUniforms, breathPhase } from './motion-effects.js';
+import { particleAlpha, spawnBurst, stepParticles, packParticles, unpackParticles } from './particle-lifecycle.js';
+import { extractMediaPalette } from './media-palette.js';
+import { BloomRenderer } from './bloom-renderer.js';
+import { blendBloom, BLOOM_QUALITY_KEY, normalizeBloomQuality } from './bloom.js';
+import { routeSources, routeTargets, sourceLabels, eventSourceIds, targetLabels, blankMap } from './config.js';
 import { assignedSource, assignTarget, computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
 import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
 import { collectLegacyLibrary, legacyDataAvailable } from './legacy/export.js';
@@ -12,7 +17,7 @@ import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './au
 import { icon, initIcons } from './icons.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from './package-format.js';
 import { prepareImportedArchetype } from './library/package-mapping.js';
-import { FACTORY_LOOKS, LOOK_FIELDS, NEUTRAL_LOOK, hexRgb, lookUniforms, normalizeLook, particleSpeed, stepParticle } from './looks.js';
+import { FACTORY_LOOKS, LOOK_FIELDS, NEUTRAL_LOOK, lookUniforms, normalizeLook, particleSpeed } from './looks.js';
 import packageInfo from '../package.json';
 import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS, resolveTransitionParam, transitionShaderId } from './transitions.js';
 import { DWELL_BEAT_OPTIONS, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS, applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from './image-sequencer.js';
@@ -30,6 +35,7 @@ function applyButtonTooltips(root=document){if(root.matches?.('button'))ensureBu
 applyButtonTooltips();
 new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)applyButtonTooltips(node)}))).observe(document.body,{childList:true,subtree:true});
 const showChannel='BroadcastChannel' in window?new BroadcastChannel('eyesforbeats-show-v1'):null;
+let remoteFrameReceivedAt=0;
 let remoteVisualState=null,lastShowPeerAt=0,showWindow=null,lastShowBroadcastAt=0,remoteSwitchPromise=null;
 let blackoutActive=false,panicActive=false,panicReleaseStartedAt=null;
 if(isShowMode){
@@ -41,7 +47,7 @@ if(isShowMode){
 showChannel?.addEventListener('message',event=>{
  const message=event.data||{};
  if(isShowMode&&message.type==='frame'){
-   remoteVisualState=message.state;document.getElementById('showConnection')?.classList.add('connected');
+   remoteVisualState=message.state;remoteFrameReceivedAt=performance.now();document.getElementById('showConnection')?.classList.add('connected');
    if(message.state?.projectId!==activeProject?.id&&!remoteSwitchPromise){
      remoteSwitchPromise=openProject(message.state.projectId,{fromShow:true}).catch(error=>console.error('Unable to switch Show project',error)).finally(()=>{remoteSwitchPromise=null});
    }
@@ -139,25 +145,33 @@ function renderLookEditor(){
  document.getElementById('lookArchName').textContent=archetypes[target].name;
  const root=document.getElementById('lookFields');root.replaceChildren();
  const groups=[
+  ['rotation','ROTATION',[['mode','Mode'],['maxAngle','Max angle (deg)'],['maxSpeed','Max speed (deg/s)'],['direction','Direction'],['returnToRest','Return to rest']]],
+  ['pulse','PULSE',[['mode','Mode'],['centerX','Center X'],['centerY','Center Y'],['strength','Strength'],['speed','Speed'],['width','Width'],['chromatic','Chromatic']]],
+  ['bloom','BLOOM',[['base','Base'],['threshold','Threshold'],['knee','Knee'],['radius','Radius'],['tint','Tint'],['stretch','Stretch']]],
+  ['frame','FRAME',[['fit','Fit'],['edge','Edge'],['overscan','Overscan']]],
   ['distortion','DISTORTION',[['amplitude','Amplitude'],['speed','Speed'],['mode','Mode'],['angle','Angle (degrees)'],['directionStrength','Direction strength']]],
-  ['color','COLOR',[['gain','Gain'],['tint','Tint'],['tintAmount','Tint amount']]],
-  ['particles','PARTICLES',[['density','Density'],['speed','Speed'],['style','Style'],['motion','Motion'],['color','Color'],['motionFactor','Motion factor'],['waveAmount','Wave amount'],['jitterAmount','Jitter amount'],['depthOffset','Depth offset'],['streakSlant','Streak slant']]],
+  ['color','COLOR',[['gain','Gain'],['tint','Tint'],['tintAmount','Tint amount'],['amount','Vignette amount','vignette'],['softness','Vignette softness','vignette']]],
+  ['particles','PARTICLES',[['density','Density'],['speed','Speed'],['style','Style'],['motion','Motion'],['color','Color'],['colorMode','Color mode'],['motionFactor','Motion factor'],['waveAmount','Wave amount'],['jitterAmount','Jitter amount'],['depthOffset','Depth offset'],['streakSlant','Streak slant']]],
+  ['particles.burst','BURST',[['trigger','Trigger'],['amount','Amount'],['speed','Speed'],['spread','Spread'],['origin','Origin']]],
  ];
- const options={mode:['directional','radial'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']};
+ const options={direction:['cw','ccw','flip-on-beat'],colorMode:['fixed','palette'],trigger:['none',...eventSourceIds()],origin:['center','random'],fit:['cover','contain','stretch'],edge:['mirror','clamp'],mode:['directional','radial'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']};
  for(const [group,title,fields] of groups){
   const section=document.createElement('section');section.className='lookGroup';const heading=document.createElement('h3');heading.textContent=title;section.appendChild(heading);
-  for(const [key,label] of fields){
+  for(const [key,label,fieldGroup=group] of fields){
    const row=document.createElement('label');row.className='lookField';row.dataset.field=key;
    const caption=document.createElement('span');caption.textContent=label;row.appendChild(caption);
-   const value=looks[target][group][key];let input;
-   if(options[key]){input=document.createElement('select');for(const choice of options[key]){const item=document.createElement('option');item.value=choice;item.textContent=choice.replaceAll('-',' ');input.appendChild(item)}input.value=value}
-   else{input=document.createElement('input');input.type=key==='tint'||key==='color'?'color':'number';input.value=String(value);if(input.type==='number'){const [min,max,step]=LOOK_FIELDS[group][key];input.min=String(min);input.max=String(max);input.step=String(step)}}
+   const path=fieldGroup.split('.'),settings=path.reduce((value,part)=>value[part],looks[target]);
+   const value=settings[key],choices=key==='mode'?(group==='rotation'?['angle','spin']:group==='pulse'?['breath','shockwave']:options.mode):options[key];let input;
+   if(key==='returnToRest'){input=document.createElement('input');input.type='checkbox';input.checked=value}
+   else if(choices){input=document.createElement('select');for(const choice of choices){const item=document.createElement('option');item.value=choice;item.textContent=choice.replaceAll('-',' ');input.appendChild(item)}input.value=value}
+   else{input=document.createElement('input');input.type=key==='tint'||key==='color'?'color':'number';input.value=String(value);if(input.type==='number'){const [min,max,step]=LOOK_FIELDS[fieldGroup][key];input.min=String(min);input.max=String(max);input.step=String(step)}}
    input.setAttribute('aria-label',`${title.toLowerCase()} ${label.toLowerCase()}`);
-   input.addEventListener('input',()=>{if(input.type==='number'&&!Number.isFinite(input.valueAsNumber))return;looks[target]=normalizeLook({...looks[target],[group]:{...looks[target][group],[key]:input.type==='number'?input.valueAsNumber:input.value}});saveLooks();if(group==='distortion'&&key==='mode')section.querySelector('[data-field="angle"]').hidden=input.value!=='directional'});
+   input.addEventListener('input',()=>{if(input.type==='number'&&!Number.isFinite(input.valueAsNumber))return;const next=structuredClone(looks[target]);path.reduce((value,part)=>value[part],next)[key]=input.type==='checkbox'?input.checked:input.type==='number'?input.valueAsNumber:input.value;looks[target]=normalizeLook(next);saveLooks();if(group==='distortion'&&key==='mode')section.querySelector('[data-field="angle"]').hidden=input.value!=='directional'});
    row.appendChild(input);section.appendChild(row);
   }
   if(group==='distortion')section.querySelector('[data-field="angle"]').hidden=looks[target].distortion.mode!=='directional';
-  root.appendChild(section);
+  if(group==='particles.burst'){section.classList.add('burstGroup');root.querySelector('[data-look-group=particles]').appendChild(section)}
+  else{section.dataset.lookGroup=group;root.appendChild(section)}
  }
  lookPreset.value='';updateLookRoutingWarning();
 }
@@ -626,19 +640,49 @@ function sh(type,src){
 }
 const requiredTextureUnits=4;
 if(gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)<requiredTextureUnits)throw new Error(`Eyes4Beat requires ${requiredTextureUnits} fragment texture units`);
-const vertexShader=sh(gl.VERTEX_SHADER,vertexShaderSource),fragmentShader=sh(gl.FRAGMENT_SHADER,fragmentShaderSource);
-const prog=gl.createProgram();gl.attachShader(prog,vertexShader);gl.attachShader(prog,fragmentShader);gl.linkProgram(prog);
-if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog)||'WebGL program link failed');
-gl.deleteShader(vertexShader);gl.deleteShader(fragmentShader);gl.useProgram(prog);
-const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
-const pos=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
-
-const names=['uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uWarpA','uWarpB','uWarpDirA','uWarpDirB','uGradeA','uGradeB','uArchMix','uMapPulse','uDistAmt','uGlowAmt','uLumAmt','uSatAmt','uZoomAmt','uRotateAmt','uSpiralAmt','uTilesAmt'];
-const U={}; names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
-const samplers=['tCurrentA','tCurrentB','tTargetA','tTargetB']; samplers.forEach((n,i)=>{U[n]=gl.getUniformLocation(prog,n);gl.uniform1i(U[n],i)});
+let prog,sceneVao,sceneBuffer,bloomRenderer,contextLost=false;
+const names=['uRotationA','uRotationB','uPulseA','uPulseB','uPulseShapeA','uPulseShapeB','uWavesA[0]','uWavesB[0]','uBreathPhase','uAspect','uFrameA','uFrameB','uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uWarpA','uWarpB','uWarpDirA','uWarpDirB','uGradeA','uGradeB','uArchMix','uMapPulse','uDistAmt','uLumAmt','uSatAmt','uZoomAmt','uSpiralAmt','uTilesAmt'];
+const U={};
+function initializeRenderer(){
+ const vertexShader=sh(gl.VERTEX_SHADER,vertexShaderSource),fragmentShader=sh(gl.FRAGMENT_SHADER,fragmentShaderSource);
+ prog=gl.createProgram();gl.attachShader(prog,vertexShader);gl.attachShader(prog,fragmentShader);gl.linkProgram(prog);
+ if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog)||'WebGL program link failed');
+ gl.deleteShader(vertexShader);gl.deleteShader(fragmentShader);gl.useProgram(prog);
+ sceneVao=gl.createVertexArray();gl.bindVertexArray(sceneVao);
+ sceneBuffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,sceneBuffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+ gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+ names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+ ['tCurrentA','tCurrentB','tTargetA','tTargetB'].forEach((n,i)=>gl.uniform1i(gl.getUniformLocation(prog,n),i));
+ bloomRenderer=new BloomRenderer(gl);
+}
+initializeRenderer();
+const bloomQualityInput=document.getElementById('bloomQuality'),bloomDiagnostics=document.getElementById('bloomDiagnostics');
+let bloomQuality='high',lastBloomDiagnostics=0,renderFps=60;
+try{bloomQuality=normalizeBloomQuality(localStorage.getItem(BLOOM_QUALITY_KEY))}catch{}
+bloomQualityInput.value=bloomQuality;
+bloomDiagnostics.textContent=bloomRenderer.diagnostics;
+bloomQualityInput.addEventListener('change',()=>{bloomQuality=normalizeBloomQuality(bloomQualityInput.value);try{localStorage.setItem(BLOOM_QUALITY_KEY,bloomQuality)}catch{}});
+window.addEventListener('storage',event=>{if(event.key===BLOOM_QUALITY_KEY){bloomQuality=normalizeBloomQuality(event.newValue);bloomQualityInput.value=bloomQuality}});
+canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();contextLost=true;bloomDiagnostics.textContent='WebGL context lost — waiting for restore'});
+canvas.addEventListener('webglcontextrestored',()=>{
+ try{
+   initializeRenderer();
+   for(let role=0;role<2;role++)for(let slot=0;slot<2;slot++){
+     createTextureSlot(role,slot);
+     const media=texMedia[role][slot];
+     if(media&&(!(media instanceof HTMLVideoElement)||media.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA)){
+       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,media);
+     }
+   }
+   bloomRenderer.resize(canvas.width,canvas.height,bloomQuality);contextLost=false;
+ }catch(error){bloomDiagnostics.textContent='Renderer recovery failed — reload the page';console.error(error)}
+});
 
 const texObjs=Array.from({length:2},()=>[null,null]);
+const texAspects=Array.from({length:2},()=>[1,1]);
 const texMedia=Array.from({length:2},()=>[null,null]);
+const texPalettes=Array.from({length:2},()=>[[],[]]),paletteCache=new Map();
+function loadPalette(role,slot,media,source){const key=source?.mediaId||mediaUrl(source);if(!paletteCache.has(key))paletteCache.set(key,extractMediaPalette(media));texPalettes[role][slot]=paletteCache.get(key)}
 function createTextureSlot(role,slot){
  const unit=role*2+slot;
  const tex=gl.createTexture();texObjs[role][slot]=tex;
@@ -656,19 +700,21 @@ function bindTextureSlot(role,slot){
 function releaseTextureMedia(role,slot){
  const previous=texMedia[role][slot];
  if(previous instanceof HTMLVideoElement){previous.pause();previous.removeAttribute('src');previous.load()}
- texMedia[role][slot]=null;
+ texMedia[role][slot]=null;texPalettes[role][slot]=[];
 }
 function uploadMediaToSlot(role,slot,a,imgIdx){
  return new Promise(resolve=>{
    const source=IMAGE_SETS[a][imgIdx],url=mediaUrl(source);
    releaseTextureMedia(role,slot);
-   if(source?.missing){bindTextureSlot(role,slot);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([12,16,22,255]));resolve();return}
+   if(source?.missing){texAspects[role][slot]=1;bindTextureSlot(role,slot);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([12,16,22,255]));resolve();return}
    if(mediaIsVideo(source)){
      const video=document.createElement('video');video.muted=true;video.loop=true;video.playsInline=true;video.preload='auto';
+     video.onloadedmetadata=()=>{texAspects[role][slot]=video.videoWidth/Math.max(1,video.videoHeight)};
      video.onloadeddata=()=>{
+       texAspects[role][slot]=video.videoWidth/Math.max(1,video.videoHeight);
        bindTextureSlot(role,slot);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);
        gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
-       texMedia[role][slot]=video;video.play().catch(()=>{});resolve();
+       texMedia[role][slot]=video;loadPalette(role,slot,video,source);video.play().catch(()=>{});resolve();
      };
      video.onerror=()=>{console.error('Unable to load video',url);resolve()};
      video.src=url;video.load();return;
@@ -677,7 +723,8 @@ function uploadMediaToSlot(role,slot,a,imgIdx){
    img.onload=()=>{
      bindTextureSlot(role,slot);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);
      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
-     texMedia[role][slot]=img;
+     loadPalette(role,slot,img,source);
+     texMedia[role][slot]=img;texAspects[role][slot]=img.naturalWidth/Math.max(1,img.naturalHeight);
      resolve();
    };
    img.onerror=()=>{console.error('Unable to load image',url);resolve()};
@@ -689,6 +736,8 @@ function trackedMediaLoad(role,slot,a,imgIdx){
  const load=uploadMediaToSlot(role,slot,a,imgIdx);pendingMediaLoads.add(load);load.finally(()=>pendingMediaLoads.delete(load));return load;
 }
 function swapTextureSlots(role){
+ [texPalettes[role][0],texPalettes[role][1]]=[texPalettes[role][1],texPalettes[role][0]];
+ [texAspects[role][0],texAspects[role][1]]=[texAspects[role][1],texAspects[role][0]];
  const tmp=texObjs[role][0];texObjs[role][0]=texObjs[role][1];texObjs[role][1]=tmp;
  const media=texMedia[role][0];texMedia[role][0]=texMedia[role][1];texMedia[role][1]=media;
  bindTextureSlot(role,0);bindTextureSlot(role,1);
@@ -698,6 +747,7 @@ function refreshVideoTextures(){
    const video=texMedia[role][slot];
    if(!(video instanceof HTMLVideoElement)||video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA||!video.videoWidth)continue;
    bindTextureSlot(role,slot);
+   texAspects[role][slot]=video.videoWidth/Math.max(1,video.videoHeight);
    gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,video);
  }
 }
@@ -828,7 +878,7 @@ function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next
 function broadcastShowFrame(now,Eff){
  if(!showChannel||now-lastShowBroadcastAt<40)return;
  lastShowBroadcastAt=now;
- showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,finalG:{...FinalG},eff:{...Eff},currentId:archetypes[current]?.id||null,targetId:archetypes[target]?.id||null,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
+ showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,finalG:{...FinalG},eff:{...Eff},currentId:archetypes[current]?.id||null,targetId:archetypes[target]?.id||null,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],effects:visualSnapshot,particleState:packParticles(particles,pcanvas.width,pcanvas.height),panic:panicActive,seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
 }
 
 let audioObjectUrl=null,latestAnalysis=null;
@@ -852,7 +902,7 @@ function currentTrimDb(){return Number(inputTrims[inputKey()]??0)}
 function currentCalibration(){const item=inputCalibrations[inputKey()];return item&&Number(item.trimDb)===currentTrimDb()?item:null}
 function syncAnalysisNodes(){inputController.setAnalysisCalibration(currentCalibration())}
 function applyStoredTrim(immediate=true){const value=currentTrimDb();inputTrim.value=String(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';inputController.setTrimDb(value,immediate);inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus()}
-function resetBeatTracking(resetLayers=false){BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;inputController.resetAnalysis(resetLayers)}
+function resetBeatTracking(resetLayers=false){pendingVisualEvents.length=0;BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;inputController.resetAnalysis(resetLayers)}
 
 function formatTime(seconds){
  if(!Number.isFinite(seconds)||seconds<0)return '0:00';
@@ -1002,7 +1052,7 @@ function toggleBlackout(){return setBlackout(!blackoutActive)}
 function setPanic(value){
  const next=!!value;if(next===panicActive)return panicActive;
  panicActive=next;
- if(panicActive){panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
+ if(panicActive){resetVisualEffects();lastShowBroadcastAt=0;panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
  else{panicReleaseStartedAt=performance.now();if(seqStates[target]){seqStates[target].lastSwitch=performance.now();seqStates[target].nextAutoAt=null}}
  updateSafetyUi();return panicActive;
 }
@@ -1027,7 +1077,8 @@ setInterval(()=>{
 
 function applyAnalysisFeatures(features){
  latestAnalysis=features;if(!inputController.inputActive)return neutralizeInputState();
- const now=performance.now();renderInputMeter(features.meter,now);
+ const now=performance.now();lastFeatureAt=now;renderInputMeter(features.meter,now);
+ if(!panicActive){for(const event of features.eventBatch||[]){if(eventSourceIds().includes(event.type)&&features.timestamp-event.timestamp<.5)pendingVisualEvents.push({...event,intensity:event.intensity??1,receivedAt:now})}if(pendingVisualEvents.length>64)pendingVisualEvents.splice(0,pendingVisualEvents.length-64)}
  Raw={...features.raw};BPM=features.tempo.bpm;BPMConfidence=features.tempo.confidence;beatAnchorSec=BPM>0?features.timestamp-features.tempo.phase*60/BPM:null;
  BeatPulse=features.events.beat?Math.max(.35,BPMConfidence):features.beat;
  KickFast=features.events.kick?1:features.kick;SnareFast=features.events.snare?1:features.snare;
@@ -1125,7 +1176,7 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  musicPresets=runtime?.musicPresets||[];looks=runtime?.looks||[];idToIndex=runtime?.idToIndex||new Map();
  seqStates.splice(0,seqStates.length,...archetypes.map(createSequenceState));
  remoteRoleSignatures.fill('');remoteTransitionSignatures.fill('');remoteRoleTokens[0]++;remoteRoleTokens[1]++;
- activeProject=nextProject;current=target=idToIndex.get(preferredId)??0;archMix=1;transitioning=false;queuedArchetype=null;archetypeSelectionBusy=false;particles=[];
+ activeProject=nextProject;current=target=idToIndex.get(preferredId)??0;archMix=1;transitioning=false;queuedArchetype=null;archetypeSelectionBusy=false;resetVisualEffects();paletteCache.clear();
  if(!libraryVersionChanged){const notice=document.getElementById('libraryNotice');notice.hidden=!missingArchetypes.size;
  notice.textContent=missingArchetypes.size?`Missing media in: ${[...missingArchetypes].join(', ')}. Available media will continue playing.`:''}
  if(archetypes.length)await Promise.all([loadArchetypeIntoRole(0,target),loadArchetypeIntoRole(1,target)]);
@@ -1397,45 +1448,83 @@ document.addEventListener('keydown',event=>{
  showShortcutToast(String(index+1).padStart(2,'0')+' · '+archetypes[index].name+' — '+mode.toUpperCase());selectArchetype(index);
 });
 
-let particles=[];
+let particles=[],lastParticleRemoteState=null;
+const motionStates=new Map(),pendingVisualEvents=[];
+let lastFeatureAt=0,visualSnapshot=null;
+function resetVisualEffects(){motionStates.clear();pendingVisualEvents.length=0;particles=[];visualSnapshot=null;lastParticleRemoteState=null;if(ctx)ctx.clearRect(0,0,pcanvas.width,pcanvas.height)}
+function motionFor(index){const id=archetypes[index]?.id;if(!motionStates.has(id))motionStates.set(id,{rotation:createRotationState(),pulse:createWaveState()});return motionStates.get(id)}
+function eventIntensity(event){return inputController.inputActive&&sourceActive(event.type)?event.intensity*Number(document.getElementById('amt-'+event.type)?.value||0):0}
+function updateVisualEffects(time,dt,lookA,lookB){
+ const events=pendingVisualEvents.splice(0).filter(event=>performance.now()-event.receivedAt<500),beats=events.filter(event=>event.type==='beat'&&eventIntensity(event)>0).length;
+ for(const index of new Set([current,target])){
+   const look=index===target?lookB:lookA,state=motionFor(index);
+   stepRotation(state.rotation,look.rotation,FinalG.rotate,dt,time,beats,panicActive);
+   stepWaves(state.pulse,look.pulse.mode==='shockwave'?FinalG.pulse:0,time,{panic:panicActive,lifetime:3/look.pulse.speed});
+   if(look.pulse.mode!=='shockwave')state.pulse.waves=[];
+ }
+ const palette=texPalettes[1][seqStates[target]?.blend>.5?1:0];
+ if(!panicActive&&FinalG.parts>0){
+   for(const event of events)if(event.type===lookB.particles.burst.trigger){
+     const intensity=eventIntensity(event)*Math.min(1,FinalG.parts);
+     if(intensity>0)spawnBurst(particles,lookB.particles,intensity,pcanvas.width,pcanvas.height,palette);
+   }
+ }
+ stepParticles(particles,{wanted:Math.floor(150*lookB.particles.density*FinalG.parts),dt,time,width:pcanvas.width,height:pcanvas.height,look:lookB,amount:FinalG.parts,palette,panic:panicActive});
+ const a=motionFor(current),b=motionFor(target);
+ visualSnapshot={time,breath:breathPhase(time,BPM,latestAnalysis?.tempo.phase||0,(performance.now()-lastFeatureAt)/1000),
+   rotationA:{...a.rotation},rotationB:{...b.rotation},wavesA:a.pulse.waves.map(w=>({...w})),wavesB:b.pulse.waves.map(w=>({...w}))};
+}
+function applyMotionUniforms(role,look,state,waves,elapsed=0,time=0){
+ const rotation=look.rotation||NEUTRAL_LOOK.rotation,pulse=look.pulse||NEUTRAL_LOOK.pulse;
+ gl.uniform2f(U['uRotation'+role],rotationAt(state,rotation,elapsed,time)*Math.PI/180,state?.active?rotationCover(rotation,canvas.width/canvas.height):1);
+ gl.uniform4f(U['uPulse'+role],pulse.centerX,pulse.centerY,pulse.strength,pulse.speed);
+ gl.uniform3f(U['uPulseShape'+role],pulse.mode==='shockwave'?1:0,pulse.width,pulse.chromatic);
+ gl.uniform2fv(U['uWaves'+role+'[0]'],waveUniforms(waves||[]));
+}
 function resize(){
  const scale=.78;
- let w=Math.floor(innerWidth*scale),h=Math.floor(innerHeight*scale);
+ let w=Math.max(1,Math.floor(innerWidth*scale)),h=Math.max(1,Math.floor(innerHeight*scale));
  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}
- if(pcanvas.width!==innerWidth||pcanvas.height!==innerHeight){pcanvas.width=innerWidth;pcanvas.height=innerHeight}
-}
-function updateParticles(t,look){
- const settings=look.particles;
- const partAmt=FinalG.parts;
- const wanted=Math.floor(150*settings.density*partAmt);
- while(particles.length<wanted) particles.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,z:Math.random(),r:.6+Math.random()*2.3,vx:(Math.random()-.5),vy:(Math.random()-.5),life:Math.random()*100});
- while(particles.length>wanted)particles.pop();
- ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
- ctx.globalCompositeOperation='screen';
- const speed=particleSpeed(look,partAmt),[red,green,blue]=hexRgb(settings.color);
- for(let index=0;index<particles.length;index++){
-   const p=stepParticle(particles[index],look,t,innerWidth,innerHeight,partAmt);particles[index]=p;
-   let alpha=(.08+.34*p.z)*clamp(partAmt,0,1.4);
-   ctx.fillStyle=`rgba(${red},${green},${blue},${alpha})`;
-   ctx.strokeStyle=`rgba(${red},${green},${blue},${alpha})`;
-   ctx.lineWidth=.6+p.z;
-   if(settings.style==='streaks'){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-(8+18*p.z)*speed,p.y+settings.streakSlant);ctx.stroke()}
-   else if(settings.style==='rings'){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.5+p.z*2),0,Math.PI*2);ctx.stroke()}
-   else{ctx.beginPath();ctx.arc(p.x,p.y,p.r*(.6+p.z),0,Math.PI*2);ctx.fill()}
+ if(pcanvas.width!==innerWidth||pcanvas.height!==innerHeight){
+   const sx=innerWidth/Math.max(1,pcanvas.width),sy=innerHeight/Math.max(1,pcanvas.height);
+   for(const p of particles){p.x*=sx;p.y*=sy;p.vx*=sx;p.vy*=sy}
+   pcanvas.width=innerWidth;pcanvas.height=innerHeight;
  }
- ctx.globalCompositeOperation='source-over';
+}
+function updateParticles(time,dt,look){
+ if(isShowMode){
+   if(remoteVisualState?.panic){particles=[]}
+   else if(lastParticleRemoteState!==remoteVisualState){particles=unpackParticles(remoteVisualState?.particleState,pcanvas.width,pcanvas.height);lastParticleRemoteState=remoteVisualState}
+   else stepParticles(particles,{wanted:particles.length,dt,time,width:pcanvas.width,height:pcanvas.height,look,amount:FinalG.parts,spawn:false});
+ }
+ const settings=look.particles;
+ ctx.clearRect(0,0,pcanvas.width,pcanvas.height);ctx.globalCompositeOperation='screen';
+ const speed=particleSpeed(look,FinalG.parts);
+ // Reuse palette/fixed CSS colors. Opacity never allocates an rgba string per particle.
+ for(const color of new Set(particles.map(p=>p.color))){
+   ctx.fillStyle=color;ctx.strokeStyle=color;
+   for(const p of particles){
+     if(p.color!==color)continue;
+     ctx.globalAlpha=Math.min(1,(.08+.34*p.z)*p.level*particleAlpha(p));ctx.lineWidth=.6+p.z;
+     if(settings.style==='streaks'){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-(8+18*p.z)*speed,p.y+settings.streakSlant);ctx.stroke()}
+     else if(settings.style==='rings'){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.5+p.z*2),0,Math.PI*2);ctx.stroke()}
+     else{ctx.beginPath();ctx.arc(p.x,p.y,p.r*(.6+p.z),0,Math.PI*2);ctx.fill()}
+   }
+ }
+ ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
 }
 function smoothstep(x){return x*x*(3-2*x)}
 
 let t0=performance.now(),last=performance.now();
 function start(){requestAnimationFrame(frame)}
 function frame(now){
+ if(contextLost){requestAnimationFrame(frame);return}
  resize();
- const dt=Math.min(.05,(now-last)/1000);last=now;
+ const dt=Math.max(0,(now-last)/1000);renderFps=renderFps*.95+.05*(1000/Math.max(1,now-last));last=now;
  if(!archetypes.length){
    if(!isShowMode){if(showChannel&&now-lastShowBroadcastAt>=40){lastShowBroadcastAt=now;showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,currentId:null,targetId:null,blackout:blackoutActive,finalG:{...NEUTRAL_TARGETS}}})}}
    else if(remoteVisualState)setBlackout(!!remoteVisualState.blackout);
-   gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
+   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
    requestAnimationFrame(frame);return;
  }
  let Eff;
@@ -1457,14 +1546,21 @@ function frame(now){
      let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
      if(x>=1){current=target;archMix=1;transitioning=false}
    }
-   broadcastShowFrame(now,Eff);
  }
- gl.useProgram(prog);
- gl.uniform2f(U.uRes,canvas.width,canvas.height);
- gl.uniform1f(U.uTime,(now-t0)/1000);
- const sequenceA=seqStates[current],sequenceB=seqStates[target];
  const lookA=isShowMode&&remoteVisualState?.lookA?remoteVisualState.lookA:looks[current];
  const lookB=isShowMode&&remoteVisualState?.lookB?remoteVisualState.lookB:looks[target];
+ const visualTime=isShowMode&&remoteVisualState?.effects?remoteVisualState.effects.time+(now-remoteFrameReceivedAt)/1000:(now-t0)/1000;
+ if(!isShowMode){updateVisualEffects(visualTime,dt,lookA,lookB);broadcastShowFrame(now,Eff)}
+ const motion=isShowMode?remoteVisualState?.effects:visualSnapshot;
+ bloomRenderer.beginScene(canvas.width,canvas.height,bloomQuality);
+ gl.bindVertexArray(sceneVao);gl.useProgram(prog);
+ for(let role=0;role<2;role++)for(let slot=0;slot<2;slot++)bindTextureSlot(role,slot);
+ gl.uniform2f(U.uRes,canvas.width,canvas.height);
+ gl.uniform1f(U.uTime,visualTime);
+ gl.uniform1f(U.uBreathPhase,(motion?.breath||0)+(isShowMode?(visualTime-(motion?.time||visualTime))*(BPM>0?BPM/60*Math.PI*2:6):0));
+ const motionElapsed=isShowMode?Math.min(.1,Math.max(0,visualTime-(motion?.time??visualTime))):0;
+ applyMotionUniforms('A',lookA,motion?.rotationA,motion?.wavesA,motionElapsed,visualTime);applyMotionUniforms('B',lookB,motion?.rotationB,motion?.wavesB,motionElapsed,visualTime);
+ const sequenceA=seqStates[current],sequenceB=seqStates[target];
  const uniformsA=lookUniforms(lookA),uniformsB=lookUniforms(lookB);
  gl.uniform1f(U.uMorphA,sequenceA.blend);gl.uniform1f(U.uMorphB,sequenceB.blend);
  gl.uniform1i(U.uTransA,sequenceA.transitionShaderId);gl.uniform1i(U.uTransB,sequenceB.transitionShaderId);
@@ -1473,13 +1569,18 @@ function frame(now){
  gl.uniform1f(U.uArchMix,transitioning?archMix:1);
  gl.uniform4fv(U.uWarpA,uniformsA.warp);gl.uniform4fv(U.uWarpB,uniformsB.warp);
  gl.uniform2fv(U.uWarpDirA,uniformsA.direction);gl.uniform2fv(U.uWarpDirB,uniformsB.direction);
+ gl.uniform3fv(U.uFrameA,uniformsA.frame);gl.uniform3fv(U.uFrameB,uniformsB.frame);
  gl.uniform4fv(U.uGradeA,uniformsA.grade);gl.uniform4fv(U.uGradeB,uniformsB.grade);
  gl.uniform1f(U.uMapPulse,FinalG.pulse);
- gl.uniform1f(U.uDistAmt,FinalG.dist);gl.uniform1f(U.uGlowAmt,FinalG.glow);gl.uniform1f(U.uLumAmt,FinalG.luma);gl.uniform1f(U.uSatAmt,FinalG.sat);gl.uniform1f(U.uZoomAmt,FinalG.zoom);
- gl.uniform1f(U.uRotateAmt,FinalG.rotate);gl.uniform1f(U.uSpiralAmt,FinalG.spiral);gl.uniform1f(U.uTilesAmt,FinalG.tiles);
+ gl.uniform1f(U.uDistAmt,FinalG.dist);gl.uniform1f(U.uLumAmt,FinalG.luma);gl.uniform1f(U.uSatAmt,FinalG.sat);gl.uniform1f(U.uZoomAmt,FinalG.zoom);
+ gl.uniform1f(U.uSpiralAmt,FinalG.spiral);gl.uniform1f(U.uTilesAmt,FinalG.tiles);
  refreshVideoTextures();
+ gl.uniform4f(U.uAspect,texAspects[0][0],texAspects[0][1],texAspects[1][0],texAspects[1][1]);
  gl.drawArrays(gl.TRIANGLES,0,3);
- updateParticles(now,lookB);
+ const visualMix=transitioning?archMix:1;
+ bloomRenderer.render(blendBloom(lookA.bloom,lookB.bloom,visualMix,FinalG.glow),uniformsA.vignette,uniformsB.vignette,visualMix);
+ if(now-lastBloomDiagnostics>500){bloomDiagnostics.textContent=`${bloomRenderer.diagnostics} · ${renderFps.toFixed(0)} FPS`;lastBloomDiagnostics=now}
+ updateParticles(visualTime,dt,lookB);
  const vals=[['E',Eff.energy],['D',Eff.density],['R',Eff.drive],['K',Eff.boombap],['T',Eff.tension],['B',Eff.bright],['O',Eff.open]];
  vals.forEach(([k,v])=>{document.getElementById('v'+k).textContent=v.toFixed(2);document.getElementById('f'+k).style.width=(v*100)+'%'});
  document.getElementById('vBeat').textContent=BeatPulse.toFixed(2);

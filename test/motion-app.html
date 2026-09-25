@@ -1,0 +1,39 @@
+<!doctype html><meta charset="utf-8"><title>Motion app smoke test</title><pre id="result">RUNNING</pre>
+<script type="module">
+import { LocalLibraryRepository } from '../src/library/local-repository.js';
+import { cacheUserKey } from '../src/library/sync-logic.js';
+import { NEUTRAL_LOOK } from '../src/looks.js';
+import { blankMap } from '../src/config.js';
+import { defaultImageConfig } from '../src/library/runtime.js';
+const output=document.querySelector('#result'),assert=(v,m)=>{if(!v)throw new Error(m)};
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(check){for(let i=0;i<100;i++){if(check())return;await wait(100)}throw new Error('Timed out')}
+const previousUser=localStorage.getItem('eyes4beat_last_sync_user'),frames=[];
+try{
+ assert(['localhost','127.0.0.1'].includes(location.hostname),'Run only on a local dev server in an isolated browser profile');
+ const testUser='motion-smoke-'+Date.now()+'@example.invalid';localStorage.setItem('eyes4beat_last_sync_user',testUser);
+ const repo=new LocalLibraryRepository('eyes4beat-cache-'+cacheUserKey(testUser));
+ const project=await repo.createProject('Motion smoke');
+ const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;const context=canvas.getContext('2d');context.fillStyle='#808080';context.fillRect(0,0,64,64);
+ const blob=await new Promise(resolve=>canvas.toBlob(resolve)),media=await repo.putMedia(blob);
+ await repo.createArchetype(project.id,{name:'Neutral',look:NEUTRAL_LOOK,routingMap:blankMap(),imageConfig:defaultImageConfig(1),media:[{mediaId:media.id,name:'test.png',mime:'image/png',size:blob.size}]});await repo.setActiveProject(project.id);await repo.close();
+ let state;const channel=new BroadcastChannel('eyesforbeats-show-v1');channel.onmessage=event=>{if(event.data.type==='frame')state=event.data.state};
+ const frame=document.createElement('iframe');frame.width=1100;frame.height=700;frame.src='/';document.body.append(frame);frames.push(frame);
+ await until(()=>state?.effects&&frame.contentDocument?.querySelector('#lookBtn')?.disabled===false);
+ const doc=frame.contentDocument;doc.querySelector('#lookBtn').click();
+ assert(doc.querySelector('[aria-label="rotation mode"]'),'Rotation editor missing');assert(doc.querySelector('[aria-label="pulse mode"]'),'Pulse editor missing');assert(doc.querySelector('[aria-label="burst trigger"] option[value="kick"]'),'Burst registry option missing');
+ assert(doc.querySelector('.lookGroup[data-look-group="particles"] .burstGroup'),'Burst not nested');
+ const spin=doc.querySelector('[aria-label="rotation mode"]');spin.value='spin';spin.dispatchEvent(new Event('input',{bubbles:true}));
+ await until(()=>state.lookB.rotation.mode==='spin');
+ assert(state.effects.rotationB.angle===0,'Idle rotation not neutral');assert(state.particleState.data.length===0,'Idle particles not neutral');
+ const show=document.createElement('iframe');show.width=1100;show.height=700;show.src='/?show=1';document.body.append(show);frames.push(show);
+ await until(()=>show.contentDocument?.querySelector('#bloomDiagnostics')?.textContent.includes('FPS'));
+ frame.contentWindow.EyesForBeatsSafety.setPanic(true);
+ await until(()=>state?.panic);
+ assert(state.effects.rotationB.angle===0&&state.effects.wavesB.length===0&&state.particleState.data.length===0,'PANIC not clear');
+ await wait(200);
+ assert(doc.querySelector('#gl').getContext('webgl2').getError()===0,'Controller GL error');assert(show.contentDocument.querySelector('#gl').getContext('webgl2').getError()===0,'Show GL error');
+ output.textContent='PASS: app startup, neutral controller, ROTATION/PULSE/BURST editor, state persistence/broadcast, Show rendering, PANIC snapshots';
+}catch(error){output.textContent='FAIL: '+error.stack;}
+finally{frames.forEach(frame=>frame.remove());if(previousUser===null)localStorage.removeItem('eyes4beat_last_sync_user');else localStorage.setItem('eyes4beat_last_sync_user',previousUser)}
+</script>

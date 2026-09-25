@@ -1,7 +1,8 @@
+import { COLOR_SAFETY_MAX } from './tone.js';
 import { TRANSITION_GLSL_DEFINES } from './transitions.js';
 
 export const vertexShaderSource=`#version 300 es
-in vec2 aPos; out vec2 vUv;
+layout(location=0) in vec2 aPos; out vec2 vUv;
 void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
 
 export const fragmentShaderSource=`#version 300 es
@@ -9,7 +10,14 @@ precision highp float;
 out vec4 fragColor;
 in vec2 vUv;
 uniform vec2 uRes;
-uniform float uTime,uMorphA,uMorphB,uArchMix,uMapPulse,uDistAmt,uGlowAmt,uLumAmt,uSatAmt,uZoomAmt,uRotateAmt,uSpiralAmt,uTilesAmt;
+uniform vec4 uAspect;
+uniform vec3 uFrameA,uFrameB;
+uniform vec2 uRotationA,uRotationB;
+uniform vec4 uPulseA,uPulseB;
+uniform vec3 uPulseShapeA,uPulseShapeB;
+uniform vec2 uWavesA[4],uWavesB[4];
+uniform float uBreathPhase;
+uniform float uTime,uMorphA,uMorphB,uArchMix,uMapPulse,uDistAmt,uLumAmt,uSatAmt,uZoomAmt,uSpiralAmt,uTilesAmt;
 uniform float uSeedA,uSeedB;
 uniform int uTransA,uTransB;
 uniform vec4 uParamA,uParamB,uWarpA,uWarpB,uGradeA,uGradeB;
@@ -39,13 +47,12 @@ vec2 parallax(vec2 uv){
  vec2 q=c/max(.72,uZoomAmt);
  return q+.5;
 }
-vec2 imageEffectsUV(vec2 uv){
+vec2 imageEffectsUV(vec2 uv,vec2 rotation){
  float aspect=uRes.x/max(1.,uRes.y);
- if(uRotateAmt>.001){
-   float angle=uRotateAmt*1.05,c=cos(angle),s=sin(angle);
-   float cover=max(abs(c)+abs(s)/aspect,abs(c)+abs(s)*aspect);
+ if(rotation.y>1.||abs(rotation.x)>.000001){
+   float c=cos(rotation.x),s=sin(rotation.x);
    vec2 p=(uv-.5)*vec2(aspect,1.);
-   uv=vec2(c*p.x-s*p.y,s*p.x+c*p.y)/vec2(aspect,1.)/cover+.5;
+   uv=vec2(c*p.x-s*p.y,s*p.x+c*p.y)/vec2(aspect,1.)/max(1.,rotation.y)+.5;
  }
  if(uSpiralAmt>.001){
    vec2 p=(uv-.5)*vec2(aspect,1.);
@@ -64,7 +71,19 @@ vec2 imageEffectsUV(vec2 uv){
  }
  return uv;
 }
+// UV scale/offset mirrors frameFit() in frame-fit.js. fit: cover=0, contain=1, stretch=2.
 vec4 samplePair(int slot,int image,vec2 uv){
+ vec3 frame=slot==0?uFrameA:uFrameB;
+ float aspect=slot==0?(image==0?uAspect.x:uAspect.y):(image==0?uAspect.z:uAspect.w);
+ float ratio=(uRes.x/max(1.,uRes.y))/max(.000001,aspect);
+ vec2 scale=vec2(1.);
+ if(frame.x<.5)scale=vec2(min(1.,ratio),min(1.,1./ratio));
+ else if(frame.x<1.5)scale=vec2(max(1.,ratio),max(1.,1./ratio));
+ uv=(uv-.5)*scale/(1.+frame.z)+.5;
+ // Zero coverage keeps the black background free of grading/tint, before edge wrapping.
+ if(frame.x>.5&&frame.x<1.5&&(any(lessThan(uv,vec2(0.)))||any(greaterThan(uv,vec2(1.)))))return vec4(0.);
+ if(frame.y<.5)uv=1.-abs(mod(uv,2.)-1.);
+ else uv=clamp(uv,vec2(0.),vec2(1.));
  if(slot==0){if(image==0)return texture(tCurrentA,uv);return texture(tCurrentB,uv);}
  if(image==0)return texture(tTargetA,uv);return texture(tTargetB,uv);
 }
@@ -112,35 +131,51 @@ vec4 transitionPair(int slot,vec2 uv,float p,int transitionType,float seed,vec4 
  return mix(a,b,p);
 }
 vec4 getPair(int slot,vec4 warp,vec2 direction,vec2 uv,float progress,int transitionType,float seed,vec4 param){
- vec2 q=imageEffectsUV(parallax(warpUV(uv,warp,direction)));
- return transitionPair(slot,q,progress,transitionType,seed,param);
+ vec4 pulse=slot==0?uPulseA:uPulseB;
+ vec3 shape=slot==0?uPulseShapeA:uPulseShapeB;
+ vec2 metric=uRes/max(1.,min(uRes.x,uRes.y));
+ vec2 centered=(uv-pulse.xy)*metric;
+ float radius=length(centered),split=0.;
+ vec2 radial=centered/max(.00001,radius)/metric;
+ if(shape.x<.5){
+   float core=exp(-radius*5.)*uMapPulse*pulse.z;
+   float wave=(.72+.28*sin(uBreathPhase))*core;
+   uv=pulse.xy+(uv-pulse.xy)*(1.-.034*wave)+radial*.0045*core;
+ }else{
+   float ring=0.;
+   for(int i=0;i<4;i++){
+     vec2 wave=slot==0?uWavesA[i]:uWavesB[i];
+     float age=uTime-wave.x;
+     if(age>=0.&&wave.y>0.){
+       float front=age*pulse.w;
+       float band=exp(-pow((radius-front)/max(.01,shape.y),2.));
+       ring+=band*wave.y*pulse.z*exp(-front*1.8)*(1.-smoothstep(2.,3.,front));
+     }
+   }
+   uv+=radial*.065*ring;split=shape.z*.02*ring;
+ }
+ vec2 rotation=slot==0?uRotationA:uRotationB;
+ vec2 q=imageEffectsUV(parallax(warpUV(uv,warp,direction)),rotation);
+ vec4 center=transitionPair(slot,q,progress,transitionType,seed,param);
+ if(split>.00001){
+   center.r=transitionPair(slot,q+radial*split,progress,transitionType,seed,param).r;
+   center.b=transitionPair(slot,q-radial*split,progress,transitionType,seed,param).b;
+ }
+ return center;
 }
-vec3 grade(vec3 c,vec4 grading){
- float lum=dot(c,vec3(.2126,.7152,.0722));
- float glow=smoothstep(.55,.95,lum)*.62;
- c += c*glow*uGlowAmt;
- c=c*grading.x+grading.yzw;
+vec3 grade(vec3 c,vec4 grading,float coverage){
+ c=c*grading.x+grading.yzw*coverage;
  float l=dot(c,vec3(.2126,.7152,.0722));
  c = mix(vec3(l), c, uSatAmt);
  c *= uLumAmt;
- // Slightly friendlier highlight response when brightness/saturation are driven up.
- c = min(c, vec3(4.0));
+ // Safety ceiling before the highlight shoulder.
+ c = min(c, vec3(${COLOR_SAFETY_MAX.toFixed(1)}));
  return c;
 }
 void main(){
  vec2 uv=vUv;
- vec2 cUv = uv - .5;
- float r = length(cUv);
- float pulseCore = exp(-r*5.0) * uMapPulse;
- float pulseWave = (0.72 + 0.28*sin(uTime*6.0)) * pulseCore;
- uv = cUv * (1.0 - 0.034*pulseWave) + .5;
- uv += normalize(cUv + vec2(.0001)) * 0.0045 * pulseCore;
-
  vec4 ca=getPair(0,uWarpA,uWarpDirA,uv,uMorphA,uTransA,uSeedA,uParamA);
  vec4 cb=getPair(1,uWarpB,uWarpDirB,uv,uMorphB,uTransB,uSeedB,uParamB);
- vec3 c=mix(grade(ca.rgb,uGradeA),grade(cb.rgb,uGradeB),uArchMix);
- float vig=smoothstep(1.0,.25,length(vUv-.5));
- c*=mix(.82,1.,vig);
- c=1.-exp(-c*1.08);
+ vec3 c=mix(grade(ca.rgb,uGradeA,ca.a),grade(cb.rgb,uGradeB,cb.a),uArchMix);
  fragColor=vec4(c,1.);
 }`;

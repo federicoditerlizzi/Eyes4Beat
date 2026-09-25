@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>Motion renderer smoke test</title><pre id="result">RUNNING</pre><canvas width="256" height="128"></canvas>
+<script type="module">
+import { vertexShaderSource,fragmentShaderSource } from '../src/shaders.js';
+import { waveUniforms } from '../src/motion-effects.js';
+const canvas=document.querySelector('canvas'),out=document.querySelector('#result'),gl=canvas.getContext('webgl2',{preserveDrawingBuffer:true});
+const assert=(v,m)=>{if(!v)throw new Error(m)};
+try{
+ const program=gl.createProgram();
+ for(const [type,source] of [[gl.VERTEX_SHADER,vertexShaderSource],[gl.FRAGMENT_SHADER,fragmentShaderSource]]){
+  const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);assert(gl.getShaderParameter(shader,gl.COMPILE_STATUS),gl.getShaderInfoLog(shader));gl.attachShader(program,shader);
+ }
+ gl.linkProgram(program);assert(gl.getProgramParameter(program,gl.LINK_STATUS),gl.getProgramInfoLog(program));gl.useProgram(program);
+ const u=name=>gl.getUniformLocation(program,name),buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+ const pixels=new Uint8Array(256*128*4);
+ for(let y=0;y<128;y++)for(let x=0;x<256;x++){const i=(y*256+x)*4;pixels[i]=x;pixels[i+1]=y*2;pixels[i+2]=(Math.floor(x/8)+Math.floor(y/8))%2*200;pixels[i+3]=255;}
+ for(const [i,name] of ['tCurrentA','tCurrentB','tTargetA','tTargetB'].entries()){
+  gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,gl.createTexture());gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,256,128,0,gl.RGBA,gl.UNSIGNED_BYTE,pixels);gl.uniform1i(u(name),i);
+ }
+ gl.uniform2f(u('uRes'),256,128);gl.uniform4f(u('uAspect'),2,2,2,2);gl.uniform1f(u('uArchMix'),1);gl.uniform1f(u('uLumAmt'),1);gl.uniform1f(u('uSatAmt'),1);gl.uniform1f(u('uZoomAmt'),1);
+ for(const role of ['A','B']){gl.uniform4f(u('uGrade'+role),1,0,0,0);gl.uniform3f(u('uFrame'+role),2,0,0);gl.uniform2f(u('uRotation'+role),0,1);gl.uniform4f(u('uPulse'+role),.5,.5,1,1);gl.uniform3f(u('uPulseShape'+role),0,.12,0);gl.uniform2fv(u('uWaves'+role+'[0]'),waveUniforms([]));}
+ const draw=()=>{gl.drawArrays(gl.TRIANGLES,0,3);const result=new Uint8Array(pixels.length);gl.readPixels(0,0,256,128,gl.RGBA,gl.UNSIGNED_BYTE,result);assert(gl.getError()===gl.NO_ERROR,'GL error');return result};
+ const neutral=draw();assert(neutral.every((v,i)=>Math.abs(v-pixels[i])<=1),'Idle output changed');
+ const difference=a=>a.reduce((sum,v,i)=>sum+Math.abs(v-neutral[i]),0);
+ gl.uniform2f(u('uRotationB'),.6,2);assert(difference(draw())>10000,'Rotation inactive');gl.uniform2f(u('uRotationB'),0,1);
+ gl.uniform1f(u('uMapPulse'),1);gl.uniform1f(u('uBreathPhase'),0);const breath=draw();gl.uniform1f(u('uBreathPhase'),Math.PI/2);assert(draw().some((v,i)=>v!==breath[i]),'Breath phase ignored');
+ gl.uniform1f(u('uMapPulse'),0);gl.uniform1f(u('uTime'),.4);gl.uniform3f(u('uPulseShapeB'),1,.12,0);gl.uniform2fv(u('uWavesB[0]'),waveUniforms([{start:0,strength:1}]));const shock=draw();assert(difference(shock)>1000,'No shockwave displacement');
+ gl.uniform3f(u('uPulseShapeB'),1,.12,1);assert(draw().some((v,i)=>v!==shock[i]),'Chromatic ring inactive');
+ gl.uniform2fv(u('uWavesB[0]'),waveUniforms([]));assert(draw().every((v,i)=>Math.abs(v-neutral[i])<=1),'PANIC wave reset non-neutral');
+ out.textContent='PASS: GLSL compile/link, neutral image, rotation, beat-phase breath, shockwave, chromatic split, wave reset';
+}catch(error){out.textContent='FAIL: '+error.stack;}
+</script>

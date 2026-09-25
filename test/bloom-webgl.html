@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><title>Bloom WebGL smoke test</title>
+<pre id="result">RUNNING</pre><canvas id="canvas" width="256" height="128"></canvas>
+<script type="module">
+import { BloomRenderer } from '../src/bloom-renderer.js';
+import { blendBloom, BLOOM_DEFAULTS } from '../src/bloom.js';
+import { vertexShaderSource, fragmentShaderSource } from '../src/shaders.js';
+const output=document.querySelector('#result'),canvas=document.querySelector('canvas');
+const gl=canvas.getContext('webgl2',{preserveDrawingBuffer:true});
+const assert=(value,message)=>{if(!value)throw new Error(message)};
+let renderer;
+function compileScene(){
+ const program=gl.createProgram();
+ for(const [type,source] of [[gl.VERTEX_SHADER,vertexShaderSource],[gl.FRAGMENT_SHADER,fragmentShaderSource]]){
+  const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);
+  assert(gl.getShaderParameter(shader,gl.COMPILE_STATUS),gl.getShaderInfoLog(shader));gl.attachShader(program,shader);gl.deleteShader(shader);
+ }
+ gl.linkProgram(program);assert(gl.getProgramParameter(program,gl.LINK_STATUS),gl.getProgramInfoLog(program));gl.deleteProgram(program);
+}
+function render({quality='high',glow=0,gray=false,settings={}}={}){
+ renderer.beginScene(canvas.width,canvas.height,quality);
+ gl.clearColor(gray?.5:0,gray?.5:0,gray?.5:0,1);gl.clear(gl.COLOR_BUFFER_BIT);
+ if(!gray){gl.enable(gl.SCISSOR_TEST);gl.scissor(canvas.width/2-8,canvas.height/2-8,16,16);gl.clearColor(1,1,1,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.disable(gl.SCISSOR_TEST);}
+ renderer.render(blendBloom({...BLOOM_DEFAULTS,...settings},{...BLOOM_DEFAULTS,...settings},1,glow),[0,.75],[0,.75],1);
+ const pixels=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+ assert(gl.getError()===gl.NO_ERROR,'WebGL error');return pixels;
+}
+const sample=(pixels,x,y,c=0)=>pixels[(y*canvas.width+x)*4+c];
+try{
+ assert(gl,'WebGL2 unavailable');compileScene();renderer=new BloomRenderer(gl);
+ const formats=[];
+ for(const fallback of [false,true]){
+  if(fallback){renderer.dispose();renderer=new BloomRenderer(gl);renderer.hdr=false;}
+  formats.push(renderer.hdr?'RGBA16F':'RGBA8');
+  const neutral=render({gray:true});assert(Math.abs(sample(neutral,20,20)-128)<=1,'Neutral gray changed');assert(renderer.down.length===0,'Zero bloom allocated chain');
+  const idle=render(),active=render({glow:2});
+  assert(sample(idle,139,64)===0,'Idle leaked highlight');assert(sample(active,139,64)>0,'No halo outside source');
+  const tinted=render({glow:2,settings:{tint:'#ff0000'}});assert(sample(tinted,139,64)>0&&sample(tinted,139,64,1)===0,'Tint failed');
+  const off=render({glow:2,quality:'off'});assert(sample(off,139,64)===0&&renderer.down.length===0,'Off did bloom work');
+  render({glow:2,quality:'low'});assert(renderer.down.length===3&&renderer.down[0].width===64,'Low chain wrong');
+  canvas.width=257;canvas.height=131;render({glow:2});assert(renderer.scene.width===257&&renderer.down[0].width===128,'Resize failed');
+  canvas.width=256;canvas.height=128;
+ }
+ const ext=gl.getExtension('WEBGL_lose_context');assert(ext,'Context restore extension unavailable');
+ await new Promise((resolve,reject)=>{
+  canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();setTimeout(()=>ext.restoreContext(),50)},{once:true});
+  canvas.addEventListener('webglcontextrestored',()=>{try{compileScene();renderer=new BloomRenderer(gl);render({glow:2});resolve()}catch(error){reject(error)}},{once:true});
+  ext.loseContext();
+ });
+ output.textContent='PASS: scene/post shaders, neutral/bypass, halo, tint, off/low/high, odd resize, '+formats.join('/' )+', context restore';
+}catch(error){output.textContent='FAIL: '+error.stack;}
+</script>

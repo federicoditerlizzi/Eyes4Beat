@@ -62,6 +62,8 @@ The analysis hot path owns reusable FFT plans, typed ring buffers, exact rolling
 
 Pure analysis lives under `src/analysis/`: radix-2 FFT, Hz-based power bands, onset/event detectors, adaptive normalizers, phase-locked tempo tracking and the engine. Bands are sub 20–60, bass 60–120, low-mid 120–400, mid 400–2000, high-mid 2–6 kHz, high 6–12 kHz and air 12 kHz–Nyquist. Levels and loudness are dBFS; formulas must not combine linear power with dB values. Tempo uses an 8-second onset history, interpolated autocorrelation over 60–200 BPM and gently corrected beat phase. Keep this module set free of DOM, Web Audio and timers so synthetic PCM tests remain deterministic.
 
+The scene renderer now writes to an offscreen RGBA16F framebuffer when `EXT_color_buffer_float` is available (RGBA8 fallback). `src/bloom-renderer.js` owns a soft bright-pass, six-level half-resolution downsample/tent-upsample chain (low: three levels starting at quarter resolution), and final scene + tinted bloom, per-look vignette and highlight-only tone composite. `glow` drives bloom intensity plus `look.bloom.base`; zero effective intensity bypasses the entire bloom chain. `src/bloom.js` owns pure threshold, mip-size and look-blending helpers. Quality is device-local in `eyes4beat_bloom_quality` (off/low/high), shared with Show via storage events. Diagnostics show format, quality, FPS and asynchronous bloom GPU timing when supported. Resize and context restoration recreate render targets; restored media slots are re-uploaded. The GPU budget must be checked on the performance laptop.
+
 The two rendering layers are:
 
 - WebGL2 canvas `#gl`: image sampling, configurable media transitions, UV warp/parallax, grading, glow, saturation, luminance, zoom, pulse, and vignette.
@@ -158,6 +160,12 @@ Device-local settings remain in localStorage: `eyes4beat_input_device`, `eyes4be
 ## Library packages
 
 `src/package-format.js` builds and verifies `eyes4beat-package` ZIPs with deduplicated uncompressed `media/<sha256>.<ext>` entries. Legacy-library v1/v2 packages remain supported; v1 looks derive from the stored profile. Project packages use version 3 and include project name, archetypes in project order, project look presets, all settings and `sourceIndex` on every media entry. `src/library/package-mapping.js` reconstructs source alignment for older packages lacking `sourceIndex` by the media order `(imageConfig.images[i].order, i)`. Import validates checksums before showing per-archetype selection and creates new IDs; `repository.importBatch()` commits project, selected archetypes, presets and media atomically, including imports into an existing project. It never mutates legacy storage. Legacy export can still package the old built-ins and old browser data, with `raw/local-storage.json` as a forensic snapshot. Use VERIFY PACKAGE for read-only checks. Browser origins do not share data; back up each origin separately.
+
+## Motion effects and particles
+
+`src/motion-effects.js` owns controller-side rotation velocity integration, direction/beat flips, rest easing, constant cover scale and four-slot hysteretic shockwave state. Angles use degrees in JavaScript and radians in GLSL; clocks use seconds. Per-role rotation and pulse uniforms apply before the shared texture fit. Breath follows the analysis beat phase when BPM is available. `sourceRegistry` in `src/config.js` marks event sources; burst selectors and normalization use `eventSourceIds()` rather than a hardcoded list.
+
+`src/particle-lifecycle.js` owns particle age/life, release fades, bounded radial bursts with drag and normalized Show snapshots. Bursts consume ordered analysis events, respect source controls and the routed particles target, and never fire with that target at zero. `src/media-palette.js` extracts up to five colors from a 32×32 media sample once on load (the first decoded frame for video); palette entries follow texture-slot swaps. Particle CSS colors are reused; opacity uses `globalAlpha`. PANIC immediately clears rotation, waves and particles. Controller frames broadcast integrated rotation, wave starts/strengths, a shared visual clock/beat phase and compact authoritative particle snapshots. Show replays these states and does not detect events or integrate rotation independently.
 
 ## Renderer texture model
 
