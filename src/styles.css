@@ -4,7 +4,6 @@
   #gl,#particles{position:fixed;inset:0;width:100%;height:100%;display:block}
   #particles{pointer-events:none}
   .blackoutOverlay{position:fixed;z-index:5;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 120ms ease}.blackoutOverlay.active{opacity:1}
-  body.showMode{cursor:none}body.showMode .ui{display:none}.showConnection{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);padding:10px 14px;border:1px solid rgba(255,255,255,.16);border-radius:10px;background:rgba(4,7,11,.7);color:#c7d1db;font-size:10px;letter-spacing:.1em;pointer-events:none;transition:opacity .25s ease}.showConnection.connected{opacity:0}.headerTools #showModeBtn.connected{background:transparent;color:#8de8ff;text-shadow:0 0 10px rgba(90,220,255,.8)}
   .ui{position:fixed;z-index:10;inset:0;pointer-events:none}
   .top,.bottom,.diag{position:absolute;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);box-shadow:0 14px 35px rgba(0,0,0,.22)}
   .top{left:16px;right:16px;top:16px;border-radius:18px;padding:7px 10px;display:grid;grid-template-columns:112px minmax(0,1fr) max-content;align-items:center;gap:10px;pointer-events:auto}
@@ -46,7 +45,7 @@
   .meter{height:4px;background:rgba(255,255,255,.1);border-radius:10px;overflow:hidden}
   .fill{height:100%;background:#fff;width:0%}
   .mini{font-size:9px;color:var(--muted);margin-top:9px;line-height:1.4}
-  .diag .inputDiag{display:grid;grid-template-columns:66px minmax(0,1fr);align-items:center;gap:7px;height:25px;margin-top:6px;padding-top:6px;line-height:1}.diag .inputDiag b{font-size:7px;letter-spacing:.06em}.diag .inputDiag span{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.diag .inputDiag em{grid-column:1/-1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.diag .inputDiag:has(em.active){height:38px}
+  .diag .inputDiag{display:grid;grid-template-columns:66px minmax(0,1fr);align-items:center;gap:7px;min-height:25px;margin-top:6px;padding-top:6px;line-height:1.4}.diag .inputDiag b{font-size:7px;letter-spacing:.06em}.diag .inputDiag span{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.diag .inputDiag em{grid-column:1/-1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.diag .inputDiag:has(em.active){height:auto}
   .controls{display:flex;gap:6px;align-items:center}
   select{background:rgba(255,255,255,.07);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:8px 9px;font-size:10px}
   
@@ -80,7 +79,7 @@
   @media(max-width:640px){#matrixHolder{grid-template-columns:1fr}.matrixTop{align-items:flex-start;flex-wrap:wrap}.matrixActions{margin-left:auto}}
   .imagePanel{position:absolute;z-index:32;inset:0;display:none;overflow:auto;border-radius:0;padding:16px;background:rgba(8,11,16,.98);border:0;backdrop-filter:blur(18px);box-shadow:none;pointer-events:auto}
   .imagePanel.open{display:block}
-  .lookPanel{position:absolute;z-index:33;top:88px;right:16px;width:min(650px,calc(100vw - 32px));max-height:calc(100vh - 176px);display:none;overflow:auto;border:1px solid var(--line);border-radius:17px;padding:16px;background:rgba(8,11,16,.98);backdrop-filter:blur(18px);pointer-events:auto}.lookPanel.open{display:block}.lookPanel .imageTop{top:-16px}.lookPresetBar{display:flex;align-items:center;gap:10px;margin:6px 0 12px}.lookPresetBar label{font-size:9px;letter-spacing:.08em;color:var(--muted);white-space:nowrap}.lookPresetBar select{flex:1}.lookFields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.lookGroup{min-width:0;padding:11px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.035)}.lookGroup h3{margin:0 0 10px;font-size:10px;letter-spacing:.08em}.lookField{display:flex;flex-direction:column;gap:4px;margin:0 0 9px;color:var(--muted);font-size:9px}.lookField[hidden],.lookWarning[hidden]{display:none}.lookField input,.lookField select{width:100%;min-width:0;padding:7px 8px;color:var(--txt);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px}.lookField input[type=color]{height:34px;padding:2px}.lookWarning{margin:0 0 12px;padding:10px;border:1px solid rgba(255,190,90,.38);border-radius:9px;color:#ffd28a;font-size:10px}.lookHint{color:var(--muted);font-size:9px;line-height:1.45}@media(max-width:680px){.lookFields{grid-template-columns:1fr}}
+  .lookPanel{position:absolute;z-index:33;inset:0;display:none;overflow:auto;border:0;border-radius:0;padding:16px;background:rgba(8,11,16,.98);backdrop-filter:blur(18px);pointer-events:auto}.lookPanel.open{display:block}.lookPanel .imageTop{top:-16px}.lookPresetBar{display:flex;align-items:center;gap:10px;margin:6px 0 12px}.lookPresetBar label{font-size:9px;letter-spacing:.08em;color:var(--muted);white-space:nowrap}.lookPresetBar select{flex:1}.lookFields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.lookGroup{min-width:0;padding:11px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.035)}.lookGroup h3{margin:0 0 10px;font-size:10px;letter-spacing:.08em}.lookField{display:flex;flex-direction:column;gap:4px;margin:0 0 9px;color:var(--muted);font-size:9px}.lookField[hidden],.lookWarning[hidden]{display:none}.lookField input,.lookField select{width:100%;min-width:0;padding:7px 8px;color:var(--txt);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:8px}.lookField input[type=color]{height:34px;padding:2px}.lookWarning{margin:0 0 12px;padding:10px;border:1px solid rgba(255,190,90,.38);border-radius:9px;color:#ffd28a;font-size:10px}.lookHint{color:var(--muted);font-size:9px;line-height:1.45}@media(max-width:680px){.lookFields{grid-template-columns:1fr}}
   .lookPresetBar button{font-size:8px;white-space:nowrap}.projectLookPresetList{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}.projectLookPresetRow{display:flex;align-items:center;gap:3px;padding:2px 5px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:9px}.projectLookPresetRow .iconAction{width:21px;height:21px;min-width:21px}
   .imageTop{position:sticky;top:-16px;z-index:6;display:flex;justify-content:space-between;gap:14px;align-items:center;margin:-16px -16px 12px;padding:14px 16px 11px;background:rgba(8,11,16,.99);border-bottom:1px solid rgba(255,255,255,.12)}
   .imageTop h2{font-size:13px;margin:0;letter-spacing:.08em}
@@ -122,3 +121,18 @@
   @media(max-width:900px){.diag{display:none}.sub{display:none}.brand{font-size:10px}.arch{min-width:0}.arch span{display:none}.lab{display:none}}
 
 .lookField input[type=checkbox]{width:18px;height:18px;align-self:flex-start;accent-color:#8de8ff}.lookGroup.burstGroup{margin-top:12px;padding:10px 0 0;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent}
+
+.outputMode .outputStart{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.88);color:white;border:0;border-radius:0;font:600 24px system-ui;cursor:pointer}.outputMode .outputStart:disabled{cursor:wait}.outputFullscreen{position:fixed;right:18px;top:18px;z-index:101}.remoteControl>#gl,.remoteControl>#particles{visibility:hidden}
+
+.outputPreview{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000;pointer-events:none;z-index:0}.outputPreview[hidden]{display:none}.outputNotice{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:900;display:flex;align-items:center;gap:12px;padding:14px 20px;background:#20191d;color:#fff;border:1px solid #aa5364;border-radius:12px}.outputNotice[hidden]{display:none}
+
+.outputSettingsDialog{padding:18px}
+.outputSettingsDialog p{color:var(--muted);font-size:11px}
+.outputSettingRow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:16px;margin-top:20px}
+.outputSettingRow label{margin:0;line-height:1.5}
+.outputScaleControl{display:grid;grid-template-columns:minmax(0,1fr) 36px;gap:8px;align-items:center}
+.outputScaleControl input{padding:0;min-width:0}
+.outputScaleControl output{text-align:right;font-size:11px}
+.diag{max-height:calc(100vh - 180px);overflow:auto}
+.diag .inputDiag span,.diag .inputDiag em{white-space:normal;overflow-wrap:anywhere}
+.headerTools{flex-wrap:wrap}

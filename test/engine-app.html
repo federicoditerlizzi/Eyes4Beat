@@ -1,0 +1,124 @@
+<!doctype html><meta charset="utf-8"><title>Engine boundary smoke</title><pre id="result">RUNNING</pre>
+<script type="module">
+import { LocalLibraryRepository } from '../src/library/local-repository.js';
+import { cacheUserKey } from '../src/library/sync-logic.js';
+import { NEUTRAL_LOOK } from '../src/looks.js';
+import { blankMap } from '../src/config.js';
+import { defaultImageConfig } from '../src/library/runtime.js';
+const output=document.querySelector('#result'),assert=(value,message)=>{if(!value)throw new Error(message)};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(check,label){for(let i=0;i<160;i++){if(check())return;await wait(100)}throw new Error('Timed out: '+label)}
+const previousUser=localStorage.getItem('eyes4beat_last_sync_user'),previousScale=localStorage.getItem('eyes4beat_render_scale'),previousQuality=localStorage.getItem('eyes4beat_bloom_quality');let frame,channel;
+try{
+ assert(['localhost','127.0.0.1'].includes(location.hostname),'Use isolated localhost browser only');
+ const user='engine-test-'+Date.now()+'@example.invalid';localStorage.setItem('eyes4beat_last_sync_user',user);
+ const repo=new LocalLibraryRepository('eyes4beat-cache-'+cacheUserKey(user)),project=await repo.createProject('Engine smoke');
+ const media=[];
+ for(const color of ['#808080','#ffff40','#4080ff']){const canvas=document.createElement('canvas');canvas.width=96;canvas.height=64;const ctx=canvas.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,96,64);const blob=await new Promise(r=>canvas.toBlob(r)),m=await repo.putMedia(blob);media.push({mediaId:m.id,mime:'image/png',name:color+'.png',size:blob.size})}
+ const cfg=defaultImageConfig(media.length);cfg.mode='manual';cfg.triggers.manual.pool=['cut'];
+ const records=[];for(const name of ['First','Second'])records.push(await repo.createArchetype(project.id,{name,look:NEUTRAL_LOOK,routingMap:blankMap(),imageConfig:cfg,media}));
+ await repo.setActiveProject(project.id);
+ let state;
+ frame=document.createElement('iframe');frame.width=1280;frame.height=800;frame.src='/';document.body.appendChild(frame);
+ await until(()=>frame.contentDocument?.querySelector('#lookBtn')?.disabled===false,'project');
+ await until(()=>frame.contentWindow.EyesForBeatsEngine,'engine subscription');frame.contentWindow.EyesForBeatsEngine.subscribe(event=>{if(event.type==='state')state=event.state});await until(()=>state?.targetId===records[0].id,'snapshot');
+ let doc=frame.contentDocument,win=frame.contentWindow;const $=id=>doc.getElementById(id);
+ const change=(id,value,event='change')=>{const e=$(id);e.value=value;e.dispatchEvent(new win.Event(event,{bubbles:true}))};
+ $('imageMgrBtn').click();await until(()=>$('imageGrid').children.length===3,'image manager');
+ $('imgNext').click();await until(()=>state.sequences[state.target].current===1,'next');$('imgPrev').click();await until(()=>state.sequences[state.target].current===0,'prev');
+ change('imageTimeBase','beats');await until(()=>!$('beatTimeStatus').hidden,'beat units');
+ change('imageOrderMode','ping-pong');change('imageSource','kick');change('imageThreshold','.7');
+ $('closeImageMgr').click();$('lookBtn').click();
+ const gain=doc.querySelector('[aria-label="color gain"]');gain.value='1.25';gain.dispatchEvent(new win.Event('input',{bubbles:true}));
+ await wait(700);
+ // Persisted edit reaches the cache independently of the immediate engine update.
+ assert((await repo.getArchetype(records[0].id)).look.color.gain===1.25,'debounced persistence');
+ $('closeLook').click();$('cut').click();doc.querySelector('.arch[data-a="1"]').click();await until(()=>state.targetId===records[1].id&&!state.transitioning,'select cut');
+ doc.dispatchEvent(new win.KeyboardEvent('keydown',{key:'1',code:'Digit1',bubbles:true}));await until(()=>state.targetId===records[0].id,'shortcut');
+ $('openMatrix').click();const source=doc.querySelector('.routeSource[data-t="luma"]');source.value='energy';source.dispatchEvent(new win.Event('change',{bubbles:true}));
+ $('closeMatrix').click();
+ // 60 seconds of PCM exercises actual file playback and worklet delivery.
+ const samples=48000*60,buffer=new ArrayBuffer(44+samples*2),v=new DataView(buffer),text=(offset,s)=>[...s].forEach((c,i)=>v.setUint8(offset+i,c.charCodeAt(0)));
+ text(0,'RIFF');v.setUint32(4,36+samples*2,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,48000,true);v.setUint32(28,96000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,samples*2,true);
+ for(let i=0;i<samples;i++)v.setInt16(44+i*2,Math.sin(i/48000*440*Math.PI*2)*5000,true);
+ const contexts=[],AudioContext=win.AudioContext;win.AudioContext=new Proxy(AudioContext,{construct(Target,args){const instance=new Target(...args);contexts.push(instance);return instance}});
+ const transfer=new win.DataTransfer();transfer.items.add(new win.File([buffer],'tone.wav',{type:'audio/wav'}));$('file').files=transfer.files;$('file').dispatchEvent(new win.Event('change',{bubbles:true}));
+ await until(()=>$('play').classList.contains('playing'),'audio play');await until(()=>state.finalG.luma>1,'routing');
+ change('volume','.4','input');$('mute').click();await until(()=>$('mute').classList.contains('active'),'mute');$('mute').click();
+ change('seek','200');$('play').click();await until(()=>!$('play').classList.contains('playing'),'pause');$('play').click();
+ $('audioInputBtn').click();change('inputTrim','-6','input');await until(()=>$('inputTrimValue').textContent==='-6.0 dB','trim');
+ $('calibrateNoise').click();await until(()=>$('calibrationStatus').textContent==='CALIBRATED','calibration');$('clearCalibration').click();await until(()=>$('calibrationStatus').textContent==='NOT CALIBRATED','clear calibration');
+ for(const quality of ['off','low','high']){change('bloomQuality',quality);await until(()=>$('bloomDiagnostics').textContent.toLowerCase().includes(quality),'quality '+quality)}
+ $('outputSettingsBtn').click();assert($('outputSettingsDialog').open,'settings dialog');
+ for(const scale of [.5,1,.65]){change('renderScale',String(scale),'input');await until(()=>state.outputSettings.renderScale===scale&&$('gl').width===Math.floor(win.innerWidth*scale),'local resolution')}
+ const rows=[...doc.querySelectorAll('.outputSettingRow')].map(row=>row.getBoundingClientRect());assert(rows[0].bottom<=rows[1].top,'settings rows overlap');
+ assert(!doc.querySelector('.diag select,.diag input'),'diagnostics must be read-only');$('closeOutputSettings').click();
+ win.EyesForBeatsSafety.setBlackout(true);await until(()=>state.blackout,'blackout');win.EyesForBeatsSafety.setBlackout(false);
+ win.EyesForBeatsSafety.setPanic(true);await until(()=>state.panic&&state.finalG.luma===1,'panic');win.EyesForBeatsSafety.setPanic(false);
+ await win.EyesForBeatsSync.setLiveLock(true);assert($('liveLockBtn').getAttribute('aria-pressed')==='true','live lock');await win.EyesForBeatsSync.setLiveLock(false);
+ $('liveModeBtn').click();await until(()=>$('audioInputStatus').textContent.includes('Live input active'),'live fake device');
+ $('fileModeBtn').click();await until(()=>$('fileModeBtn').classList.contains('active'),'return to file');
+ assert($('gl').getContext('webgl2').getError()===0,'GL error');
+ $('closeAudioInput').click();$('play').click();await until(()=>!state.transport.paused,'play before output');
+ const gl=$('gl').getContext('webgl2');let draws=0;const originalDraw=gl.drawArrays.bind(gl);gl.drawArrays=(...args)=>{draws++;return originalDraw(...args)};
+ const nativeOpen=win.open.bind(win);let outputWindow;win.open=(...args)=>outputWindow=nativeOpen(...args);
+ $('outputBtn').click();await until(()=>doc.body.classList.contains('remoteControl'),'output connected');
+ await until(()=>outputWindow?.document.querySelector('#outputStart')?.disabled===false,'click overlay');
+ assert(contexts.every(context=>context.state==='closed'),'controller audio was not disposed');
+ const stoppedAt=draws;await wait(300);assert(draws===stoppedAt,'controller still renders');
+ assert(!outputWindow.document.querySelector('.ui'),'output contains control UI');
+ outputWindow.document.querySelector('#outputStart').click();await until(()=>!state.transport.locked&&!state.transport.paused,'output playback');
+ for(const quality of ['off','low','high']){change('bloomQuality',quality);await until(()=>state.outputSettings.quality===quality&&outputWindow.localStorage.getItem('eyes4beat_bloom_quality')===quality,'remote quality')}
+ change('renderScale','.6','input');await until(()=>state.outputSettings.renderScale===.6&&outputWindow.document.querySelector('#gl').width===Math.floor(outputWindow.innerWidth*.6),'remote resolution');
+ assert(outputWindow.localStorage.getItem('eyes4beat_render_scale')==='0.6','renderer scale persistence');
+ const position=state.transport.currentTime;assert(position>0,'output playback position was lost');
+ outputWindow.document.dispatchEvent(new outputWindow.KeyboardEvent('keydown',{key:'b',bubbles:true}));await until(()=>state.blackout,'output blackout');
+ outputWindow.document.dispatchEvent(new outputWindow.KeyboardEvent('keydown',{key:'b',bubbles:true}));
+ outputWindow.document.dispatchEvent(new outputWindow.KeyboardEvent('keydown',{key:'p',bubbles:true}));await until(()=>state.panic,'output panic');
+ win.EyesForBeatsSafety.setPanic(false);await until(()=>!state.panic,'control panic release');
+ for(const index of [1,0,1])doc.querySelector('.arch[data-a="'+index+'"]').click();
+ await until(()=>state.targetId===records[1].id&&!state.archetypeSelectionBusy,'rapid remote archetype changes');
+ $('imageMgrBtn').click();$('imgNext').click();$('imgNext').click();$('imgPrev').click();
+ await until(()=>state.sequences[state.target].current===1&&!state.sequences[state.target].loading,'rapid remote media changes');
+ $('imgPrev').click();await until(()=>state.sequences[state.target].current===0,'gray media');$('closeImageMgr').click();
+ const readCenter=()=>new Promise(resolve=>outputWindow.requestAnimationFrame(()=>{const canvas=outputWindow.document.querySelector('#gl'),g=canvas.getContext('webgl2'),pixel=new Uint8Array(4);g.readPixels(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1,g.RGBA,g.UNSIGNED_BYTE,pixel);resolve(pixel[0])}));
+ await wait(400);const beforeGain=await readCenter();$('lookBtn').click();const remoteGain=doc.querySelector('[aria-label="color gain"]');remoteGain.value='1.4';remoteGain.dispatchEvent(new win.Event('input',{bubbles:true}));await wait(400);
+ assert((await readCenter())>beforeGain+20,'remote look did not change rendered pixels');$('closeLook').click();
+ $('openMatrix').click();const remoteSource=doc.querySelector('.routeSource[data-t="luma"]');remoteSource.value='energy';remoteSource.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>state.finalG.luma>1,'remote routing edit');$('zeroMap').click();await until(()=>state.finalG.luma===1,'remote zero routing');$('closeMatrix').click();
+ $('audioInputBtn').click();$('liveModeBtn').click();await until(()=>state.transport.mode==='live'&&state.transport.diagnostics?.mode==='live','remote live input');
+ assert(contexts.every(context=>context.state==='closed'),'live input reopened control audio');
+ $('fileModeBtn').click();await until(()=>state.transport.mode==='file','remote file mode');$('play').click();await until(()=>!state.transport.paused,'remote play again');
+ await until(()=>!$('outputPreview').hidden&&$('outputPreview').videoWidth>0,'live capture preview');
+ assert($('outputPreview').muted,'preview must be muted');$('previewBtn').click();assert($('outputPreview').hidden,'preview toggle off');$('previewBtn').click();await until(()=>!$('outputPreview').hidden,'preview toggle on');
+ const captureCanvas=outputWindow.EyesForBeatsPreview.canvas,captureStream=captureCanvas.captureStream;
+ $('previewBtn').click();captureCanvas.captureStream=undefined;$('previewBtn').click();
+ await until(()=>!$('outputPreviewFallback').hidden&&$('outputPreviewFallback').width>300,'bitmap preview fallback');
+ const previewPixel=$('outputPreviewFallback').getContext('2d').getImageData(100,100,1,1).data;assert(previewPixel[0]>20,'fallback preview is blank');
+ Object.defineProperty(doc,'hidden',{configurable:true,get:()=>true});doc.dispatchEvent(new win.Event('visibilitychange'));assert($('outputPreviewFallback').hidden,'hidden control must disable preview');
+ delete doc.hidden;captureCanvas.captureStream=captureStream;doc.dispatchEvent(new win.Event('visibilitychange'));await until(()=>!$('outputPreview').hidden,'preview resumes after visibility');
+ change('ctxPerf','.8','input');
+ const beforeReload=state.transport.currentTime,outputGl=outputWindow.document.querySelector('#gl').getContext('webgl2');
+ let outputDraws=0;const outputDraw=outputGl.drawArrays.bind(outputGl);outputGl.drawArrays=(...args)=>{outputDraws++;return outputDraw(...args)};
+ frame.contentWindow.location.reload();await wait(400);assert(!outputWindow.closed,'control reload closed output');
+ await until(()=>frame.contentWindow.EyesForBeatsEngine,'reloaded controller');doc=frame.contentDocument;win=frame.contentWindow;
+ frame.contentWindow.EyesForBeatsEngine.subscribe(event=>{if(event.type==='state')state=event.state});
+ await until(()=>doc.body.classList.contains('remoteControl')&&!state.transport.paused&&!state.transport.locked,'reattach authoritative state');
+ assert(state.targetId===records[1].id,'reload lost output selection');assert(+$('ctxPerf').value===.8,'reload did not adopt controls');assert(state.transport.currentTime>=beforeReload,'reload rewound audio');assert(outputDraws>0,'output stopped drawing during reload');
+ assert(+$('renderScale').value===.6&&$('bloomQuality').value==='high','settings lost after control reload');
+ $('lookBtn').click();assert(+doc.querySelector('[aria-label="color gain"]').value===1.4,'look UI did not adopt output');$('closeLook').click();
+ await until(()=>!$('outputPreview').hidden&&$('outputPreview').videoWidth>0,'preview after reload');
+ const resumeAt=state.transport.currentTime;outputWindow.close();await until(()=>!$('outputNotice').hidden&&$('outputMessage').textContent.includes('disconnected'),'disconnect notice');
+ await wait(300);assert(doc.body.classList.contains('remoteControl'),'automatic local fallback');
+ $('play').click();await until(()=>$('outputMessage').textContent.includes('command not sent'),'visible rejected command');
+ $('useLocalOutput').click();await until(()=>!doc.body.classList.contains('remoteControl')&&!state.transport.paused,'explicit local fallback');
+ assert(state.transport.currentTime>=resumeAt-.3,'fallback seek lost');
+ // Closing the controller must leave the next output running.
+ const nativeReopen=win.open.bind(win);win.open=(...args)=>outputWindow=nativeReopen(...args);$('outputBtn').click();await until(()=>doc.body.classList.contains('remoteControl'),'reopen output');
+ await until(()=>outputWindow.document.querySelector('#outputStart')?.disabled===false,'reopen unlock');outputWindow.document.querySelector('#outputStart').click();await until(()=>!state.transport.locked&&!state.transport.paused,'reopened playback');
+ let survivingDraws=0;const finalGl=outputWindow.document.querySelector('#gl').getContext('webgl2'),finalDraw=finalGl.drawArrays.bind(finalGl);finalGl.drawArrays=(...args)=>{survivingDraws++;return finalDraw(...args)};
+ frame.remove();await wait(700);assert(!outputWindow.closed&&survivingDraws>0,'closing control stopped output');outputWindow.close();
+ await repo.close();
+ output.textContent='PASS: engine boundary, media cache, live edits/save, images, beat settings, archetypes, routing, shortcuts, file transport, calibration, safety/live lock, quality, remote output handover, preview, controller reload/adoption, output survival, visible disconnect/rejection and explicit local fallback';
+}catch(error){output.textContent='FAIL: '+error.stack+'\n'+['audioInputStatus','inputWarning','timeDisplay','calibrationStatus','analysisDiagnostics'].map(id=>id+': '+frame?.contentDocument?.getElementById(id)?.textContent).join('\n')}
+finally{if(previousScale===null)localStorage.removeItem('eyes4beat_render_scale');else localStorage.setItem('eyes4beat_render_scale',previousScale);frame?.remove();channel?.close();if(previousUser===null)localStorage.removeItem('eyes4beat_last_sync_user');else localStorage.setItem('eyes4beat_last_sync_user',previousUser);if(previousQuality===null)localStorage.removeItem('eyes4beat_bloom_quality');else localStorage.setItem('eyes4beat_bloom_quality',previousQuality)}
+</script>

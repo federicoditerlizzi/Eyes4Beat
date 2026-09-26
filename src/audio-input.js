@@ -22,7 +22,7 @@ export function readableInputError(error) {
 
 export class AudioInputController {
   constructor(audioElement, { onDeviceChange, onTrackEnded, onFeatures, onCalibration, onAnalysisError } = {}) {
-    this.audio = audioElement;
+    this.audio = audioElement;this.destroyed=false;this.contextReady=null;this.inputGeneration=0;
     this.onDeviceChange = onDeviceChange;
     this.onTrackEnded = onTrackEnded;this.onFeatures = onFeatures;this.onCalibration = onCalibration;this.analysisDiagnostics = null;this.diagnosticsEnabled = false;this.onAnalysisError = onAnalysisError;
     this.context = null;this.analysisNode = null;this.trimGain = null;this.silentPull = null;
@@ -33,6 +33,15 @@ export class AudioInputController {
   }
 
   async ensureContext() {
+    if(this.destroyed)throw new Error('Audio engine disposed');
+    if(!this.contextReady)this.contextReady=this.createContext().catch(error=>{this.contextReady=null;throw error});
+    await this.contextReady;
+    if(this.destroyed)throw new Error('Audio engine disposed');
+    if(this.context.state==='suspended')await this.context.resume();
+    return this.context;
+  }
+
+  async createContext() {
     if (!this.context) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.context = new AudioContextClass({ latencyHint: 'interactive' });
@@ -40,6 +49,7 @@ export class AudioInputController {
         this.trimGain = this.context.createGain();
         if (!this.context.audioWorklet || !window.AudioWorkletNode) throw new Error('AudioWorklet is unavailable in this browser. Real-time analysis cannot start.');
         await this.context.audioWorklet.addModule(analysisWorkletUrl);
+        if(this.destroyed)throw new Error('Audio engine disposed');
         this.analysisNode = new AudioWorkletNode(this.context, 'eyesforbeats-analysis', { processorOptions: { fftSize: 2048, hopSize: 512 } });
         this.analysisNode.port.onmessage = event => {
           const message = event.data;
@@ -86,7 +96,7 @@ export class AudioInputController {
   }
 
   async activateFile() {
-    await this.ensureContext();this.disconnectCurrentInput();this.stopLiveTracks();
+    await this.ensureContext();if(this.destroyed)return;this.inputGeneration++;this.disconnectCurrentInput();this.stopLiveTracks();
     if (!this.mediaSource) this.mediaSource = this.context.createMediaElementSource(this.audio);
     this.mediaSource.connect(this.context.destination);this.mediaSource.connect(this.trimGain);
     this.mode = 'file';this.deviceId = 'file';this.deviceLabel = 'Audio file';
@@ -94,7 +104,7 @@ export class AudioInputController {
   }
 
   async activateLive(deviceId) {
-    await this.ensureContext();this.audio.pause();this.disconnectCurrentInput();this.stopLiveTracks();
+    const generation=++this.inputGeneration;await this.ensureContext();if(this.destroyed)return;this.audio.pause();this.disconnectCurrentInput();this.stopLiveTracks();
     this.mode = 'live';this.deviceId = deviceId || 'default';this.deviceLabel = 'Audio input';
     const audio = {
       echoCancellation: false,
@@ -104,6 +114,7 @@ export class AudioInputController {
     };
     if (deviceId) audio.deviceId = { exact: deviceId };
     const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    if(this.destroyed||generation!==this.inputGeneration){stream.getTracks().forEach(track=>track.stop());throw new Error('Audio input request superseded')}
     const track = stream.getAudioTracks()[0];
     if (!track) { stream.getTracks().forEach((item) => item.stop());throw new DOMException('No audio track returned', 'NotFoundError'); }
     this.liveStream = stream;this.liveTrack = track;this.liveSource = this.context.createMediaStreamSource(stream);this.liveSource.connect(this.trimGain);
@@ -143,8 +154,11 @@ export class AudioInputController {
       .sort((a, b) => Number(a.builtIn) - Number(b.builtIn) || a.label.localeCompare(b.label));
   }
 
-  destroy() {
+  async destroy() {
+    this.destroyed=true;this.inputGeneration++;
     this.disconnectCurrentInput();this.stopLiveTracks();navigator.mediaDevices?.removeEventListener?.('devicechange', this.boundDeviceChange);
-    this.context?.close?.();
+    if(this.analysisNode){this.analysisNode.port.onmessage=null;this.analysisNode.onprocessorerror=null;this.analysisNode.port.close();safeDisconnect(this.analysisNode)}
+    safeDisconnect(this.trimGain);safeDisconnect(this.silentPull);
+    await this.context?.close?.().catch(()=>{});
   }
 }

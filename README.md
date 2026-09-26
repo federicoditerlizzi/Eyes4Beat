@@ -18,7 +18,7 @@ Open the local URL printed by Vite, load an audio file, and use the routing matr
 
 In Musical Targets, each effect has independent On and Solo controls beside its intensity and reactivity sliders. Switching a target off returns only that effect to its neutral value; Solo isolates one or more targets. Musical presets save these switches as well as the slider values.
 
-Custom archetypes can be removed with the trash icon on their footer card. Confirming permanently deletes that archetype's locally stored media, sequence settings, routing and musical presets from this browser. The six built-in archetypes cannot be deleted. If the deleted archetype is active, the app switches to Deep Drift; playback continues. An open Show window refreshes its library automatically.
+Custom archetypes can be removed with the trash icon on their footer card. Confirming permanently deletes that archetype's locally stored media, sequence settings, routing and musical presets from this browser. The six built-in archetypes cannot be deleted. If the deleted archetype is active, the app switches to Deep Drift; playback continues. The active engine receives the updated project records.
 
 ## Quality checks
 
@@ -66,7 +66,7 @@ Each archetype has three media-transition pools in the Image Manager. **TIMED** 
 
 Transition duration is limited to 80% of the current image dwell so the destination remains readable; durations below roughly 60 ms become cuts. Easing is computed in JavaScript and the WebGL shader receives the eased progress plus a stable transition type, seed and parameters. The library in `src/transitions.js` is the single source of truth for UI labels and GLSL numeric identifiers.
 
-The Show window receives a transition-start event and runs the effect using its own clock after its destination media has loaded. Periodic frame state remains only as a recovery path if that event is missed.
+Media transitions run entirely in the active engine, including when it is hosted in the output window. No frame or transition replication is used.
 
 A new request during a running transition completes that transition immediately before starting the next one. While destination media is loading, only the most recent pending request is retained. Automatic requests still respect their existing dwell limits; manual navigation bypasses dwell timing.
 
@@ -90,15 +90,15 @@ Kick detection follows a 40–110 Hz time-domain envelope, while snare/clap dete
 
 Diagnostics show the detected sample rate, every band's frequency range and dBFS level, onset, BPM/confidence/phase, kick and snare events, gate state and active normalization ranges. Browsers without AudioWorklet support show an explicit error because render-loop analysis is intentionally not used as a degraded fallback.
 
-## Show mode
+## Output window
 
-The header's **Show output** button opens a second same-origin browser window using `?show=1`. The controller window retains audio playback and the complete UI; the Show window renders only the WebGL and particle canvases. A `BroadcastChannel` sends the computed musical targets, active archetypes, transition progress and image-sequence state roughly 25 times per second. Audio is neither copied nor analyzed twice.
+The header's output button opens `?output=1`. Move it to the second screen, click **Click to start** once to enable audio, and use its fullscreen control. Output owns the only renderer, audio graph and analysis worklet; control sends commands over a private MessageChannel. File audio travels as a Blob and live-device permission belongs to output. B/P safety shortcuts also work there.
 
-Move the Show window to the projector and double-click it (or press `F`) to request full screen. The controller button indicates when a Show peer is connected. Custom archetypes are loaded independently from the shared origin's IndexedDB; creating a new one asks an open Show window to reload its local media library.
+Control displays a toggleable, muted 30 fps preview, including particles and blackout; browsers without stream capture use low-rate snapshots. Preview stops while control is hidden. Reloading or closing control leaves output running. A reloaded control reattaches and adopts the output's authoritative state. If output closes or stops responding for about two seconds, **Output disconnected** offers **Reopen** or **Use this window**. Local audio/rendering resumes only when explicitly selected. Diagnostics include heartbeat age and command latency. See [engine documentation and manual checks](docs/engine-refactor.md).
 
 ## Live keyboard shortcuts
 
-The controller supports direct archetype selection with `1–9`, `0` for archetype 10 and `Shift+1–9` for archetypes 11–19. Arrow keys or `A`/`D` move backward and forward cyclically. `Alt/Option+1–9` selects presets 1–9 for the active archetype, `Alt/Option+0` selects preset 10, and `Alt/Option` combined with arrows or A/D cycles its presets. `[` and `]` select previous/next media through the manual transition pool. `S` selects smooth transitions and `C` selects cuts. `?` opens the same compact reference available from the header keyboard button. Shortcuts ignore key repeat and are disabled in form fields, dialogs and the Show window. Rapid archetype requests are serialized and the most recent queued selection wins.
+The controller supports direct archetype selection with `1–9`, `0` for archetype 10 and `Shift+1–9` for archetypes 11–19. Arrow keys or `A`/`D` move backward and forward cyclically. `Alt/Option+1–9` selects presets 1–9 for the active archetype, `Alt/Option+0` selects preset 10, and `Alt/Option` combined with arrows or A/D cycles its presets. `[` and `]` select previous/next media through the manual transition pool. `S` selects smooth transitions and `C` selects cuts. `?` opens the same compact reference available from the header keyboard button. Shortcuts ignore key repeat and are disabled in form fields, dialogs and the output window. Rapid archetype requests are serialized and the most recent queued selection wins.
 
 ## Live safety controls
 

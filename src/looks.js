@@ -5,7 +5,7 @@ import { BLOOM_DEFAULTS } from './bloom.js';
 export const LOOK_STORAGE_KEY = 'arv_v047_looks';
 
 export const LOOK_FIELDS = {
-  rotation: { maxAngle: [0, 180, 1], maxSpeed: [0, 360, 1] },
+  rotation: { fill: [0, 1, .01], maxAngle: [0, 180, 1], maxSpeed: [0, 360, 1] },
   pulse: { centerX: [0, 1, .01], centerY: [0, 1, .01], strength: [0, 3, .01], speed: [.1, 3, .01], width: [.01, .5, .01], chromatic: [0, 1, .01] },
   'particles.burst': { amount: [0, 200, 1], speed: [0, 1000, 1], spread: [0, 1, .01] },
   bloom: { base: [0, 1, .01], threshold: [0, 1.5, .01], knee: [0, 1, .01], radius: [0, 1, .01], stretch: [0, 1, .01] },

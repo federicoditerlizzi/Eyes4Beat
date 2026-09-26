@@ -1,29 +1,30 @@
 import './styles.css';
-import { createRotationState, stepRotation, rotationCover, rotationAt, createWaveState, stepWaves, waveUniforms, breathPhase } from './motion-effects.js';
-import { particleAlpha, spawnBurst, stepParticles, packParticles, unpackParticles } from './particle-lifecycle.js';
-import { extractMediaPalette } from './media-palette.js';
-import { BloomRenderer } from './bloom-renderer.js';
-import { blendBloom, BLOOM_QUALITY_KEY, normalizeBloomQuality } from './bloom.js';
+import { renderEngineState } from './ui/engine-view.js';
+import { createVisualEngine } from './engine/engine.js';
+import { EngineSession } from './engine/engine-session.js';
+import { createOutputController } from './ui/output-controller.js';
+import { LocalTransport } from './engine/local-transport.js';
 import { routeSources, routeTargets, sourceLabels, eventSourceIds, targetLabels, blankMap } from './config.js';
-import { assignedSource, assignTarget, computeTargetState, NEUTRAL_TARGETS, resolveTargetActivity } from './routing.js';
-import { vertexShaderSource, fragmentShaderSource } from './shaders.js';
+import { assignedSource, assignTarget } from './routing.js';
 import { collectLegacyLibrary, legacyDataAvailable } from './legacy/export.js';
 import { SyncedLibraryRepository } from './library/synced-repository.js';
 import { LocalLibraryRepository } from './library/local-repository.js';
-import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, resolveShowIndexes, starterRoutingForOrigin } from './library/runtime.js';
+import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap } from './library/runtime.js';
 import { resolvePerformanceShortcut } from './shortcuts.js';
-import { applyPanicTargets } from './show-safety.js';
-import { AudioInputController, INPUT_DEVICE_KEY, readableInputError } from './audio-input.js';
+import { INPUT_DEVICE_KEY } from './audio-input.js';
 import { icon, initIcons } from './icons.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from './package-format.js';
 import { prepareImportedArchetype } from './library/package-mapping.js';
-import { FACTORY_LOOKS, LOOK_FIELDS, NEUTRAL_LOOK, lookUniforms, normalizeLook, particleSpeed } from './looks.js';
+import { FACTORY_LOOKS, LOOK_FIELDS, NEUTRAL_LOOK, normalizeLook } from './looks.js';
 import packageInfo from '../package.json';
-import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS, resolveTransitionParam, transitionShaderId } from './transitions.js';
-import { DWELL_BEAT_OPTIONS, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS, applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from './image-sequencer.js';
+import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS } from './transitions.js';
+import { DWELL_BEAT_OPTIONS, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS } from './image-sequencer.js';
 
-const isShowMode=new URLSearchParams(location.search).get('show')==='1';
-document.body.classList.toggle('showMode',isShowMode);
+let engineState=null,adoptingOutput=false,discoveringOutput=true;
+const transport=new EngineSession(()=>new LocalTransport(createVisualEngine,{canvas:document.getElementById('gl'),particleCanvas:document.getElementById('particles'),blackoutOverlay:document.getElementById('blackoutOverlay')}));
+function send(type,payload={}){return transport.send(type,payload).catch(error=>{const notice=document.getElementById('outputNotice');notice.hidden=false;document.getElementById('outputMessage').textContent=error.message;throw error})}
+function fire(type,payload={}){void send(type,payload).catch(error=>console.error('Engine command failed',error))}
+
 initIcons();
 function ensureButtonTooltip(button){
  if(button.title||button.dataset.tooltip)return;
@@ -34,30 +35,7 @@ function ensureButtonTooltip(button){
 function applyButtonTooltips(root=document){if(root.matches?.('button'))ensureButtonTooltip(root);root.querySelectorAll?.('button').forEach(ensureButtonTooltip)}
 applyButtonTooltips();
 new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)applyButtonTooltips(node)}))).observe(document.body,{childList:true,subtree:true});
-const showChannel='BroadcastChannel' in window?new BroadcastChannel('eyesforbeats-show-v1'):null;
-let remoteFrameReceivedAt=0;
-let remoteVisualState=null,lastShowPeerAt=0,showWindow=null,lastShowBroadcastAt=0,remoteSwitchPromise=null;
-let blackoutActive=false,panicActive=false,panicReleaseStartedAt=null;
-if(isShowMode){
- const status=document.createElement('div');status.id='showConnection';status.className='showConnection';status.textContent='WAITING FOR CONTROLLER';document.body.appendChild(status);
- const announce=()=>showChannel?.postMessage({type:'show-ready'});announce();setInterval(announce,2000);
- document.addEventListener('dblclick',()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{})});
- document.addEventListener('keydown',event=>{if(event.key.toLowerCase()==='f'&&!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{})});
-}
-showChannel?.addEventListener('message',event=>{
- const message=event.data||{};
- if(isShowMode&&message.type==='frame'){
-   remoteVisualState=message.state;remoteFrameReceivedAt=performance.now();document.getElementById('showConnection')?.classList.add('connected');
-   if(message.state?.projectId!==activeProject?.id&&!remoteSwitchPromise){
-     remoteSwitchPromise=openProject(message.state.projectId,{fromShow:true}).catch(error=>console.error('Unable to switch Show project',error)).finally(()=>{remoteSwitchPromise=null});
-   }
- }
- if(isShowMode&&message.type==='transition-start')startRemoteImageTransition(message.transition,0);
- if(isShowMode&&message.type==='library-changed'&&!remoteSwitchPromise){
-   remoteSwitchPromise=openProject(message.projectId||activeProject?.id,{fromShow:true}).catch(error=>console.error('Unable to reload Show library',error)).finally(()=>{remoteSwitchPromise=null});
- }
- if(!isShowMode&&message.type==='show-ready')lastShowPeerAt=Date.now();
-});
+let blackoutActive=false,panicActive=false;
 
 let libraryVersionChanged=false,syncReloadTimer=null,lastConflictKey=null,remoteRefreshPending=false;
 function renderSyncState(state){
@@ -65,16 +43,18 @@ function renderSyncState(state){
  document.getElementById('accountEmail').textContent=state.email||'Offline cache';status.textContent=state.status.toUpperCase().replace('-',' ');
  document.getElementById('syncLast').textContent='Last sync: '+(state.lastSync?new Date(state.lastSync).toLocaleString():'never');
  if(state.status==='session-expired'){const notice=document.getElementById('libraryNotice');notice.textContent='Session expired — reload to sign in. Cached projects remain available.';notice.hidden=false}
+ if(!discoveringOutput&&!adoptingOutput&&!transport.transport.recovery)fire('setSafety',{control:'liveLock',value:!!state.liveLock});
  const lock=document.getElementById('liveLockBtn'),badge=document.getElementById('liveLockBadge');lock.setAttribute('aria-pressed',String(state.liveLock));badge.hidden=!state.liveLock;badge.querySelector('span').textContent=String(state.pending||0);
  if(state.conflict){lastConflictKey=state.conflict.key;const notice=document.getElementById('libraryNotice');notice.replaceChildren(document.createTextNode(`${state.conflict.name} was changed by ${state.conflict.updatedBy||'another user'}. `));notice.hidden=false;const button=document.createElement('button');button.textContent='RESTORE MY VERSION';button.onclick=()=>repository.restoreConflict(lastConflictKey).catch(console.error);notice.appendChild(button)}
 }
 function onSyncedLibraryChanged(change={}){
  if(change.userChanged){clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(()=>location.reload(),50);return}
  if(change.deferredApplied){remoteRefreshPending=true;return}
+ if(transport.transport.recovery){remoteRefreshPending=true;return}
  if(projectSwitching)return;clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(async()=>{const projects=await repository.listProjects(),wanted=activeProject&&projects.some(item=>item.id===activeProject.id)?activeProject.id:projects[0]?.id||null;await openProject(wanted,{preferredId:archetypes[target]?.id})},250);
 }
-const repository=new SyncedLibraryRepository({ readOnly:isShowMode, onState:renderSyncState, onLibraryChanged:onSyncedLibraryChanged });
-window.EyesForBeatsSync={sync:()=>repository.sync(),setLiveLock:value=>repository.setLiveLock(value),toggleLiveLock:()=>repository.setLiveLock(!repository.state.liveLock)};
+const repository=new SyncedLibraryRepository({ onState:renderSyncState, onLibraryChanged:onSyncedLibraryChanged });
+window.EyesForBeatsSync={sync:()=>repository.sync(),setLiveLock:value=>setLiveLock(value),toggleLiveLock:()=>setLiveLock(!repository.state.liveLock)};
 let activeProject=null,projectLookPresets=[],idToIndex=new Map();
 let projectSwitching=false,projectSwitchGeneration=0;
 const archetypes=[],IMAGE_SETS=[],defaultRoutingMaps=[];
@@ -82,7 +62,8 @@ let looks=[];
 const pendingWrites=new Map(),failedWrites=new Map();
 let writeQueue=Promise.resolve();
 function queueArchetypeWrite(index,changes){
- const id=archetypes[index]?.id;if(!id||isShowMode)return;
+ const id=archetypes[index]?.id;if(!id)return;
+ fire('updateArchetype',{id,patch:changes});
  const pending=pendingWrites.get(id)||{changes:{...failedWrites.get(id)},timer:null};failedWrites.delete(id);
  Object.assign(pending.changes,structuredClone(changes));clearTimeout(pending.timer);
  pending.timer=setTimeout(()=>{void flushArchetypeWrites().catch(error=>console.error('Unable to save archetype',error))},500);
@@ -145,7 +126,7 @@ function renderLookEditor(){
  document.getElementById('lookArchName').textContent=archetypes[target].name;
  const root=document.getElementById('lookFields');root.replaceChildren();
  const groups=[
-  ['rotation','ROTATION',[['mode','Mode'],['maxAngle','Max angle (deg)'],['maxSpeed','Max speed (deg/s)'],['direction','Direction'],['returnToRest','Return to rest']]],
+  ['rotation','ROTATION',[['mode','Mode'],['maxAngle','Max angle (deg)'],['maxSpeed','Max speed (deg/s)'],['fill','Fill'],['direction','Direction'],['returnToRest','Return to rest']]],
   ['pulse','PULSE',[['mode','Mode'],['centerX','Center X'],['centerY','Center Y'],['strength','Strength'],['speed','Speed'],['width','Width'],['chromatic','Chromatic']]],
   ['bloom','BLOOM',[['base','Base'],['threshold','Threshold'],['knee','Knee'],['radius','Radius'],['tint','Tint'],['stretch','Stretch']]],
   ['frame','FRAME',[['fit','Fit'],['edge','Edge'],['overscan','Overscan']]],
@@ -231,7 +212,6 @@ const modState = {
  enabled:{energy:true,density:true,drive:true,boombap:true,tension:true,bright:true,open:true,beat:true,kick:true,snare:true},
  solo:{energy:false,density:false,drive:false,boombap:false,tension:false,bright:false,open:false,beat:false,kick:false,snare:false}
 };
-const neutralVals = {energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:0.60};
 const sourceKeys=['energy','density','drive','boombap','tension','bright','open','beat','kick','snare'];
 const globalCtl = {
  pulse:document.getElementById('g-pulse'),
@@ -263,7 +243,6 @@ document.querySelectorAll('[data-target-solo]').forEach(button=>button.onclick=(
  const key=button.dataset.targetSolo;targetState.solo[key]=!targetState.solo[key];
  button.classList.toggle('active',targetState.solo[key]);button.setAttribute('aria-pressed',String(targetState.solo[key]));
 });
-let FinalG={...NEUTRAL_TARGETS};
 
 const ctxPerf=document.getElementById('ctxPerf'), ctxPerfVal=document.getElementById('ctxPerfVal');
 ctxPerf.oninput=()=>ctxPerfVal.textContent=(+ctxPerf.value).toFixed(2);
@@ -287,9 +266,9 @@ function saveMusicPresets(){queueArchetypeWrite(target,{musicPresets:musicPreset
 function captureMusicPreset(name){
   const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
   const intensity={},reactivity={};routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
-  return {name,enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,targetEnabled:{...targetState.enabled},targetSolo:{...targetState.solo},ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:JSON.parse(JSON.stringify(routingMaps[target]))};
+  return {name,enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,targetEnabled:{...targetState.enabled},targetSolo:{...targetState.solo},ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:structuredClone(routingMaps[target]||blankMap())};
 }
-function applyMusicPreset(p){
+function applyMusicPreset(p,{viewOnly=false}={}){
   if(!p)return;
   sourceKeys.forEach(k=>{
     modState.enabled[k]=p.enabled?.[k]!==false;modState.solo[k]=!!p.solo?.[k];
@@ -306,7 +285,7 @@ function applyMusicPreset(p){
   if(p.ctxPerf!=null){ctxPerf.value=p.ctxPerf;ctxPerfVal.textContent=(+ctxPerf.value).toFixed(2)}
   if(p.globalReact!=null)document.getElementById('react').value=String(p.globalReact);
   if(p.routing)routingMaps[target]=normalizeRoutingMap(p.routing,defaultRoutingMaps[target]);
-  saveRoutingMaps();
+  if(!viewOnly){saveRoutingMaps();sendControls()}
   if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
 }
 function syncPresetActions(){
@@ -350,79 +329,24 @@ document.getElementById('presetUpdate').onclick=()=>{
   const name=musicPresets[target][+i].name;musicPresets[target][+i]=captureMusicPreset(name);saveMusicPresets();renderPresetControls(i);
 };
 document.getElementById('presetDelete').onclick=()=>{const select=document.getElementById('presetSelect'),i=select.value;if(i==='')return;musicPresets[target].splice(+i,1);saveMusicPresets();renderPresetControls()};
-function getEffectiveState(){
-  const anySolo = Object.values(modState.solo).some(Boolean);
-  const out = {};
-  ['energy','density','drive','boombap','tension','bright','open'].forEach(k=>{
-    const active = anySolo ? modState.solo[k] : modState.enabled[k];
-    const amt = +document.getElementById('amt-'+k).value;
-    const m = active ? amt : 0;
-    out[k] = neutralVals[k] + (S[k]-neutralVals[k]) * m;
-  });
-  return out;
-}
-
-function sourceActive(k){
-  const anySolo=Object.values(modState.solo).some(Boolean);
-  return anySolo ? modState.solo[k] : modState.enabled[k];
-}
-function centered(Eff,k){
-  if(!sourceActive(k)) return 0;
-  return Eff[k]-0.5;
-}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-
-function computeGlobalMapping(Eff,now){
-  const map=routingMaps[target];
-  const live=!!inputController?.inputActive;
-  const amount=k=>+(document.getElementById('amt-'+k)?.value||0);
-  const continuous={energy:Eff.energy,density:Eff.density,drive:Eff.drive,boombap:Eff.boombap,tension:Eff.tension,bright:Eff.bright,open:Eff.open};
-  const rawSrc={},activeSrc={};
-  routeSources.forEach(k=>{
-    activeSrc[k]=live&&sourceActive(k);
-    if(!activeSrc[k]){rawSrc[k]=0;return}
-    let v;if(k==='beat')v=BeatPulse*amount(k);else if(k==='kick')v=KickFast*amount(k);else if(k==='snare')v=SnareFast*amount(k);else v=continuous[k];
-    rawSrc[k]=clamp(v,0,1.5);
-  });
-  const intensity={},reactivity={};
-  routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
-  const activeTargets=resolveTargetActivity(targetState);
-  FinalG=computeTargetState({map,sources:rawSrc,activeSources:activeSrc,activeTargets,intensity,reactivity,globalReactivity:+document.getElementById('react').value});
-  routeTargets.forEach(k=>document.getElementById('gf-'+k).textContent=FinalG[k].toFixed(2));
-  return FinalG;
-}
-
 
 function mediaUrl(source){return typeof source==='string'?source:source.url}
 function mediaIsVideo(source){return typeof source!=='string'&&source.type?.startsWith('video/')}
 const defaultImageConfigs=[];
 let imageConfigs=[];
 function saveImageConfigs(){queueArchetypeWrite(target,{imageConfig:imageConfigs[target]})}
-function createSequenceState(){return {current:0,next:1,blend:0,rawProgress:0,transitioning:false,loading:false,loadingTarget:null,pendingRequest:null,poolStates:{timed:{},event:{},manual:{}},orderState:{},shownHistory:[0],shownHistoryCursor:0,nextAutoAt:null,lastReliableBpm:0,scheduledTempo:null,transStart:0,durationMs:0,transitionId:'crossfade',transitionShaderId:transitionShaderId('crossfade'),seed:0,param:[0,0,0,0],easing:'linear',lastSwitch:performance.now(),lastMappedSignal:0}}
-const seqStates=archetypes.map(createSequenceState);
+
+let seqStates=[];
 function orderedImages(a,enabledOnly=false){
  return imageConfigs[a].images.map((im,i)=>({i,order:im.order,enabled:im.enabled&&!IMAGE_SETS[a]?.[i]?.missing})).filter(x=>!enabledOnly||x.enabled).sort((x,y)=>x.order-y.order||x.i-y.i).map(x=>x.i);
 }
 function enabledImages(a){return orderedImages(a,true)}
-function chooseOrderedImage(a,direction=1){
- const s=seqStates[a],mode=imageConfigs[a].orderMode;
- if((mode==='random-no-repeat'||mode==='shuffle')&&direction<0){s.shownHistoryCursor=Math.max(0,s.shownHistoryCursor-1);return s.shownHistory[s.shownHistoryCursor]??s.current}
- if((mode==='random-no-repeat'||mode==='shuffle')&&s.shownHistoryCursor<s.shownHistory.length-1){s.shownHistoryCursor+=1;return s.shownHistory[s.shownHistoryCursor]}
- const result=nextSequenceIndex({enabled:enabledImages(a),current:navigationBase(s),direction,mode,state:s.orderState});
- s.orderState=result.state;return result.index;
-}
-function sequenceTempo(a){
- const s=seqStates[a],tempo=resolveSequencerTempo({bpm:BPM,confidence:BPMConfidence,lastReliableBpm:s.lastReliableBpm});
- s.lastReliableBpm=tempo.lastReliableBpm;return tempo;
-}
-function imageDwell(a,index,tempo=sequenceTempo(a)){
- const cfg=imageConfigs[a],image=cfg.images[index];
- if(cfg.timeBase==='beats'){
-   const requested=image.durationBeats||4,effective=effectiveBeatDwell(requested,tempo.bpm);
-   return {seconds:beatsToSeconds(effective,tempo.bpm),requestedBeats:requested,effectiveBeats:effective,tempo};
- }
- return {seconds:Math.max(2,image.duration||10),tempo};
-}
+
+function sequenceTempo(a){return engineState?.imageTiming[a]?.tempo||{bpm:120,source:'fallback'}}
+
+function imageDwell(a,index){return engineState?.imageTiming[a]?.dwell[index]}
+
 function beatLabel(value){return value<1?({'.125':'1/8','.25':'1/4','.5':'1/2'}[String(value)]||String(value)):String(value)}
 function moveImageToPosition(a,imgIdx,newPos){
  const seq=orderedImages(a,false).filter(i=>i!==imgIdx);
@@ -433,15 +357,10 @@ function moveImageBy(a,imgIdx,delta){
  const seq=orderedImages(a,false),pos=seq.indexOf(imgIdx);if(pos<0)return;
  moveImageToPosition(a,imgIdx,pos+delta);
 }
-function mappedSourceValue(name,Eff){
- if(name==='energy')return Eff.energy;if(name==='density')return Eff.density;if(name==='drive')return Eff.drive;
- if(name==='boombap')return Eff.boombap;if(name==='tension')return Eff.tension;if(name==='bright')return Eff.bright;if(name==='open')return Eff.open;
- if(name==='beat')return BeatPulse;if(name==='kick')return KickFast;if(name==='snare')return SnareFast;
- return Eff.energy;
-}
-function mappedSourceIsEvent(name){return name==='beat'||name==='kick'||name==='snare'}
+
+
 const triggerLabels={timed:['TIMED','Auto and continuous mapping'],event:['EVENT','Beat, kick and snare'],manual:['MANUAL','Buttons and shortcuts']};
-function navigationBase(s){return s.pendingRequest?.idx??s.loadingTarget??(s.transitioning?s.next:s.current)}
+
 function renderTriggerTransitionControls(a){
  const root=document.getElementById('triggerTransitionControls'),cfg=imageConfigs[a];
  root.innerHTML=IMAGE_TRIGGER_CLASSES.map(triggerClass=>{
@@ -463,7 +382,7 @@ function renderTriggerTransitionControls(a){
  root.querySelectorAll('[data-trigger-duration-beats]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerDurationBeats].durationBeats=+el.value;saveImageConfigs()});
  root.querySelectorAll('[data-trigger-easing]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerEasing].easing=el.value;saveImageConfigs()});
  root.querySelectorAll('[data-trigger-wipe]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerWipe].wipeDirection=el.value;saveImageConfigs()});
- root.querySelectorAll('[data-trigger-test]').forEach(el=>el.onclick=()=>requestImageChange(a,chooseOrderedImage(a,1),el.dataset.triggerTest));
+ root.querySelectorAll('[data-trigger-test]').forEach(el=>el.onclick=()=>imageStep(a,1,el.dataset.triggerTest));
 }
 function updateImageManagerRuntimeState(a){
  if(target!==a||!document.getElementById('imagePanel').classList.contains('open'))return;
@@ -503,9 +422,9 @@ function renderImageManager(){
    if(!imageConfigs[a].images[s.current].enabled){const nxt=enabledImages(a)[0];if(nxt!=null)requestImageChange(a,nxt,'manual')}
  });
  document.querySelectorAll('[data-imgdur]').forEach(el=>el.onchange=()=>{
-   const i=+el.dataset.imgdur;imageConfigs[a].images[i].duration=clamp(parseFloat(el.value)||10,2,60);el.value=imageConfigs[a].images[i].duration;seqStates[a].nextAutoAt=null;saveImageConfigs();
+   const i=+el.dataset.imgdur;imageConfigs[a].images[i].duration=clamp(parseFloat(el.value)||10,2,60);el.value=imageConfigs[a].images[i].duration;saveImageConfigs();
  });
- document.querySelectorAll('[data-imgbeats]').forEach(el=>el.onchange=()=>{const i=+el.dataset.imgbeats;imageConfigs[a].images[i].durationBeats=+el.value;seqStates[a].nextAutoAt=null;saveImageConfigs();renderImageManager()});
+ document.querySelectorAll('[data-imgbeats]').forEach(el=>el.onchange=()=>{const i=+el.dataset.imgbeats;imageConfigs[a].images[i].durationBeats=+el.value;saveImageConfigs();renderImageManager()});
  document.querySelectorAll('[data-imgorder]').forEach(el=>el.onchange=()=>{moveImageToPosition(a,+el.dataset.imgorder,+el.value);renderImageManager()});
  document.querySelectorAll('[data-imgup]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgup,-1);renderImageManager()});
  document.querySelectorAll('[data-imgdown]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgdown,1);renderImageManager()});
@@ -516,13 +435,13 @@ document.getElementById('closeImageMgr').onclick=closeImageManager;
 const imageTutorialDialog=document.getElementById('imageTutorialDialog');
 document.getElementById('openImageTutorial').onclick=()=>{if(!imageTutorialDialog.open)imageTutorialDialog.showModal()};
 document.getElementById('closeImageTutorial').onclick=()=>imageTutorialDialog.close();
-document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].lastMappedSignal=0;seqStates[target].nextAutoAt=null;saveImageConfigs();renderImageManager()};
-document.getElementById('imageTimeBase').onchange=e=>{imageConfigs[target].timeBase=e.target.value;seqStates[target].lastSwitch=performance.now();seqStates[target].nextAutoAt=null;saveImageConfigs();renderImageManager()};
-document.getElementById('imageOrderMode').onchange=e=>{const s=seqStates[target];imageConfigs[target].orderMode=e.target.value;s.orderState={};s.shownHistory=[s.current];s.shownHistoryCursor=0;saveImageConfigs();renderImageManager()};
-document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;seqStates[target].lastMappedSignal=0;saveImageConfigs()};
+document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;saveImageConfigs();renderImageManager()};
+document.getElementById('imageTimeBase').onchange=e=>{imageConfigs[target].timeBase=e.target.value;saveImageConfigs();renderImageManager()};
+document.getElementById('imageOrderMode').onchange=e=>{imageConfigs[target].orderMode=e.target.value;saveImageConfigs();renderImageManager()};
+document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;saveImageConfigs()};
 document.getElementById('imageThreshold').onchange=e=>{imageConfigs[target].threshold=clamp(parseFloat(e.target.value)||.55,.05,.95);e.target.value=imageConfigs[target].threshold;saveImageConfigs()};
-document.getElementById('imgPrev').onclick=()=>requestImageChange(target,chooseOrderedImage(target,-1),'manual');
-document.getElementById('imgNext').onclick=()=>requestImageChange(target,chooseOrderedImage(target,1),'manual');
+document.getElementById('imgPrev').onclick=()=>imageStep(target,-1);
+document.getElementById('imgNext').onclick=()=>imageStep(target,1);
 
 const creatorPanel=document.getElementById('creatorPanel');
 const creatorFiles=document.getElementById('customArchFiles');
@@ -628,410 +547,32 @@ document.getElementById('createArchetype').onclick=async()=>{
  finally{button.disabled=false}
 };
 
-const canvas=document.getElementById('gl');
-const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'high-performance'});
-if(!gl) alert('WebGL2 is required. Try Chrome or Safari on a recent Mac.');
-const pcanvas=document.getElementById('particles'),ctx=pcanvas.getContext('2d');
-
-function sh(type,src){
- const shader=gl.createShader(type);gl.shaderSource(shader,src);gl.compileShader(shader);
- if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS)){const message=gl.getShaderInfoLog(shader)||'Unknown shader error';gl.deleteShader(shader);throw new Error(message)}
- return shader;
-}
-const requiredTextureUnits=4;
-if(gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)<requiredTextureUnits)throw new Error(`Eyes4Beat requires ${requiredTextureUnits} fragment texture units`);
-let prog,sceneVao,sceneBuffer,bloomRenderer,contextLost=false;
-const names=['uRotationA','uRotationB','uPulseA','uPulseB','uPulseShapeA','uPulseShapeB','uWavesA[0]','uWavesB[0]','uBreathPhase','uAspect','uFrameA','uFrameB','uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uWarpA','uWarpB','uWarpDirA','uWarpDirB','uGradeA','uGradeB','uArchMix','uMapPulse','uDistAmt','uLumAmt','uSatAmt','uZoomAmt','uSpiralAmt','uTilesAmt'];
-const U={};
-function initializeRenderer(){
- const vertexShader=sh(gl.VERTEX_SHADER,vertexShaderSource),fragmentShader=sh(gl.FRAGMENT_SHADER,fragmentShaderSource);
- prog=gl.createProgram();gl.attachShader(prog,vertexShader);gl.attachShader(prog,fragmentShader);gl.linkProgram(prog);
- if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog)||'WebGL program link failed');
- gl.deleteShader(vertexShader);gl.deleteShader(fragmentShader);gl.useProgram(prog);
- sceneVao=gl.createVertexArray();gl.bindVertexArray(sceneVao);
- sceneBuffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,sceneBuffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
- gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
- names.forEach(n=>U[n]=gl.getUniformLocation(prog,n));
- ['tCurrentA','tCurrentB','tTargetA','tTargetB'].forEach((n,i)=>gl.uniform1i(gl.getUniformLocation(prog,n),i));
- bloomRenderer=new BloomRenderer(gl);
-}
-initializeRenderer();
-const bloomQualityInput=document.getElementById('bloomQuality'),bloomDiagnostics=document.getElementById('bloomDiagnostics');
-let bloomQuality='high',lastBloomDiagnostics=0,renderFps=60;
-try{bloomQuality=normalizeBloomQuality(localStorage.getItem(BLOOM_QUALITY_KEY))}catch{}
-bloomQualityInput.value=bloomQuality;
-bloomDiagnostics.textContent=bloomRenderer.diagnostics;
-bloomQualityInput.addEventListener('change',()=>{bloomQuality=normalizeBloomQuality(bloomQualityInput.value);try{localStorage.setItem(BLOOM_QUALITY_KEY,bloomQuality)}catch{}});
-window.addEventListener('storage',event=>{if(event.key===BLOOM_QUALITY_KEY){bloomQuality=normalizeBloomQuality(event.newValue);bloomQualityInput.value=bloomQuality}});
-canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();contextLost=true;bloomDiagnostics.textContent='WebGL context lost — waiting for restore'});
-canvas.addEventListener('webglcontextrestored',()=>{
- try{
-   initializeRenderer();
-   for(let role=0;role<2;role++)for(let slot=0;slot<2;slot++){
-     createTextureSlot(role,slot);
-     const media=texMedia[role][slot];
-     if(media&&(!(media instanceof HTMLVideoElement)||media.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA)){
-       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,media);
-     }
-   }
-   bloomRenderer.resize(canvas.width,canvas.height,bloomQuality);contextLost=false;
- }catch(error){bloomDiagnostics.textContent='Renderer recovery failed — reload the page';console.error(error)}
-});
-
-const texObjs=Array.from({length:2},()=>[null,null]);
-const texAspects=Array.from({length:2},()=>[1,1]);
-const texMedia=Array.from({length:2},()=>[null,null]);
-const texPalettes=Array.from({length:2},()=>[[],[]]),paletteCache=new Map();
-function loadPalette(role,slot,media,source){const key=source?.mediaId||mediaUrl(source);if(!paletteCache.has(key))paletteCache.set(key,extractMediaPalette(media));texPalettes[role][slot]=paletteCache.get(key)}
-function createTextureSlot(role,slot){
- const unit=role*2+slot;
- const tex=gl.createTexture();texObjs[role][slot]=tex;
- gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,tex);
- gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
- gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
- gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
- gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
- gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([12,16,22,255]));
-}
-for(let role=0;role<2;role++){createTextureSlot(role,0);createTextureSlot(role,1)}
-function bindTextureSlot(role,slot){
- gl.activeTexture(gl.TEXTURE0+role*2+slot);gl.bindTexture(gl.TEXTURE_2D,texObjs[role][slot]);
-}
-function releaseTextureMedia(role,slot){
- const previous=texMedia[role][slot];
- if(previous instanceof HTMLVideoElement){previous.pause();previous.removeAttribute('src');previous.load()}
- texMedia[role][slot]=null;texPalettes[role][slot]=[];
-}
-function uploadMediaToSlot(role,slot,a,imgIdx){
- return new Promise(resolve=>{
-   const source=IMAGE_SETS[a][imgIdx],url=mediaUrl(source);
-   releaseTextureMedia(role,slot);
-   if(source?.missing){texAspects[role][slot]=1;bindTextureSlot(role,slot);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([12,16,22,255]));resolve();return}
-   if(mediaIsVideo(source)){
-     const video=document.createElement('video');video.muted=true;video.loop=true;video.playsInline=true;video.preload='auto';
-     video.onloadedmetadata=()=>{texAspects[role][slot]=video.videoWidth/Math.max(1,video.videoHeight)};
-     video.onloadeddata=()=>{
-       texAspects[role][slot]=video.videoWidth/Math.max(1,video.videoHeight);
-       bindTextureSlot(role,slot);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);
-       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
-       texMedia[role][slot]=video;loadPalette(role,slot,video,source);video.play().catch(()=>{});resolve();
-     };
-     video.onerror=()=>{console.error('Unable to load video',url);resolve()};
-     video.src=url;video.load();return;
-   }
-   const img=new Image();
-   img.onload=()=>{
-     bindTextureSlot(role,slot);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,1);
-     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
-     loadPalette(role,slot,img,source);
-     texMedia[role][slot]=img;texAspects[role][slot]=img.naturalWidth/Math.max(1,img.naturalHeight);
-     resolve();
-   };
-   img.onerror=()=>{console.error('Unable to load image',url);resolve()};
-   img.src=url;
- });
-}
-const pendingMediaLoads=new Set();
-function trackedMediaLoad(role,slot,a,imgIdx){
- const load=uploadMediaToSlot(role,slot,a,imgIdx);pendingMediaLoads.add(load);load.finally(()=>pendingMediaLoads.delete(load));return load;
-}
-function swapTextureSlots(role){
- [texPalettes[role][0],texPalettes[role][1]]=[texPalettes[role][1],texPalettes[role][0]];
- [texAspects[role][0],texAspects[role][1]]=[texAspects[role][1],texAspects[role][0]];
- const tmp=texObjs[role][0];texObjs[role][0]=texObjs[role][1];texObjs[role][1]=tmp;
- const media=texMedia[role][0];texMedia[role][0]=texMedia[role][1];texMedia[role][1]=media;
- bindTextureSlot(role,0);bindTextureSlot(role,1);
-}
-function refreshVideoTextures(){
- for(let role=0;role<2;role++)for(let slot=0;slot<2;slot++){
-   const video=texMedia[role][slot];
-   if(!(video instanceof HTMLVideoElement)||video.readyState<HTMLMediaElement.HAVE_CURRENT_DATA||!video.videoWidth)continue;
-   bindTextureSlot(role,slot);
-   texAspects[role][slot]=video.videoWidth/Math.max(1,video.videoHeight);
-   gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,video);
- }
-}
-function createSequenceTransition(a,from,to,triggerClass){
- const cfg=imageConfigs[a],settings=cfg.triggers[triggerClass],s=seqStates[a],pick=pickTransitionFromPool(settings,s.poolStates[triggerClass]);s.poolStates[triggerClass]=pick.state;
- const tempo=sequenceTempo(a),configuredDwell=cfg.images[from]?.duration||10;
- const dwell=cfg.timeBase==='beats'?imageDwell(a,from,tempo).seconds:(cfg.mode==='mapped'&&triggerClass!=='manual'?Math.max(1,Math.min(8,configuredDwell)):Math.max(2,configuredDwell));
- const requestedDuration=cfg.timeBase==='beats'?beatsToSeconds(settings.durationBeats,tempo.bpm):settings.duration,duration=effectiveTransitionDuration(requestedDuration,dwell);
- const transitionId=transitionRunsAsCut(pick.id,duration)?'cut':pick.id,seed=Math.random()*1000;
- return {archetype:a,from,to,triggerClass,transitionId,transitionShaderId:transitionShaderId(transitionId),seed,param:resolveTransitionParam(transitionId,settings.wipeDirection,seed),easing:settings.easing,duration:transitionId==='cut'?0:duration};
-}
-function beginSequenceTransition(s,transition,now,initialRawProgress=0){
- s.current=transition.from;s.next=transition.to;s.rawProgress=Math.max(0,Math.min(1,initialRawProgress));s.blend=applyTransitionEasing(s.rawProgress,transition.easing);
- s.transStart=now-s.rawProgress*transition.duration*1000;s.durationMs=transition.duration*1000;s.transitioning=true;s.loading=false;
- s.transitionId=transition.transitionId;s.transitionShaderId=transition.transitionShaderId??transitionShaderId(transition.transitionId);s.seed=transition.seed;s.param=[...transition.param];s.easing=transition.easing;
-}
-function sequenceTransitionPayload(s,a){return {archetypeId:archetypes[a]?.id,from:s.current,to:s.next,transitionId:s.transitionId,seed:s.seed,param:[...s.param],easing:s.easing,duration:s.durationMs/1000}}
-function advanceSequenceTransition(role,a,now){
- const s=seqStates[a];if(!s?.transitioning)return false;
- s.rawProgress=s.durationMs>0?Math.min(1,(now-s.transStart)/s.durationMs):1;
- s.blend=s.transitionId==='cut'?1:applyTransitionEasing(s.rawProgress,s.easing);
- if(s.rawProgress<1)return false;
- swapTextureSlots(role);s.current=s.next;s.blend=0;s.rawProgress=0;s.transitioning=false;s.lastSwitch=now;s.nextAutoAt=null;
- if(!isShowMode){s.shownHistory=s.shownHistory.slice(0,s.shownHistoryCursor+1);if(s.shownHistory.at(-1)!==s.current)s.shownHistory.push(s.current);s.shownHistoryCursor=s.shownHistory.length-1}
- if(!isShowMode)updateImageManagerRuntimeState(a);
- return true;
-}
-function completeSequenceTransition(role,a,now=performance.now()){
- const s=seqStates[a];if(!s?.transitioning)return false;
- s.transStart=now-s.durationMs;s.rawProgress=1;return advanceSequenceTransition(role,a,now);
-}
-async function requestImageChange(a,idx,triggerClass=null){
- const s=seqStates[a];
- if(projectSwitching||deletingArchetype||panicActive||!imageConfigs[a].images[idx]?.enabled)return;
- triggerClass=triggerClass||classifyImageTrigger(imageConfigs[a]);
- const request={idx,triggerClass};
- if(s.loading){s.pendingRequest=resolvePendingImageRequest(s.pendingRequest,request);return}
- if(s.transitioning)completeSequenceTransition(1,a);
- if(idx===s.current)return;
- s.loading=true;s.loadingTarget=idx;
- await trackedMediaLoad(1,1,a,idx);
- if(projectSwitching){s.loading=false;s.loadingTarget=null;s.pendingRequest=null;return}
- s.loading=false;s.loadingTarget=null;
- if(panicActive){s.pendingRequest=null;return}
- if(s.pendingRequest){const pending=s.pendingRequest;s.pendingRequest=null;if(pending.idx!==idx){requestImageChange(a,pending.idx,pending.triggerClass);return}triggerClass=pending.triggerClass}
- const now=performance.now(),transition=createSequenceTransition(a,s.current,idx,triggerClass);beginSequenceTransition(s,transition,now);
- showChannel?.postMessage({type:'transition-start',transition:sequenceTransitionPayload(s,a)});
- if(s.transitionId==='cut')advanceSequenceTransition(1,a,now);
-}
-function updateImageSequence(now,Eff,freezeAdvances=false){
- const a=target,s=seqStates[a],cfg=imageConfigs[a];
- if(s.transitioning){advanceSequenceTransition(1,a,now);return}
- if(freezeAdvances)return;
- const enabled=enabledImages(a);if(enabled.length<2)return;
- if(cfg.mode==='auto'){
-   if(s.nextAutoAt==null){
-     const dwell=imageDwell(a,s.current),earliest=s.lastSwitch/1000+Math.max(2,dwell.seconds);
-     s.scheduledTempo=dwell.tempo;
-     s.nextAutoAt=(cfg.timeBase==='beats'?quantizeToBeatGrid(earliest,beatAnchorSec??s.lastSwitch/1000,60/dwell.tempo.bpm):earliest)*1000;
-   }
-   if(now>=s.nextAutoAt){s.nextAutoAt=Infinity;requestImageChange(a,chooseOrderedImage(a,1),'timed')}
- }else if(cfg.mode==='mapped'){
-   const v=clamp(mappedSourceValue(cfg.source,Eff),0,1);
-   const minDwell=Math.max(1.0,Math.min(8,cfg.images[s.current].duration||3))*1000;
-   if(mappedSourceIsEvent(cfg.source)){
-     const th=cfg.threshold||.55;
-     // Rising-edge trigger: each detected Beat/Kick/Snare event advances one image in the chosen order.
-     if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,chooseOrderedImage(a,1),'event');
-     s.lastMappedSignal=v;
-   }else{
-     // Continuous musical state: low values use early images, high values later images.
-     const desired=enabled[Math.min(enabled.length-1,Math.floor(v*enabled.length))];
-     if(desired!==s.current&&now-s.lastSwitch>=minDwell)requestImageChange(a,desired,'timed');
-     s.lastMappedSignal=v;
-   }
- }
-}
-async function loadArchetypeIntoRole(role,a){
- const s=seqStates[a],e=enabledImages(a),i0=e.includes(s.current)?s.current:(e[0]??0),i1=s.transitioning?s.next:i0;
- s.current=i0;s.next=i1;
- await Promise.all([trackedMediaLoad(role,0,a,i0),trackedMediaLoad(role,1,a,i1)]);
-}
-const remoteRoleSignatures=['',''],remoteTransitionSignatures=['',''],remoteRoleTokens=[0,0];
-function syncRemoteRole(role,a,state){
- if(projectSwitching||!state||!IMAGE_SETS[a])return;
- const i0=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.current||0));
- const i1=Math.max(0,Math.min(IMAGE_SETS[a].length-1,state.next??i0));
- const signature=`${a}:${i0}:${i1}`;
- if(remoteRoleSignatures[role]===signature)return;
- remoteRoleSignatures[role]=signature;const token=++remoteRoleTokens[role];
- Promise.all([trackedMediaLoad(role,0,a,i0),trackedMediaLoad(role,1,a,i1)]).then(()=>{
-   if(token!==remoteRoleTokens[role])return;
-   const seq=seqStates[a];seq.current=i0;seq.next=i1;seq.blend=0;seq.rawProgress=0;seq.transitioning=false;
- }).catch(error=>console.error('Unable to synchronize show media',error));
-}
-function remoteTransitionSignature(transition,role){return `${role}:${transition.archetypeId}:${transition.from}:${transition.to}:${transition.seed}`}
-async function startRemoteImageTransition(transition,initialRawProgress=0,forcedRole=null){
- const a=idToIndex.get(transition?.archetypeId);
- if(projectSwitching||!isShowMode||!transition||a==null||!IMAGE_SETS[a])return;
- const role=forcedRole??(a===current&&a!==target?0:1),signature=remoteTransitionSignature(transition,role);
- if(remoteTransitionSignatures[role]===signature)return;
- const sourceReady=remoteRoleSignatures[role].startsWith(`${a}:${transition.from}:`);
- remoteTransitionSignatures[role]=signature;remoteRoleSignatures[role]=`${a}:${transition.from}:${transition.to}`;
- const token=++remoteRoleTokens[role],s=seqStates[a];s.loading=true;
- try{
-   const loads=[trackedMediaLoad(role,1,a,transition.to)];
-   if(!sourceReady)loads.push(trackedMediaLoad(role,0,a,transition.from));
-   await Promise.all(loads);if(token!==remoteRoleTokens[role])return;
-   beginSequenceTransition(s,{...transition,transitionShaderId:transitionShaderId(transition.transitionId),param:transition.param||resolveTransitionParam(transition.transitionId,'left',transition.seed)},performance.now(),initialRawProgress);
-   if(s.transitionId==='cut')advanceSequenceTransition(role,a,performance.now());
- }catch(error){s.loading=false;console.error('Unable to start show transition',error)}
-}
-function syncRemoteSequence(role,a,state){
- if(!state)return;
- if(state.transitioning&&state.transition){startRemoteImageTransition(state.transition,state.rawProgress||0,role);return}
- if(seqStates[a]?.transitioning)return;
- remoteTransitionSignatures[role]='';syncRemoteRole(role,a,state);
-}
-function applyRemoteVisualState(state){
- const indexes=resolveShowIndexes(state,activeProject?.id||null,idToIndex);if(!indexes)return;
- setBlackout(!!state.blackout);
- FinalG={...NEUTRAL_TARGETS,...state.finalG};
- current=indexes.current;target=indexes.target;archMix=Number.isFinite(state.archMix)?state.archMix:1;transitioning=!!state.transitioning;
- if(current!==target)syncRemoteSequence(0,current,state.seqA);
- syncRemoteSequence(1,target,state.seqB);
-}
-function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next:s.next,blend:s.blend,rawProgress:s.rawProgress,transitioning:s.transitioning,transition:s.transitioning?sequenceTransitionPayload(s,a):null}}
-function broadcastShowFrame(now,Eff){
- if(!showChannel||now-lastShowBroadcastAt<40)return;
- lastShowBroadcastAt=now;
- showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,finalG:{...FinalG},eff:{...Eff},currentId:archetypes[current]?.id||null,targetId:archetypes[target]?.id||null,archMix,transitioning,blackout:blackoutActive,lookA:looks[current],lookB:looks[target],effects:visualSnapshot,particleState:packParticles(particles,pcanvas.width,pcanvas.height),panic:panicActive,seqA:sequenceSnapshot(current),seqB:sequenceSnapshot(target),bpm:BPM,beat:BeatPulse,kick:KickFast,snare:SnareFast}});
-}
-
-let audioObjectUrl=null,latestAnalysis=null;
-const audio=document.getElementById('audio');
-const playButton=document.getElementById('play');
-const seekControl=document.getElementById('seek');
-const volumeControl=document.getElementById('volume');
-const muteButton=document.getElementById('mute');
-const trackName=document.getElementById('trackName');
-const timeDisplay=document.getElementById('timeDisplay');
+let seeking=false,clipHoldUntil=0;
+const playButton=document.getElementById('play'),seekControl=document.getElementById('seek'),volumeControl=document.getElementById('volume'),muteButton=document.getElementById('mute');
 const audioDevice=document.getElementById('audioDevice'),inputTrim=document.getElementById('inputTrim');
-const inputController=new AudioInputController(audio,{onDeviceChange:handleDeviceChange,onTrackEnded:handleInputLost,onFeatures:applyAnalysisFeatures,onCalibration:sample=>{if(calibrationRun){if(sample.count)calibrationRun.samples.push(sample);if(sample.final&&calibrationRun.finishing)finishNoiseCalibration()}},onAnalysisError:()=>{document.getElementById('inputWarning').textContent='Audio analysis stopped. Reload the page before performing.'}});
-let seeking=false,inputMode='file',inputLostDevice='',currentInputDiagnostics=null,clipHoldUntil=0,calibrationRun=null;
-const INPUT_TRIM_KEY='eyes4beat_input_trim',INPUT_CALIBRATION_KEY='eyes4beat_input_calibrations';
-let inputTrims={},inputCalibrations={};
-try{inputTrims=JSON.parse(localStorage.getItem(INPUT_TRIM_KEY)||'{}')||{};inputCalibrations=JSON.parse(localStorage.getItem(INPUT_CALIBRATION_KEY)||'{}')||{}}catch{}
-
-function inputKey(){return inputMode==='live'?(inputController.deviceId||audioDevice.value||'default'):'file'}
-function saveInputSettings(){try{localStorage.setItem(INPUT_TRIM_KEY,JSON.stringify(inputTrims));localStorage.setItem(INPUT_CALIBRATION_KEY,JSON.stringify(inputCalibrations))}catch{}}
-function currentTrimDb(){return Number(inputTrims[inputKey()]??0)}
-function currentCalibration(){const item=inputCalibrations[inputKey()];return item&&Number(item.trimDb)===currentTrimDb()?item:null}
-function syncAnalysisNodes(){inputController.setAnalysisCalibration(currentCalibration())}
-function applyStoredTrim(immediate=true){const value=currentTrimDb();inputTrim.value=String(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';inputController.setTrimDb(value,immediate);inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus()}
-function resetBeatTracking(resetLayers=false){pendingVisualEvents.length=0;BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;inputController.resetAnalysis(resetLayers)}
-
-function formatTime(seconds){
- if(!Number.isFinite(seconds)||seconds<0)return '0:00';
- const minutes=Math.floor(seconds/60),rest=Math.floor(seconds%60);
- return minutes+':'+String(rest).padStart(2,'0');
-}
-function updateTimeDisplay(previewTime=audio.currentTime){
- timeDisplay.textContent=formatTime(previewTime)+' / '+formatTime(audio.duration);
-}
-function updateTransportState(){
- const fileMode=inputMode==='file';
- const isPaused=audio.paused;
- playButton.classList.toggle('playing',!isPaused);
- playButton.title=isPaused?'Play':'Pause';
- playButton.dataset.tooltip=isPaused?'Play':'Pause';
- playButton.setAttribute('aria-label',isPaused?'Play':'Pause');
- muteButton.title=audio.muted?'Unmute':'Mute';
- muteButton.dataset.tooltip=audio.muted?'Unmute':'Mute';
- muteButton.setAttribute('aria-label',audio.muted?'Unmute':'Mute');
- muteButton.classList.toggle('active',audio.muted);
- playButton.disabled=!fileMode||!audio.src;seekControl.disabled=!fileMode||!audio.src;muteButton.disabled=!fileMode||!audio.src;volumeControl.disabled=!fileMode||!audio.src;
-}
-let Raw={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
-let Fast={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
-let Context={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
-let S={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.6};
-let KickFast=0, SnareFast=0;
-let BPM=0, BPMConfidence=0, beatAnchorSec=null, BeatPulse=0;
-function neutralizeInputState(){resetBeatTracking(true);Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}
-async function ensureAudio(){
- try{await inputController.ensureContext();syncAnalysisNodes();applyStoredTrim()}
- catch(error){const message=readableInputError(error);document.getElementById('inputWarning').textContent=message;throw error}
-}
-document.getElementById('file').onchange=async e=>{
- const f=e.target.files[0]; if(!f)return;
- if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
- audioObjectUrl=URL.createObjectURL(f);audio.src=audioObjectUrl;
- inputMode='file';resetBeatTracking();
- try{await inputController.activateFile();syncAnalysisNodes();applyStoredTrim()}
- catch(error){document.getElementById('inputWarning').textContent=readableInputError(error);return}
- trackName.dataset.fileName=f.name.replace(/\.[^.]+$/,'');trackName.textContent=trackName.dataset.fileName;
- updateInputModeUi();updateInputDiagnostics(inputController.diagnostics());updateTransportState();
- try{await audio.play()}catch(error){document.getElementById('audioInputStatus').textContent='File loaded. Press play to start.'}
-};
-playButton.onclick=async()=>{if(inputMode!=='file')return;try{await ensureAudio();audio.paused?await audio.play():audio.pause()}catch{}};
-audio.addEventListener('loadedmetadata',()=>{seekControl.disabled=false;seekControl.value='0';updateTimeDisplay(0)});
-audio.addEventListener('timeupdate',()=>{
- if(!seeking&&Number.isFinite(audio.duration)&&audio.duration>0)seekControl.value=String(Math.round(audio.currentTime/audio.duration*1000));
- if(!seeking)updateTimeDisplay();
-});
-audio.addEventListener('play',updateTransportState);
-audio.addEventListener('pause',updateTransportState);
-audio.addEventListener('ended',updateTransportState);
-seekControl.addEventListener('input',()=>{seeking=true;const preview=Number.isFinite(audio.duration)?(+seekControl.value/1000)*audio.duration:0;updateTimeDisplay(preview)});
-seekControl.addEventListener('change',()=>{if(Number.isFinite(audio.duration))audio.currentTime=(+seekControl.value/1000)*audio.duration;seeking=false;updateTimeDisplay()});
-volumeControl.addEventListener('input',()=>{audio.volume=+volumeControl.value;if(audio.volume>0&&audio.muted)audio.muted=false;updateTransportState()});
-muteButton.onclick=()=>{audio.muted=!audio.muted;updateTransportState()};
-function updateInputModeUi(){
- document.getElementById('fileModeBtn').classList.toggle('active',inputMode==='file');document.getElementById('liveModeBtn').classList.toggle('active',inputMode==='live');
- document.getElementById('audioInputBtn').classList.toggle('active',inputMode==='live');audioDevice.disabled=inputMode!=='live';document.getElementById('startLiveInput').disabled=inputMode!=='live';updateTransportState();
-}
-function updateInputDiagnostics(info){
- currentInputDiagnostics=info;const flag=value=>value===true?'ON':value===false?'OFF':'UNSUPPORTED';
- const latency=typeof info?.baseLatency==='number'?(info.baseLatency*1000).toFixed(1)+' ms':String(info?.baseLatency??'—');
- const diagnostics=document.getElementById('inputDiagnostics');diagnostics.textContent=info?`${info.mode.toUpperCase()} · ${info.label} · ${info.sampleRate} Hz · ${info.channelCount} ch · EC ${flag(info.echoCancellation)} · NS ${flag(info.noiseSuppression)} · AGC ${flag(info.autoGainControl)} · latency ${latency}`:'Waiting for source';diagnostics.title=diagnostics.textContent;
- const warning=document.getElementById('inputWarning');warning.textContent=info?.warning||'';warning.classList.toggle('active',!!info?.warning);
-}
-async function refreshInputDevices(){
- try{
-   const devices=await inputController.enumerateInputs(),previous=audioDevice.value,stored=localStorage.getItem(INPUT_DEVICE_KEY)||'';audioDevice.innerHTML='';
-   devices.forEach(device=>{const option=document.createElement('option');option.value=device.deviceId;option.textContent=device.label+(device.builtIn?' · built-in':'');audioDevice.appendChild(option)});
-   const available=devices.map(device=>device.deviceId),wanted=available.includes(previous)?previous:available.includes(stored)?stored:(available[0]||'');audioDevice.value=wanted;
-   if(!devices.length){const option=document.createElement('option');option.value='';option.textContent='No audio inputs found';audioDevice.appendChild(option)}
-   return devices;
- }catch(error){document.getElementById('audioInputStatus').textContent=readableInputError(error);return []}
-}
-async function startLiveInput(deviceId=audioDevice.value){
- inputMode='live';audio.pause();updateInputModeUi();document.getElementById('audioInputStatus').textContent='Requesting audio input…';resetBeatTracking();
- try{
-   const info=await inputController.activateLive(deviceId||undefined);syncAnalysisNodes();inputLostDevice='';
-   const selected=deviceId||info.deviceId;if(selected)try{localStorage.setItem(INPUT_DEVICE_KEY,selected)}catch{}
-   await refreshInputDevices();if(selected&&[...audioDevice.options].some(option=>option.value===selected))audioDevice.value=selected;
-   trackName.textContent='LIVE: '+info.label;document.getElementById('audioInputStatus').textContent='Live input active · not routed to speakers.';applyStoredTrim();updateInputDiagnostics(info);updateTransportState();
- }catch(error){document.getElementById('audioInputStatus').textContent=readableInputError(error);trackName.textContent='LIVE INPUT UNAVAILABLE';updateInputDiagnostics(inputController.diagnostics())}
-}
-async function activateFileMode(){
- inputMode='file';inputLostDevice='';resetBeatTracking();
- try{await inputController.activateFile();syncAnalysisNodes();applyStoredTrim();updateInputDiagnostics(inputController.diagnostics());document.getElementById('audioInputStatus').textContent=audio.src?'File mode ready.':'Choose an audio file.';trackName.textContent=audio.src?(trackName.dataset.fileName||'Audio file'):'No track loaded'}catch(error){document.getElementById('audioInputStatus').textContent=readableInputError(error)}
- updateInputModeUi();
-}
-async function handleDeviceChange(){
- const devices=await refreshInputDevices();
- if(inputMode==='live'&&inputLostDevice&&devices.some(device=>device.deviceId===inputLostDevice))startLiveInput(inputLostDevice);
-}
-function handleInputLost(deviceId){inputLostDevice=deviceId;neutralizeInputState();trackName.textContent='LIVE: INPUT LOST';document.getElementById('audioInputStatus').textContent='Input lost. Waiting for the same device to reconnect…';updateInputDiagnostics(inputController.diagnostics())}
-function renderCalibrationStatus(){
- const status=document.getElementById('calibrationStatus'),record=inputCalibrations[inputKey()],valid=currentCalibration();
- if(valid){status.textContent='CALIBRATED';status.classList.add('calibrated');document.getElementById('calibrationHint').textContent='Noise floor is active for this input and trim.'}
- else{status.textContent=record?'STALE · RECALIBRATE':'NOT CALIBRATED';status.classList.remove('calibrated');document.getElementById('calibrationHint').textContent=record?'Trim changed. Recalibrate with the instrument silent.':'Keep the instrument silent during calibration.'}
-}
-function beginNoiseCalibration(){
- if(!inputController.inputActive){document.getElementById('audioInputStatus').textContent='Start playback or live input before calibrating.';return}
- calibrationRun={endsAt:performance.now()+3000,samples:[]};inputController.setCalibrationCapture(true);document.getElementById('calibrateNoise').disabled=true;document.getElementById('calibrationStatus').classList.remove('calibrated');
-}
-function finishNoiseCalibration(){
- if(calibrationRun&&!calibrationRun.finishing){calibrationRun.finishing=true;inputController.setCalibrationCapture(false);return}
- if(!calibrationRun?.samples.length){calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;document.getElementById('audioInputStatus').textContent='Calibration failed: no audio samples received.';renderCalibrationStatus();return}
- const count=calibrationRun.samples.reduce((sum,sample)=>sum+sample.count,0),binCount=calibrationRun.samples.find(sample=>sample.spectrum)?.spectrum?.length||0,bins=new Array(binCount).fill(0);
- for(const sample of calibrationRun.samples)for(let index=0;index<binCount;index++)bins[index]+=(sample.spectrum?.[index]||0)/count;
- const rms=Math.sqrt(calibrationRun.samples.reduce((sum,sample)=>sum+sample.power,0)/count);inputCalibrations[inputKey()]={rms,bins,trimDb:currentTrimDb(),createdAt:Date.now()};saveInputSettings();calibrationRun=null;document.getElementById('calibrateNoise').disabled=false;inputController.setAnalysisCalibration(currentCalibration());renderCalibrationStatus();
-}
-function renderInputMeter(meter,now){
- document.getElementById('inputLevelFill').style.width=(Math.max(0,Math.min(100,(meter.peakDb+60)/60*100)))+'%';document.getElementById('inputRms').textContent='RMS '+meter.rmsDb.toFixed(1)+' dBFS';document.getElementById('inputPeak').textContent='PEAK '+meter.peakDb.toFixed(1)+' dBFS';
- if(meter.peakDb>=-1)clipHoldUntil=now+1000;document.getElementById('inputClip').classList.toggle('active',now<clipHoldUntil);
- if(calibrationRun){const remaining=Math.max(0,calibrationRun.endsAt-now);document.getElementById('calibrationStatus').textContent='SILENCE · '+(remaining/1000).toFixed(1)+' s';if(remaining<=0&&!calibrationRun.finishing)finishNoiseCalibration()}
-}
-document.getElementById('audioInputBtn').onclick=async()=>{closeImageManager();closeMappingMatrix();document.getElementById('creatorPanel').classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');await refreshInputDevices();renderCalibrationStatus()};
+function formatTime(seconds){if(!Number.isFinite(seconds)||seconds<0)return '0:00';return Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0')}
+function updateTimeDisplay(time=engineState?.transport.currentTime||0){document.getElementById('timeDisplay').textContent=formatTime(time)+' / '+formatTime(engineState?.transport.duration||0)}
+document.getElementById('file').onchange=event=>{const file=event.target.files[0];if(file)fire('audioLoad',{blob:file,name:file.name})};
+playButton.onclick=()=>fire(engineState?.transport.paused?'audioPlay':'audioPause');
+seekControl.oninput=()=>{seeking=true;updateTimeDisplay((+seekControl.value/1000)*(engineState?.transport.duration||0))};
+seekControl.onchange=()=>{fire('audioSeek',{fraction:+seekControl.value/1000});seeking=false};
+volumeControl.oninput=()=>fire('audioVolume',{value:+volumeControl.value});
+muteButton.onclick=()=>fire('audioMute',{value:!engineState?.transport.muted});
+document.getElementById('audioInputBtn').onclick=()=>{closeImageManager();closeMappingMatrix();creatorPanel.classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');fire('enumerateInputs')};
 document.getElementById('closeAudioInput').onclick=()=>document.getElementById('audioInputPanel').classList.remove('open');
-document.getElementById('fileModeBtn').onclick=activateFileMode;document.getElementById('liveModeBtn').onclick=()=>startLiveInput();document.getElementById('startLiveInput').onclick=()=>startLiveInput();
-audioDevice.onchange=()=>{try{localStorage.setItem(INPUT_DEVICE_KEY,audioDevice.value)}catch{}if(inputMode==='live')startLiveInput(audioDevice.value)};
-inputTrim.oninput=()=>{const value=+inputTrim.value;inputTrims[inputKey()]=value;saveInputSettings();inputController.setTrimDb(value);document.getElementById('inputTrimValue').textContent=value.toFixed(1)+' dB';if(calibrationRun){calibrationRun=null;inputController.setCalibrationCapture(false);document.getElementById('calibrateNoise').disabled=false}renderCalibrationStatus()};
-document.getElementById('calibrateNoise').onclick=beginNoiseCalibration;
-document.getElementById('clearCalibration').onclick=()=>{delete inputCalibrations[inputKey()];saveInputSettings();inputController.setAnalysisCalibration(null);renderCalibrationStatus()};
-refreshInputDevices();updateInputModeUi();renderCalibrationStatus();
+document.getElementById('fileModeBtn').onclick=()=>fire('setInput',{mode:'file'});
+const startLiveInput=()=>fire('setInput',{mode:'live',device:audioDevice.value});
+document.getElementById('liveModeBtn').onclick=startLiveInput;document.getElementById('startLiveInput').onclick=startLiveInput;
+audioDevice.onchange=()=>{try{localStorage.setItem(INPUT_DEVICE_KEY,audioDevice.value)}catch{}if(engineState?.transport.mode==='live')startLiveInput()};
+inputTrim.oninput=()=>fire('setTrim',{value:+inputTrim.value});
+document.getElementById('calibrateNoise').onclick=()=>fire('calibrate');
+document.getElementById('clearCalibration').onclick=()=>fire('clearCalibration');
+fire('enumerateInputs');
 const fullscreenButton=document.getElementById('fullscreen');
 function updateFullscreenButton(){const active=!!document.fullscreenElement;fullscreenButton.classList.toggle('fullscreenActive',active);fullscreenButton.setAttribute('aria-label',active?'Exit full screen':'Full screen');fullscreenButton.dataset.tooltip=active?'Exit full screen':'Full screen'}
 fullscreenButton.onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();document.addEventListener('fullscreenchange',updateFullscreenButton);updateFullscreenButton();
-document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none';inputController.setAnalysisDiagnostics(getComputedStyle(d).display!=='none')};
-const diagnosticVisibility=new ResizeObserver(()=>inputController.setAnalysisDiagnostics(getComputedStyle(document.getElementById('diag')).display!=='none'));diagnosticVisibility.observe(document.getElementById('diag'));
+document.getElementById('diagBtn').onclick=()=>{const d=document.getElementById('diag');d.style.display=d.style.display==='none'?'block':'none';fire('setDiagnostics',{enabled:getComputedStyle(d).display!=='none'})};
+const diagnosticVisibility=new ResizeObserver(()=>fire('setDiagnostics',{enabled:getComputedStyle(document.getElementById('diag')).display!=='none'}));diagnosticVisibility.observe(document.getElementById('diag'));
 const shortcutDialog=document.getElementById('shortcutDialog'),shortcutToast=document.getElementById('shortcutToast');
 let shortcutToastTimer=0;
 function showShortcutToast(message){
@@ -1041,59 +582,31 @@ function showShortcutToast(message){
 function openShortcutGuide(){if(!shortcutDialog.open)shortcutDialog.showModal()}
 document.getElementById('shortcutHelpBtn').onclick=openShortcutGuide;
 document.getElementById('closeShortcutDialog').onclick=()=>shortcutDialog.close();
-const blackoutOverlay=document.getElementById('blackoutOverlay'),blackoutButton=document.getElementById('blackoutBtn'),panicButton=document.getElementById('panicBtn');
+const blackoutButton=document.getElementById('blackoutBtn'),panicButton=document.getElementById('panicBtn');
 function updateSafetyUi(){
- blackoutOverlay.classList.toggle('active',blackoutActive);blackoutButton.classList.toggle('active',blackoutActive);blackoutButton.setAttribute('aria-pressed',String(blackoutActive));
+ blackoutButton.classList.toggle('active',blackoutActive);blackoutButton.setAttribute('aria-pressed',String(blackoutActive));
  panicButton.classList.toggle('active',panicActive);panicButton.setAttribute('aria-pressed',String(panicActive));
  document.getElementById('blackoutStatus').classList.toggle('active',blackoutActive);document.getElementById('panicStatus').classList.toggle('active',panicActive);
 }
-function setBlackout(value){blackoutActive=!!value;updateSafetyUi();return blackoutActive}
+function setBlackout(value){blackoutActive=!!value;fire('setSafety',{control:'blackout',value:blackoutActive});return blackoutActive}
+
 function toggleBlackout(){return setBlackout(!blackoutActive)}
-function setPanic(value){
- const next=!!value;if(next===panicActive)return panicActive;
- panicActive=next;
- if(panicActive){resetVisualEffects();lastShowBroadcastAt=0;panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
- else{panicReleaseStartedAt=performance.now();if(seqStates[target]){seqStates[target].lastSwitch=performance.now();seqStates[target].nextAutoAt=null}}
- updateSafetyUi();return panicActive;
-}
+function setPanic(value){panicActive=!!value;fire('setSafety',{control:'panic',value:panicActive});return panicActive}
+
 function togglePanic(){return setPanic(!panicActive)}
 blackoutButton.onclick=toggleBlackout;panicButton.onclick=togglePanic;
 window.EyesForBeatsSafety={toggleBlackout,togglePanic,setBlackout,setPanic};
 updateSafetyUi();
-const showModeButton=document.getElementById('showModeBtn');
-if(!showChannel){showModeButton.disabled=true;showModeButton.title='Show mode is not supported by this browser';if(isShowMode)document.getElementById('showConnection').textContent='BROADCAST CHANNEL NOT SUPPORTED'}
-showModeButton.onclick=()=>{
- const url=new URL(location.href);url.searchParams.set('show','1');
- if(showWindow&&!showWindow.closed){showWindow.focus();return}
- showWindow=window.open(url,'eyesforbeats-show','popup,width=1280,height=720');
- if(!showWindow){showModeButton.title='Allow pop-ups to open the show output';return}
- showModeButton.title='Show output opened · move it to the projector and double-click for full screen';
-};
-setInterval(()=>{
- const connected=Date.now()-lastShowPeerAt<4500;
- showModeButton.classList.toggle('connected',connected);
- showModeButton.title=connected?'Show output connected':'Open show output';
-},1000);
+const outputController=createOutputController(transport,{onAdopt:adoptOutput,button:document.getElementById('outputBtn'),readMedia:async(id,cacheName)=>{
+ if(cacheName!==repository.cache.name)return null;
+ const record=await repository.getMedia(id);if(record?.blob)return record.blob;
+ if(!activeProject||!repository.online)return null;
+ const records=await repository.listArchetypes(activeProject.id);if(!records.some(record=>record.media.some(media=>media.mediaId===id)))return null;
+ const blob=await repository.api.getMedia(id);await repository.putMedia(blob,blob.type);return blob;
+}});
 
-function applyAnalysisFeatures(features){
- latestAnalysis=features;if(!inputController.inputActive)return neutralizeInputState();
- const now=performance.now();lastFeatureAt=now;renderInputMeter(features.meter,now);
- if(!panicActive){for(const event of features.eventBatch||[]){if(eventSourceIds().includes(event.type)&&features.timestamp-event.timestamp<.5)pendingVisualEvents.push({...event,intensity:event.intensity??1,receivedAt:now})}if(pendingVisualEvents.length>64)pendingVisualEvents.splice(0,pendingVisualEvents.length-64)}
- Raw={...features.raw};BPM=features.tempo.bpm;BPMConfidence=features.tempo.confidence;beatAnchorSec=BPM>0?features.timestamp-features.tempo.phase*60/BPM:null;
- BeatPulse=features.events.beat?Math.max(.35,BPMConfidence):features.beat;
- KickFast=features.events.kick?1:features.kick;SnareFast=features.events.snare?1:features.snare;
- Fast={...features.fast};Context={...features.context};
- const mix=+document.getElementById('ctxPerf').value,blend=(fast,context,shape)=>{const weight=Math.max(0,Math.min(1,mix*shape));return fast*(1-weight)+context*weight};
- S.energy=blend(Fast.energy,Context.energy,.95);S.density=blend(Fast.density,Context.density,1);S.drive=blend(Fast.drive,Context.drive,.92);S.boombap=Fast.boombap*.8+Context.boombap*.2;S.bright=blend(Fast.bright,Context.bright,1);S.tension=blend(Fast.tension,Context.tension,1.08);S.open=blend(Fast.open,Context.open,1.12);
- const analysisLoadWarning=document.getElementById('analysisLoadWarning');
- analysisLoadWarning.textContent=features.overloaded?'Analysis CPU above 40% of the audio budget'+(features.mode===2?' · minimum resolution active':' · reducing resolution if sustained'):features.mode?'Analysis running at reduced resolution to protect audio':'';
- if(!features.bands)return;
- const bands=Object.entries(features.bands).map(([name,value])=>{const [low,high]=features.bandRanges[name];return `${name} ${low}–${Math.round(high)} Hz ${value.toFixed(1)}`}).join(' · '),ranges=Object.entries(features.normalization).map(([name,value])=>`${name} ${value.low.toFixed(2)}…${value.high.toFixed(2)}`).join(' · ');
- const diagnostics=document.getElementById('analysisDiagnostics');diagnostics.textContent=`${inputController.context.sampleRate} Hz · worklet ${features.processingMs.toFixed(3)} ms/quantum · ${(features.processingMs/(128/inputController.context.sampleRate*1000)*100).toFixed(1)}% audio budget (${features.clock} clock) · mode ${['2048 FFT / 512 hop','2048 FFT / 1024 hop','1024 FFT / 1024 hop'][features.mode]} · ${bands} dBFS · onset ${features.onset.toFixed(3)} · BPM ${BPM?BPM.toFixed(1):'—'} · confidence ${BPMConfidence.toFixed(2)} · phase ${features.tempo.phase.toFixed(2)} · kick ${features.events.kick?'HIT':'—'} · snare ${features.events.snare?'HIT':'—'} · gate ${features.gate?'CLOSED':'OPEN'} · norm ${ranges}`;diagnostics.title=diagnostics.textContent;
-}
-
-let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;
-let archetypeSelectionBusy=false,queuedArchetype=null;
+let target=0,mode='smooth';
+let archetypeSelectionBusy=false;
 let deletingArchetype=false,pendingDeleteArchId=null;
 const deleteArchDialog=document.getElementById('deleteArchDialog');
 function openDeleteArchetype(id){
@@ -1151,16 +664,15 @@ async function refreshProjects(){
  const ready=activeProject?await repository.projectReadyOffline(activeProject.id):false,offline=document.getElementById('offlineReady');offline.textContent=activeProject?`Offline readiness: ${ready?'Ready offline':'Media missing'}`:'Offline readiness: no project';offline.className='offlineReady '+(ready?'ready':'missing');
  const accountButton=document.getElementById('accountBtn');accountButton.classList.toggle('offlineReadyHeader',!!activeProject&&ready);accountButton.dataset.tooltip=activeProject?(ready?'Account and sync · ready offline':'Account and sync · media missing'):'Account and sync';
 }
-async function openProject(projectId,{fromShow=false,preferredId=null}={}){
+async function openProject(projectId,{preferredId=null,recovery=null}={}){
  if(libraryVersionChanged)throw new Error('Library updated in another tab; reload this page');
  const generation=++projectSwitchGeneration;projectSwitching=true;
  try{
  await flushArchetypeWrites();
- await Promise.all([...pendingMediaLoads]);
- const nextProject=projectId?await repository.getProject(projectId):null;
+ const nextProject=recovery?recovery.project:projectId?await repository.getProject(projectId):null;
  if(projectId&&(!nextProject||nextProject.deletedAt))throw new Error('Project not found');
- if(nextProject&&!isShowMode&&repository.online)await repository.hydrateProject(nextProject.id,(done,total)=>{document.getElementById('projectStatus').textContent=`Caching media ${done}/${total}…`}).catch(()=>{});
- const records=nextProject?await repository.listArchetypes(nextProject.id):[];
+ if(!recovery&&nextProject&&repository.online)await repository.hydrateProject(nextProject.id,(done,total)=>{document.getElementById('projectStatus').textContent=`Caching media ${done}/${total}…`}).catch(()=>{});
+ const records=recovery?recovery.records:nextProject?await repository.listArchetypes(nextProject.id):[];
  const mediaRecords=new Map(),missingArchetypes=new Set();
  for(const record of records)for(const media of record.media){if(!mediaRecords.has(media.mediaId)){
    const saved=await repository.getMedia(media.mediaId);mediaRecords.set(media.mediaId,saved||null);
@@ -1168,20 +680,17 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  const urls=new Map();for(const [mediaId,saved] of mediaRecords)if(saved)urls.set(mediaId,URL.createObjectURL(saved.blob));
  const runtime=nextProject?buildProjectRuntime(nextProject,records,media=>mediaRecords.get(media.mediaId)?({url:urls.get(media.mediaId),type:media.mime,name:media.name,mediaId:media.mediaId}):null):null;
  if(generation!==projectSwitchGeneration){for(const url of urls.values())URL.revokeObjectURL(url);return}
- for(const role of [0,1])for(const slot of [0,1])releaseTextureMedia(role,slot);
  const oldUrls=new Set(IMAGE_SETS.flat().map(source=>typeof source==='string'?null:source.url).filter(Boolean));oldUrls.forEach(URL.revokeObjectURL);
  archetypes.splice(0,archetypes.length,...(runtime?.archetypes||[]));IMAGE_SETS.splice(0,IMAGE_SETS.length,...(runtime?.IMAGE_SETS||[]));
  defaultRoutingMaps.splice(0,defaultRoutingMaps.length,...(runtime?.defaultRoutingMaps||[]));routingMaps=runtime?.routingMaps||[];
  defaultImageConfigs.splice(0,defaultImageConfigs.length,...(runtime?.defaultImageConfigs||[]));imageConfigs=runtime?.imageConfigs||[];
  musicPresets=runtime?.musicPresets||[];looks=runtime?.looks||[];idToIndex=runtime?.idToIndex||new Map();
- seqStates.splice(0,seqStates.length,...archetypes.map(createSequenceState));
- remoteRoleSignatures.fill('');remoteTransitionSignatures.fill('');remoteRoleTokens[0]++;remoteRoleTokens[1]++;
- activeProject=nextProject;current=target=idToIndex.get(preferredId)??0;archMix=1;transitioning=false;queuedArchetype=null;archetypeSelectionBusy=false;resetVisualEffects();paletteCache.clear();
+ activeProject=nextProject;target=idToIndex.get(preferredId)??0;archetypeSelectionBusy=false;
  if(!libraryVersionChanged){const notice=document.getElementById('libraryNotice');notice.hidden=!missingArchetypes.size;
  notice.textContent=missingArchetypes.size?`Missing media in: ${[...missingArchetypes].join(', ')}. Available media will continue playing.`:''}
- if(archetypes.length)await Promise.all([loadArchetypeIntoRole(0,target),loadArchetypeIntoRole(1,target)]);
+ if(!recovery){const payload={project:nextProject,records,cacheName:repository.cache.name,preferredId};if(transport.disconnected)transport.project=structuredClone(payload);else await send('loadProject',payload)}
  if(generation!==projectSwitchGeneration)return;
- if(!fromShow)await repository.setActiveProject(activeProject?.id||null);
+ await repository.setActiveProject(activeProject?.id||null);
  projectLookPresets=activeProject?await repository.listLookPresets(activeProject.id):[];renderProjectLookPresets();
  renderArchetypeBar();renderPresetControls();await refreshProjects();
  if(lookPanel.classList.contains('open')){if(archetypes.length)renderLookEditor();else closeLookEditor()}
@@ -1190,17 +699,26 @@ async function openProject(projectId,{fromShow=false,preferredId=null}={}){
  document.getElementById('lookBtn').disabled=!archetypes.length;document.getElementById('imageMgrBtn').disabled=!archetypes.length;
  document.getElementById('openMatrix').disabled=!archetypes.length;
  document.getElementById('projectStatus').textContent='';
- if(!fromShow)showChannel?.postMessage({type:'library-changed',projectId:activeProject?.id||null});
  }finally{if(generation===projectSwitchGeneration)projectSwitching=false}
 }
-async function initializeLibrary(){
- if(!isShowMode)updateStorageStatus();
+async function setLiveLock(value){await send('setSafety',{control:'liveLock',value:!!value});return repository.setLiveLock(value)}
+async function adoptOutput(recovery){
+ adoptingOutput=true;
+ try{
+  await openProject(recovery.project.project?.id,{preferredId:recovery.event.state.targetId,recovery:recovery.project});
+  const saved=new Map(recovery.saved);applyMusicPreset(saved.get('setControls')?.controls,{viewOnly:true});
+  transport.adopt({...recovery,event:transport.transport.latestEvent||recovery.event});
+  await repository.setLiveLock(!!recovery.event.state.liveLock);
+ }finally{adoptingOutput=false}
+}
+async function initializeLibrary(recovered=false){
+ updateStorageStatus();
  const projects=await repository.listProjects(),meta=await repository.getMeta();
  const initial=projects.find(project=>project.id===meta.lastActiveProjectId)||projects[0]||null;
- await openProject(initial?.id||null,{fromShow:isShowMode});
- if(!isShowMode)try{document.getElementById('legacySection').hidden=!(await legacyDataAvailable())}catch(error){console.warn('Legacy archive check failed',error)}
- if(!projects.length&&!isShowMode)projectPanel.classList.add('open');
- if(!isShowMode)void repository.initialize().then(async()=>{
+ if(!recovered&&!transport.transport.recovery)await openProject(initial?.id||null,{});
+ try{document.getElementById('legacySection').hidden=!(await legacyDataAvailable())}catch(error){console.warn('Legacy archive check failed',error)}
+ if(!projects.length)projectPanel.classList.add('open');
+ void repository.initialize().then(async()=>{
    const migrationKey=`eyes4beat_local_migration_${repository.email}`;if(!repository.email||localStorage.getItem(migrationKey))return;
    const legacy=new LocalLibraryRepository('eyes4beat-library');const localProjects=await legacy.listProjects();
    if(!localProjects.length){localStorage.setItem(migrationKey,'empty');await legacy.close();return}
@@ -1249,9 +767,9 @@ document.getElementById('projectVisibility').onclick=async()=>{if(!activeProject
 document.getElementById('accountBtn').onclick=()=>projectPanel.classList.toggle('open');
 document.getElementById('syncNow').onclick=()=>repository.sync().catch(error=>{document.getElementById('projectStatus').textContent=error.message});
 document.getElementById('signOut').onclick=()=>{location.href='/cdn-cgi/access/logout'};
-document.getElementById('liveLockBtn').onclick=()=>repository.setLiveLock(!repository.state.liveLock).catch(console.error);
-addEventListener('focus',()=>{if(!isShowMode)void repository.sync().catch(()=>{})});
-document.addEventListener('visibilitychange',()=>{if(!isShowMode&&document.visibilityState==='visible')void repository.sync().catch(()=>{})});
+document.getElementById('liveLockBtn').onclick=()=>setLiveLock(!repository.state.liveLock).catch(console.error);
+addEventListener('focus',()=>{void repository.sync().catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void repository.sync().catch(()=>{})});
 function renderArchetypeBar(){
  const bar=document.getElementById('archBar');bar.innerHTML='';
  if(!archetypes.length){const empty=document.createElement('span');empty.className='archEmpty';empty.textContent=activeProject?'No archetypes yet — create one or import a package.':'Create or import a project to begin.';bar.appendChild(empty)}
@@ -1260,7 +778,7 @@ function renderArchetypeBar(){
    const origin=arch.origin?.type||'blank',subtitle=origin==='factory'?(FACTORY_LOOKS.find(preset=>preset.id===arch.origin.presetId)?.subtitle||'factory look'):origin==='project-preset'?'project look preset':origin==='import'?'imported':'blank look';
    button.innerHTML='<b></b><span></span>';button.querySelector('b').textContent=(index+1)+' · '+arch.name;button.querySelector('span').textContent=subtitle;button.onclick=()=>selectArchetype(index);
    const item=document.createElement('div');item.className='archItem';item.appendChild(button);
-   const actions=[['pencil','Rename archetype',async()=>{const name=await askLibraryAction({title:'RENAME ARCHETYPE',value:arch.name,confirm:'RENAME'});if(!name)return;await repository.updateArchetype(arch.id,{name});arch.name=name;renderArchetypeBar();if(lookPanel.classList.contains('open'))renderLookEditor()}],
+   const actions=[['pencil','Rename archetype',async()=>{const name=await askLibraryAction({title:'RENAME ARCHETYPE',value:arch.name,confirm:'RENAME'});if(!name)return;fire('updateArchetype',{id:arch.id,patch:{name}});await repository.updateArchetype(arch.id,{name});arch.name=name;renderArchetypeBar();if(lookPanel.classList.contains('open'))renderLookEditor()}],
     ['copy','Duplicate archetype',async()=>{await flushArchetypeWrites();const duplicate=await repository.duplicateArchetype(arch.id);await openProject(activeProject.id,{preferredId:duplicate.id})}],
     ['chevron-left','Move archetype earlier',async()=>{if(index===0)return;const order=[...activeProject.archetypeOrder];[order[index-1],order[index]]=[order[index],order[index-1]];await repository.reorderArchetypes(activeProject.id,order);await openProject(activeProject.id,{preferredId:arch.id})}],
     ['chevron-right','Move archetype later',async()=>{if(index===archetypes.length-1)return;const order=[...activeProject.archetypeOrder];[order[index],order[index+1]]=[order[index+1],order[index]];await repository.reorderArchetypes(activeProject.id,order);await openProject(activeProject.id,{preferredId:arch.id})}],
@@ -1386,30 +904,11 @@ document.getElementById('importPackageFile').onchange=async event=>{
  }catch(error){console.error('Package validation failed',error);document.getElementById('projectStatus').textContent=error.message}
 };
 async function selectArchetype(a){
- if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
- if(remoteRefreshPending){const wanted=archetypes[a]?.id;remoteRefreshPending=false;await openProject(activeProject.id,{preferredId:wanted});return}
- if(projectSwitching||deletingArchetype)return;
- if(a===target)return;
- if(archetypeSelectionBusy){queuedArchetype=a;return}
- archetypeSelectionBusy=true;
- const previous=target;
- try{
-   await Promise.all([loadArchetypeIntoRole(0,previous),loadArchetypeIntoRole(1,a)]);
-   if(projectSwitching)return;
-   current=previous;target=a;
-   document.querySelectorAll('.arch').forEach(x=>x.classList.toggle('active',+x.dataset.a===a));
-   if(mode==='cut'||panicActive){current=target;archMix=1;transitioning=false}
-   else{transitioning=true;archMix=0;transitionStart=performance.now()}
-   renderPresetControls();
-   if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
-   if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
-   if(lookPanel.classList.contains('open'))renderLookEditor();
- }finally{
-   archetypeSelectionBusy=false;
-   const queued=queuedArchetype;queuedArchetype=null;
-   if(queued!=null&&queued!==target)selectArchetype(queued);
- }
+ if(!archetypes[a]||projectSwitching||deletingArchetype)return;
+ if(remoteRefreshPending){remoteRefreshPending=false;await openProject(activeProject.id,{preferredId:archetypes[a].id});return}
+ await send('selectArchetype',{id:archetypes[a].id});
 }
+
 const archBarToggle=document.getElementById('archBarToggle'),uiRoot=document.querySelector('.ui'),archBar=document.getElementById('archBar');
 function updateFooterMetrics(){uiRoot.style.setProperty('--footer-height',`${Math.ceil(archBar.getBoundingClientRect().height)}px`)}
 new ResizeObserver(updateFooterMetrics).observe(archBar);updateFooterMetrics();
@@ -1424,16 +923,16 @@ try{footerStartsCollapsed=localStorage.getItem('eyesforbeats_footer_collapsed')=
 setArchetypeBarCollapsed(footerStartsCollapsed);
 archBarToggle.onclick=()=>setArchetypeBarCollapsed(!uiRoot.classList.contains('footerCollapsed'));
 const smoothButton=document.getElementById('smooth'),cutButton=document.getElementById('cut');
-function setTransitionMode(next){mode=next;smoothButton.classList.toggle('active',mode==='smooth');cutButton.classList.toggle('active',mode==='cut')}
+function setTransitionMode(next){fire('setTransition',{mode:next})}
 smoothButton.onclick=()=>setTransitionMode('smooth');
 cutButton.onclick=()=>setTransitionMode('cut');
 function shortcutTypingContext(element){return !!document.querySelector('dialog[open]')||element?.matches?.('input,textarea,select,[contenteditable="true"]')||!!element?.closest?.('[contenteditable="true"]')}
 document.addEventListener('keydown',event=>{
- if(isShowMode||event.repeat||shortcutTypingContext(event.target))return;
+ if(event.repeat||shortcutTypingContext(event.target))return;
  const action=resolvePerformanceShortcut(event,archetypes.length);if(!action)return;
  event.preventDefault();
  if(action.type==='help'){openShortcutGuide();return}
- if(action.type==='live-lock'){void repository.setLiveLock(!repository.state.liveLock);showShortcutToast('LIVE LOCK · '+(!repository.state.liveLock?'ON':'OFF'));return}
+ if(action.type==='live-lock'){void setLiveLock(!repository.state.liveLock);showShortcutToast('LIVE LOCK · '+(!repository.state.liveLock?'ON':'OFF'));return}
  if(action.type==='safety'){
    const active=action.control==='blackout'?toggleBlackout():togglePanic();
    showShortcutToast(action.control.toUpperCase()+' · '+(active?'ON':'OFF'));return;
@@ -1442,155 +941,52 @@ document.addEventListener('keydown',event=>{
  if(action.type==='preset-select'){activatePreset(action.index);return}
  if(action.type==='preset-step'){stepPreset(action.direction);return}
  if(action.type==='media-step'){
-   requestImageChange(target,chooseOrderedImage(target,action.direction),'manual');showShortcutToast(action.direction>0?'NEXT MEDIA':'PREVIOUS MEDIA');return;
+   imageStep(target,action.direction);showShortcutToast(action.direction>0?'NEXT MEDIA':'PREVIOUS MEDIA');return;
  }
  const index=action.type==='step'?(target+action.direction+archetypes.length)%archetypes.length:action.index;
  showShortcutToast(String(index+1).padStart(2,'0')+' · '+archetypes[index].name+' — '+mode.toUpperCase());selectArchetype(index);
 });
 
-let particles=[],lastParticleRemoteState=null;
-const motionStates=new Map(),pendingVisualEvents=[];
-let lastFeatureAt=0,visualSnapshot=null;
-function resetVisualEffects(){motionStates.clear();pendingVisualEvents.length=0;particles=[];visualSnapshot=null;lastParticleRemoteState=null;if(ctx)ctx.clearRect(0,0,pcanvas.width,pcanvas.height)}
-function motionFor(index){const id=archetypes[index]?.id;if(!motionStates.has(id))motionStates.set(id,{rotation:createRotationState(),pulse:createWaveState()});return motionStates.get(id)}
-function eventIntensity(event){return inputController.inputActive&&sourceActive(event.type)?event.intensity*Number(document.getElementById('amt-'+event.type)?.value||0):0}
-function updateVisualEffects(time,dt,lookA,lookB){
- const events=pendingVisualEvents.splice(0).filter(event=>performance.now()-event.receivedAt<500),beats=events.filter(event=>event.type==='beat'&&eventIntensity(event)>0).length;
- for(const index of new Set([current,target])){
-   const look=index===target?lookB:lookA,state=motionFor(index);
-   stepRotation(state.rotation,look.rotation,FinalG.rotate,dt,time,beats,panicActive);
-   stepWaves(state.pulse,look.pulse.mode==='shockwave'?FinalG.pulse:0,time,{panic:panicActive,lifetime:3/look.pulse.speed});
-   if(look.pulse.mode!=='shockwave')state.pulse.waves=[];
- }
- const palette=texPalettes[1][seqStates[target]?.blend>.5?1:0];
- if(!panicActive&&FinalG.parts>0){
-   for(const event of events)if(event.type===lookB.particles.burst.trigger){
-     const intensity=eventIntensity(event)*Math.min(1,FinalG.parts);
-     if(intensity>0)spawnBurst(particles,lookB.particles,intensity,pcanvas.width,pcanvas.height,palette);
-   }
- }
- stepParticles(particles,{wanted:Math.floor(150*lookB.particles.density*FinalG.parts),dt,time,width:pcanvas.width,height:pcanvas.height,look:lookB,amount:FinalG.parts,palette,panic:panicActive});
- const a=motionFor(current),b=motionFor(target);
- visualSnapshot={time,breath:breathPhase(time,BPM,latestAnalysis?.tempo.phase||0,(performance.now()-lastFeatureAt)/1000),
-   rotationA:{...a.rotation},rotationB:{...b.rotation},wavesA:a.pulse.waves.map(w=>({...w})),wavesB:b.pulse.waves.map(w=>({...w}))};
+function imageStep(a,direction,trigger='manual'){const id=archetypes[a]?.id;if(id)fire('imageStep',{id,direction,trigger})}
+function requestImageChange(a,index,trigger='manual'){const id=archetypes[a]?.id;if(id)fire('imageGoto',{id,index,trigger})}
+function sendControls(){
+ const controls=captureMusicPreset('');delete controls.name;delete controls.routing;
+ fire('setControls',{controls});
 }
-function applyMotionUniforms(role,look,state,waves,elapsed=0,time=0){
- const rotation=look.rotation||NEUTRAL_LOOK.rotation,pulse=look.pulse||NEUTRAL_LOOK.pulse;
- gl.uniform2f(U['uRotation'+role],rotationAt(state,rotation,elapsed,time)*Math.PI/180,state?.active?rotationCover(rotation,canvas.width/canvas.height):1);
- gl.uniform4f(U['uPulse'+role],pulse.centerX,pulse.centerY,pulse.strength,pulse.speed);
- gl.uniform3f(U['uPulseShape'+role],pulse.mode==='shockwave'?1:0,pulse.width,pulse.chromatic);
- gl.uniform2fv(U['uWaves'+role+'[0]'],waveUniforms(waves||[]));
-}
-function resize(){
- const scale=.78;
- let w=Math.max(1,Math.floor(innerWidth*scale)),h=Math.max(1,Math.floor(innerHeight*scale));
- if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}
- if(pcanvas.width!==innerWidth||pcanvas.height!==innerHeight){
-   const sx=innerWidth/Math.max(1,pcanvas.width),sy=innerHeight/Math.max(1,pcanvas.height);
-   for(const p of particles){p.x*=sx;p.y*=sy;p.vx*=sx;p.vy*=sy}
-   pcanvas.width=innerWidth;pcanvas.height=innerHeight;
+// Only control actions cross the boundary; editor persistence remains in the UI.
+const controlSelector='[data-on],[data-solo],[data-target-on],[data-target-solo],#ctxPerf,#react,'+sourceKeys.map(k=>'#amt-'+k).join(',')+','+routeTargets.flatMap(k=>['#g-'+k,'#ga-'+k]).join(',');
+for(const event of ['input','change','click'])document.addEventListener(event,e=>{if(e.target.closest?.(controlSelector))sendControls()});
+const outputSettingsDialog=document.getElementById('outputSettingsDialog');
+document.getElementById('outputSettingsBtn').onclick=()=>outputSettingsDialog.showModal();
+document.getElementById('closeOutputSettings').onclick=()=>outputSettingsDialog.close();
+document.getElementById('bloomQuality').onchange=event=>fire('setQuality',{value:event.target.value});
+document.getElementById('renderScale').oninput=event=>{
+ document.getElementById('renderScaleValue').textContent=Math.round(Number(event.target.value)*100)+'%';
+ fire('setRenderScale',{value:Number(event.target.value)});
+};
+transport.subscribe(event=>{
+ if(event.type==='error'){document.getElementById(event.source==='renderer'?'bloomDiagnostics':'inputWarning').textContent=event.message;return}
+ if(event.type!=='state')return;
+ const previousTarget=engineState?.targetId;engineState=event.state;
+ blackoutActive=engineState.blackout;panicActive=engineState.panic;updateSafetyUi();
+ clipHoldUntil=renderEngineState(engineState,{seeking,clipHoldUntil});
+ if(engineState.projectId!==activeProject?.id&&!(engineState.projectId===null&&activeProject===null))return;
+ target=engineState.target;mode=engineState.mode;archetypeSelectionBusy=engineState.archetypeSelectionBusy;
+ seqStates=engineState.sequences;
+ smoothButton.classList.toggle('active',mode==='smooth');cutButton.classList.toggle('active',mode==='cut');
+ document.querySelectorAll('.arch').forEach(button=>button.classList.toggle('active',+button.dataset.a===target));
+ if(previousTarget!==engineState.targetId&&!projectSwitching&&archetypes.length){
+  renderPresetControls();if(lookPanel.classList.contains('open'))renderLookEditor();
+  if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+  if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
  }
-}
-function updateParticles(time,dt,look){
- if(isShowMode){
-   if(remoteVisualState?.panic){particles=[]}
-   else if(lastParticleRemoteState!==remoteVisualState){particles=unpackParticles(remoteVisualState?.particleState,pcanvas.width,pcanvas.height);lastParticleRemoteState=remoteVisualState}
-   else stepParticles(particles,{wanted:particles.length,dt,time,width:pcanvas.width,height:pcanvas.height,look,amount:FinalG.parts,spawn:false});
- }
- const settings=look.particles;
- ctx.clearRect(0,0,pcanvas.width,pcanvas.height);ctx.globalCompositeOperation='screen';
- const speed=particleSpeed(look,FinalG.parts);
- // Reuse palette/fixed CSS colors. Opacity never allocates an rgba string per particle.
- for(const color of new Set(particles.map(p=>p.color))){
-   ctx.fillStyle=color;ctx.strokeStyle=color;
-   for(const p of particles){
-     if(p.color!==color)continue;
-     ctx.globalAlpha=Math.min(1,(.08+.34*p.z)*p.level*particleAlpha(p));ctx.lineWidth=.6+p.z;
-     if(settings.style==='streaks'){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-(8+18*p.z)*speed,p.y+settings.streakSlant);ctx.stroke()}
-     else if(settings.style==='rings'){ctx.beginPath();ctx.arc(p.x,p.y,p.r*(1.5+p.z*2),0,Math.PI*2);ctx.stroke()}
-     else{ctx.beginPath();ctx.arc(p.x,p.y,p.r*(.6+p.z),0,Math.PI*2);ctx.fill()}
-   }
- }
- ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
-}
-function smoothstep(x){return x*x*(3-2*x)}
+ if(archetypes[target]&&seqStates[target])updateImageManagerRuntimeState(target);
+});
+sendControls();
 
-let t0=performance.now(),last=performance.now();
-function start(){requestAnimationFrame(frame)}
-function frame(now){
- if(contextLost){requestAnimationFrame(frame);return}
- resize();
- const dt=Math.max(0,(now-last)/1000);renderFps=renderFps*.95+.05*(1000/Math.max(1,now-last));last=now;
- if(!archetypes.length){
-   if(!isShowMode){if(showChannel&&now-lastShowBroadcastAt>=40){lastShowBroadcastAt=now;showChannel.postMessage({type:'frame',state:{projectId:activeProject?.id||null,currentId:null,targetId:null,blackout:blackoutActive,finalG:{...NEUTRAL_TARGETS}}})}}
-   else if(remoteVisualState)setBlackout(!!remoteVisualState.blackout);
-   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);ctx.clearRect(0,0,pcanvas.width,pcanvas.height);
-   requestAnimationFrame(frame);return;
- }
- let Eff;
- if(isShowMode){
-   if(remoteVisualState){applyRemoteVisualState(remoteVisualState);BPM=remoteVisualState.bpm||0;BeatPulse=remoteVisualState.beat||0;KickFast=remoteVisualState.kick||0;SnareFast=remoteVisualState.snare||0}
-   if(current!==target&&seqStates[current]?.transitioning)advanceSequenceTransition(0,current,now);
-   if(seqStates[target]?.transitioning)advanceSequenceTransition(1,target,now);
-   Eff=remoteVisualState?.eff||neutralVals;
- }else{
-   // The render loop consumes the latest fixed-hop AudioWorklet features.
-   Eff=getEffectiveState();
-   const routedTargets=computeGlobalMapping(Eff,now);
-   FinalG=applyPanicTargets(routedTargets,{panic:panicActive,releaseStartedAt:panicReleaseStartedAt,now,duration:300});
-   if(panicReleaseStartedAt!=null&&now-panicReleaseStartedAt>=300)panicReleaseStartedAt=null;
-   routeTargets.forEach(key=>{document.getElementById('gf-'+key).textContent=FinalG[key].toFixed(2)});
-   if(transitioning&&current!==target&&seqStates[current]?.transitioning)advanceSequenceTransition(0,current,now);
-   if(!projectSwitching)updateImageSequence(now,Eff,panicActive);
-   if(transitioning){
-     let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);
-     if(x>=1){current=target;archMix=1;transitioning=false}
-   }
- }
- const lookA=isShowMode&&remoteVisualState?.lookA?remoteVisualState.lookA:looks[current];
- const lookB=isShowMode&&remoteVisualState?.lookB?remoteVisualState.lookB:looks[target];
- const visualTime=isShowMode&&remoteVisualState?.effects?remoteVisualState.effects.time+(now-remoteFrameReceivedAt)/1000:(now-t0)/1000;
- if(!isShowMode){updateVisualEffects(visualTime,dt,lookA,lookB);broadcastShowFrame(now,Eff)}
- const motion=isShowMode?remoteVisualState?.effects:visualSnapshot;
- bloomRenderer.beginScene(canvas.width,canvas.height,bloomQuality);
- gl.bindVertexArray(sceneVao);gl.useProgram(prog);
- for(let role=0;role<2;role++)for(let slot=0;slot<2;slot++)bindTextureSlot(role,slot);
- gl.uniform2f(U.uRes,canvas.width,canvas.height);
- gl.uniform1f(U.uTime,visualTime);
- gl.uniform1f(U.uBreathPhase,(motion?.breath||0)+(isShowMode?(visualTime-(motion?.time||visualTime))*(BPM>0?BPM/60*Math.PI*2:6):0));
- const motionElapsed=isShowMode?Math.min(.1,Math.max(0,visualTime-(motion?.time??visualTime))):0;
- applyMotionUniforms('A',lookA,motion?.rotationA,motion?.wavesA,motionElapsed,visualTime);applyMotionUniforms('B',lookB,motion?.rotationB,motion?.wavesB,motionElapsed,visualTime);
- const sequenceA=seqStates[current],sequenceB=seqStates[target];
- const uniformsA=lookUniforms(lookA),uniformsB=lookUniforms(lookB);
- gl.uniform1f(U.uMorphA,sequenceA.blend);gl.uniform1f(U.uMorphB,sequenceB.blend);
- gl.uniform1i(U.uTransA,sequenceA.transitionShaderId);gl.uniform1i(U.uTransB,sequenceB.transitionShaderId);
- gl.uniform1f(U.uSeedA,sequenceA.seed);gl.uniform1f(U.uSeedB,sequenceB.seed);
- gl.uniform4fv(U.uParamA,sequenceA.param);gl.uniform4fv(U.uParamB,sequenceB.param);
- gl.uniform1f(U.uArchMix,transitioning?archMix:1);
- gl.uniform4fv(U.uWarpA,uniformsA.warp);gl.uniform4fv(U.uWarpB,uniformsB.warp);
- gl.uniform2fv(U.uWarpDirA,uniformsA.direction);gl.uniform2fv(U.uWarpDirB,uniformsB.direction);
- gl.uniform3fv(U.uFrameA,uniformsA.frame);gl.uniform3fv(U.uFrameB,uniformsB.frame);
- gl.uniform4fv(U.uGradeA,uniformsA.grade);gl.uniform4fv(U.uGradeB,uniformsB.grade);
- gl.uniform1f(U.uMapPulse,FinalG.pulse);
- gl.uniform1f(U.uDistAmt,FinalG.dist);gl.uniform1f(U.uLumAmt,FinalG.luma);gl.uniform1f(U.uSatAmt,FinalG.sat);gl.uniform1f(U.uZoomAmt,FinalG.zoom);
- gl.uniform1f(U.uSpiralAmt,FinalG.spiral);gl.uniform1f(U.uTilesAmt,FinalG.tiles);
- refreshVideoTextures();
- gl.uniform4f(U.uAspect,texAspects[0][0],texAspects[0][1],texAspects[1][0],texAspects[1][1]);
- gl.drawArrays(gl.TRIANGLES,0,3);
- const visualMix=transitioning?archMix:1;
- bloomRenderer.render(blendBloom(lookA.bloom,lookB.bloom,visualMix,FinalG.glow),uniformsA.vignette,uniformsB.vignette,visualMix);
- if(now-lastBloomDiagnostics>500){bloomDiagnostics.textContent=`${bloomRenderer.diagnostics} · ${renderFps.toFixed(0)} FPS`;lastBloomDiagnostics=now}
- updateParticles(visualTime,dt,lookB);
- const vals=[['E',Eff.energy],['D',Eff.density],['R',Eff.drive],['K',Eff.boombap],['T',Eff.tension],['B',Eff.bright],['O',Eff.open]];
- vals.forEach(([k,v])=>{document.getElementById('v'+k).textContent=v.toFixed(2);document.getElementById('f'+k).style.width=(v*100)+'%'});
- document.getElementById('vBeat').textContent=BeatPulse.toFixed(2);
- document.getElementById('fBeat').style.width=(Math.min(1,BeatPulse)*100)+'%';
- document.getElementById('vKick').textContent=KickFast.toFixed(2);document.getElementById('fKick').style.width=(Math.min(1,KickFast)*100)+'%';
- document.getElementById('vSnare').textContent=SnareFast.toFixed(2);document.getElementById('fSnare').style.width=(Math.min(1,SnareFast)*100)+'%';
- document.getElementById('vBPM').textContent=BPM>0?Math.round(BPM):'--';
- document.getElementById('fBpmConf').style.width=(BPMConfidence*100)+'%';
- const zoomLevel=Math.max(0,Math.min(1,(FinalG.zoom-.9)/.28));document.getElementById('vZoom').textContent=FinalG.zoom.toFixed(2);document.getElementById('fZoom').style.width=(zoomLevel*100)+'%';
- requestAnimationFrame(frame);
-}
-await initializeLibrary();
-start();
+const recovered=await outputController.discover();discoveringOutput=false;
+await initializeLibrary(!!recovered);
+
+// Read-only snapshot subscription for integrations and browser regression tests.
+export const subscribeEngine=listener=>transport.subscribe(listener);
+window.EyesForBeatsEngine={subscribe:subscribeEngine};

@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { blankMap } from '../src/config.js';
 import { FACTORY_LOOKS, NEUTRAL_LOOK } from '../src/looks.js';
-import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, resolveShowIndexes, starterRoutingForOrigin } from '../src/library/runtime.js';
+import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, starterRoutingForOrigin } from '../src/library/runtime.js';
 import { mapImportedMedia, prepareImportedArchetype } from '../src/library/package-mapping.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from '../src/package-format.js';
 
-test('project order builds aligned runtime arrays and id-based show indexes', () => {
+test('project order builds aligned runtime arrays and stable id indexes', () => {
   const project = { id: 'project', archetypeOrder: ['b', 'a'] };
   const records = ['a', 'b'].map(id => ({ id, projectId: 'project', name: id, origin: { type: 'blank' },
     look: NEUTRAL_LOOK, routingMap: blankMap(), imageConfig: defaultImageConfig(1), musicPresets: [],
@@ -14,8 +14,7 @@ test('project order builds aligned runtime arrays and id-based show indexes', ()
   const runtime = buildProjectRuntime(project, records);
   assert.deepEqual(runtime.archetypes.map(item => item.id), ['b', 'a']);
   assert.deepEqual(runtime.IMAGE_SETS, [['media-b'], ['media-a']]);
-  assert.deepEqual(resolveShowIndexes({ projectId: 'project', currentId: 'a', targetId: 'b' }, 'project', runtime.idToIndex), { current: 1, target: 0 });
-  assert.equal(resolveShowIndexes({ projectId: 'other', currentId: 'a', targetId: 'b' }, 'project', runtime.idToIndex), null);
+  assert.equal(runtime.idToIndex.get('a'),1);assert.equal(runtime.idToIndex.get('b'),0);
   assert.equal(buildProjectRuntime({ id: 'empty', archetypeOrder: [] }, []).archetypes.length, 0);
 });
 

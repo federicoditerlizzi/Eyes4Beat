@@ -56,9 +56,3 @@ export function buildProjectRuntime(project, records, mediaSource = media => med
     defaultImageConfigs, imageConfigs, musicPresets: ordered.map(item => normalizeMusicPresets(item.musicPresets)),
     looks: ordered.map(item => normalizeLook(item.look)) };
 }
-
-export function resolveShowIndexes(state, activeProjectId, idToIndex) {
-  if (!state || state.projectId !== activeProjectId) return null;
-  const current = idToIndex.get(state.currentId), target = idToIndex.get(state.targetId);
-  return Number.isInteger(current) && Number.isInteger(target) ? { current, target } : null;
-}

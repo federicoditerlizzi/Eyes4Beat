@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRotationState, stepRotation, rotationCover, rotationAt, ROTATION_DEFAULTS, createWaveState, stepWaves, waveUniforms, breathPhase } from '../src/motion-effects.js';
+import { createRotationState, stepRotation, rotationCover, rotationCoverAt, rotationActivityAt, ROTATION_DEFAULTS, createWaveState, stepWaves, waveUniforms, breathPhase } from '../src/motion-effects.js';
 import { NEUTRAL_LOOK, normalizeLook, FACTORY_LOOKS } from '../src/looks.js';
 import { sourceRegistry, eventSourceIds } from '../src/config.js';
 import { prepareImportedArchetype } from '../src/library/package-mapping.js';
@@ -31,12 +31,12 @@ test('spin waits one second then returns by shortest path over two seconds, PANI
 test('cover scale is fixed per mode and aspect, never instantaneous drive/angle',()=>{
  const state=createRotationState(),aspect=16/9;
  for(const mode of ['angle','spin']){
-  const settings={...spin,mode},cover=rotationCover(settings,aspect);
+  const settings={...spin,mode,fill:1},cover=rotationCover(settings,aspect);
   for(const drive of [.1,.5,1,1.5]){stepRotation(state,settings,drive,.1,1);assert.equal(rotationCover(settings,aspect),cover);}
  }
- near(rotationCover(spin,aspect),(1+aspect)/Math.sqrt(2));
+ near(rotationCover({...spin,fill:1},aspect),(1+aspect)/Math.sqrt(2));
  near(rotationCover({...ROTATION_DEFAULTS,maxAngle:0},aspect),1);
- near(rotationCover(ROTATION_DEFAULTS,aspect),Math.hypot(1,aspect));
+ near(rotationCover({...ROTATION_DEFAULTS,fill:1},aspect),Math.hypot(1,aspect));
 });
 test('shockwave edges, hysteresis, peak strength and refractory interval do not retrigger held input',()=>{
  const s=createWaveState();stepWaves(s,.1,0);assert.equal(s.waves.length,0);
@@ -76,10 +76,36 @@ test('event trigger options and normalization derive from registry including fut
  finally{sourceRegistry.pop();}
 });
 
-test('Show projects controller angle and rest easing without accumulating drift',()=>{
- const state=createRotationState();stepRotation(state,spin,1.5,1,1);
- near(rotationAt(state,spin,.04,1.04),93.6);near(state.angle,90);
- stepRotation(state,spin,0,.1,2);near(rotationAt(state,spin,.04,4),45);
- const angle={...ROTATION_DEFAULTS};stepRotation(state,angle,1.5,.1,5);stepRotation(state,angle,0,.1,6);
- stepRotation(state,angle,0,.1,8);near(state.angle,45);stepRotation(state,angle,0,.1,9);near(state.angle,0);
+test('rotation fill defaults to zero, interpolates cover and migrates partial looks',()=>{
+ for(const mode of ['angle','spin']) for(const aspect of [16/9,4/3,1,9/16]) {
+  const settings={...ROTATION_DEFAULTS,mode};
+  const full=rotationCover({...settings,fill:1},aspect);
+  near(rotationCover(settings,aspect),1);
+  near(rotationCover({...settings,fill:.5},aspect),(1+full)/2);
+ }
+ assert.equal(normalizeLook({rotation:{mode:'spin'}}).rotation.fill,0);
+ assert.equal(normalizeLook({rotation:{fill:-1}}).rotation.fill,0);
+ assert.equal(normalizeLook({rotation:{fill:2}}).rotation.fill,1);
+});
+
+test('rotation cover eases over half a second without jumps, including reversals',()=>{
+ const state=createRotationState(),settings={...ROTATION_DEFAULTS,fill:1,returnToRest:false},aspect=16/9;
+ stepRotation(state,settings,1,.01,1);
+ near(rotationCoverAt(state,settings,aspect,1),1);
+ near(rotationActivityAt(state,1.25),.5);
+ near(rotationActivityAt(state,1.5),1);
+ const before=rotationCoverAt(state,settings,aspect,1.2);
+ stepRotation(state,settings,0,.01,1.2);
+ near(rotationCoverAt(state,settings,aspect,1.2),before);
+ const reverse=rotationCoverAt(state,settings,aspect,1.3);
+ stepRotation(state,settings,1,.01,1.3);
+ near(rotationCoverAt(state,settings,aspect,1.3),reverse);
+ near(rotationActivityAt(state,1.8),1);
+ stepRotation(state,settings,0,.01,2);
+ near(rotationActivityAt(state,2),1);
+ near(rotationActivityAt(state,2.25),.5);
+ near(rotationCoverAt(state,settings,aspect,2.5),1);
+ stepRotation(state,settings,1,.01,3);
+ stepRotation(state,settings,1,.01,3.3,0,true);
+ near(rotationCoverAt(state,settings,aspect,3.3),1);
 });

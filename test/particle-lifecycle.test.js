@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { particleAlpha, spawnBurst, stepParticles, packParticles, unpackParticles } from '../src/particle-lifecycle.js';
+import { particleAlpha, spawnBurst, stepParticles } from '../src/particle-lifecycle.js';
 import { NEUTRAL_LOOK, normalizeLook } from '../src/looks.js';
 import { dominantColors } from '../src/media-palette.js';
 const look=normalizeLook({...NEUTRAL_LOOK,particles:{...NEUTRAL_LOOK.particles,density:1}});
@@ -28,13 +28,11 @@ test('bursts scale count by intensity, use radial velocity/drag, expire and resp
  spawnBurst(p,settings,100,800,600,[],()=>.5);assert.equal(p.length,1000);
  stepParticles(p,{...context,panic:true});assert.equal(p.length,0);
 });
-test('palette colors are cached strings and particle snapshots preserve normalized Show positions',()=>{
+test('palette particles use cached media colors',()=>{
  const p=[],palette=['#ff0000','#00ff00','#0000ff'];
  stepParticles(p,{...context,wanted:3,palette,look:normalizeLook({...look,particles:{...look.particles,colorMode:'palette'}})},()=>.5);
  assert.ok(p.every(item=>palette.includes(item.color)));
- const restored=unpackParticles(packParticles(p,800,600),1600,1200);
- assert.equal(restored.length,3);assert.equal(restored[0].color,p[0].color);
- assert.equal(restored[0].x,p[0].x*2);assert.equal(restored[0].y,p[0].y*2);
+
 });
 test('dominant palette ignores transparent pixels and yields separated media colors',()=>{
  const pixels=new Uint8Array([255,0,0,255,250,0,0,255,0,255,0,255,0,0,255,255,255,255,0,255,0,255,255,255,255,0,255,0]);

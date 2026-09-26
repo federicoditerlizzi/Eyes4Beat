@@ -49,19 +49,3 @@ export function stepParticles(particles, { wanted, dt, time, width, height, look
   }
   particles.length = write;return particles;
 }
-// Compact controller-owned snapshots. Normalized coordinates keep Show/projector sizes independent.
-const STRIDE = 14;
-export function packParticles(particles, width, height) {
-  const colors = [...new Set(particles.map(p => p.color))], data = new Float32Array(particles.length * STRIDE);
-  particles.forEach((p, i) => data.set([p.x / width, p.y / height, p.z, p.r, p.vx / width, p.vy / height, p.age, p.life,
-    p.phase, p.release ?? -1, Number(p.burst), colors.indexOf(p.color), p.level, 0], i * STRIDE));
-  return { colors, data };
-}
-export function unpackParticles(snapshot, width, height) {
-  const particles = [];if (!snapshot?.data) return particles;
-  for (let i = 0; i < snapshot.data.length; i += STRIDE) {
-    const d = snapshot.data;particles.push({ x: d[i] * width, y: d[i+1] * height, z: d[i+2], r: d[i+3], vx: d[i+4] * width, vy: d[i+5] * height,
-      age: d[i+6], life: d[i+7], phase: d[i+8], release: d[i+9] < 0 ? null : d[i+9], burst: !!d[i+10], color: snapshot.colors[d[i+11]], level: d[i+12] });
-  }
-  return particles;
-}
