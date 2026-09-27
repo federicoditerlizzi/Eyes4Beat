@@ -157,9 +157,9 @@ function renderMatrixEditor(){
  const holder=document.getElementById('matrixHolder');
  holder.innerHTML=routeTargets.map(t=>{
    const source=assignedSource(routingMaps[a],t),weight=source?routingMaps[a][source][t]:1;
-   return '<div class="routeCard"><h3>'+targetLabels[t]+'</h3><label>Musical parameter<select class="routeSource" data-t="'+t+'" aria-label="Parameter for '+targetLabels[t]+'"><option value="">None</option>'+routeSources.map(s=>'<option value="'+s+'"'+(s===source?' selected':'')+'>'+sourceLabels[s]+'</option>').join('')+'</select></label><label>Amount <output>'+weight.toFixed(2)+'</output><input class="routeWeight" aria-label="Amount for '+targetLabels[t]+'" type="range" min="-1.5" max="1.5" step="0.05" value="'+weight+'"'+(!source?' disabled':'')+'></label><span class="routeHint">Negative inverts the response</span></div>';
+   return '<div class="routeRow"><h3>'+targetLabels[t]+'</h3><label><select class="routeSource" data-t="'+t+'" aria-label="Parameter for '+targetLabels[t]+'"><option value="">None</option>'+routeSources.map(s=>'<option value="'+s+'"'+(s===source?' selected':'')+'>'+sourceLabels[s]+'</option>').join('')+'</select></label><label class="routeAmount"><output>'+weight.toFixed(2)+'</output><input class="routeWeight" aria-label="Amount for '+targetLabels[t]+'" type="range" min="-1.5" max="1.5" step="0.05" value="'+weight+'"'+(!source?' disabled':'')+'></label></div>';
  }).join('');
- holder.querySelectorAll('.routeCard').forEach(card=>{
+ holder.querySelectorAll('.routeRow').forEach(card=>{
    const select=card.querySelector('select'),slider=card.querySelector('input'),output=card.querySelector('output');
    const update=()=>{
      assignTarget(routingMaps[a],select.dataset.t,select.value,+slider.value);
@@ -342,19 +342,20 @@ const triggerLabels={timed:['TIMED','Auto and continuous mapping'],event:['EVENT
 
 function renderTriggerTransitionControls(a){
  const root=document.getElementById('triggerTransitionControls'),cfg=imageConfigs[a];
- root.innerHTML=IMAGE_TRIGGER_CLASSES.map(triggerClass=>{
+ const compatible=cfg.mode==='manual'?['manual']:[cfg.mode==='mapped'&&eventSourceIds().includes(cfg.source)?'event':'timed','manual'];
+ root.innerHTML=IMAGE_TRIGGER_CLASSES.filter(id=>compatible.includes(id)).map(triggerClass=>{
    const settings=cfg.triggers[triggerClass],labels=triggerLabels[triggerClass];
    const pool=TRANSITIONS.map(item=>`<label><input type="checkbox" data-trigger-pool="${triggerClass}" value="${item.id}" ${settings.pool.includes(item.id)?'checked':''}>${item.label}</label>`).join('');
    const orders=['cycle','random-no-repeat'].map(id=>`<option value="${id}" ${settings.pickOrder===id?'selected':''}>${id==='cycle'?'Cycle':'Random · no repeat'}</option>`).join('');
    const easings=EASINGS.map(item=>`<option value="${item.id}" ${settings.easing===item.id?'selected':''}>${item.label}</option>`).join('');
    const wipes=WIPE_DIRECTIONS.map(item=>`<option value="${item.id}" ${settings.wipeDirection===item.id?'selected':''}>${item.label}</option>`).join('');
    const duration=cfg.timeBase==='beats'?`<select data-trigger-duration-beats="${triggerClass}">${TRANSITION_BEAT_OPTIONS.map(value=>`<option value="${value}" ${settings.durationBeats===value?'selected':''}>${beatLabel(value)} beat${value===1?'':'s'}</option>`).join('')}</select>`:`<input data-trigger-duration="${triggerClass}" type="number" min="0.05" max="8" step="0.05" value="${settings.duration}">`;
-   return `<section class="triggerTransitionGroup" data-trigger-section="${triggerClass}"><div class="triggerTransitionHead"><div><b>${labels[0]}</b><span> · ${labels[1]}</span></div><button type="button" data-trigger-test="${triggerClass}">TEST</button></div><div class="transitionPool">${pool}</div><div class="triggerSettings"><label>PICK ORDER<select data-trigger-order="${triggerClass}">${orders}</select></label><label>DURATION · ${cfg.timeBase==='beats'?'BEATS':'SEC'}${duration}</label><label>EASING<select data-trigger-easing="${triggerClass}">${easings}</select></label><label class="triggerWipe" ${settings.pool.includes('wipe')?'':'hidden'}>WIPE DIRECTION<select data-trigger-wipe="${triggerClass}">${wipes}</select></label></div></section>`;
+   return `<section class="triggerTransitionGroup" data-trigger-section="${triggerClass}"><div class="triggerTransitionHead"><div><b>${labels[0]}</b><span> · ${labels[1]}</span></div><button type="button" data-trigger-test="${triggerClass}">TEST</button></div><details class="transitionSelect"><summary aria-label="Transition effects for ${triggerClass}">${settings.pool.map(id=>TRANSITIONS.find(item=>item.id===id)?.label||id).join(', ')}</summary><div class="transitionPool">${pool}</div></details><div class="triggerSettings"><label>PICK ORDER<select data-trigger-order="${triggerClass}">${orders}</select></label><label>DURATION · ${cfg.timeBase==='beats'?'BEATS':'SEC'}${duration}</label><label>EASING<select data-trigger-easing="${triggerClass}">${easings}</select></label><label class="triggerWipe" ${settings.pool.includes('wipe')?'':'hidden'}>WIPE DIRECTION<select data-trigger-wipe="${triggerClass}">${wipes}</select></label></div></section>`;
  }).join('');
  root.querySelectorAll('[data-trigger-pool]').forEach(input=>input.onchange=()=>{
    const settings=cfg.triggers[input.dataset.triggerPool],checked=[...root.querySelectorAll(`[data-trigger-pool="${input.dataset.triggerPool}"]:checked`)].map(item=>item.value);
    if(!checked.length){input.checked=true;return}
-   settings.pool=checked;root.querySelector(`[data-trigger-section="${input.dataset.triggerPool}"] .triggerWipe`).hidden=!checked.includes('wipe');saveImageConfigs();
+   settings.pool=checked;input.closest('.transitionSelect').querySelector('summary').textContent=checked.map(id=>TRANSITIONS.find(item=>item.id===id)?.label||id).join(', ');root.querySelector(`[data-trigger-section="${input.dataset.triggerPool}"] .triggerWipe`).hidden=!checked.includes('wipe');saveImageConfigs();
  });
  root.querySelectorAll('[data-trigger-order]').forEach(el=>el.onchange=()=>{cfg.triggers[el.dataset.triggerOrder].pickOrder=el.value;saveImageConfigs()});
  root.querySelectorAll('[data-trigger-duration]').forEach(el=>el.onchange=()=>{const settings=cfg.triggers[el.dataset.triggerDuration];settings.duration=clamp(parseFloat(el.value)||2.2,.05,8);el.value=settings.duration;saveImageConfigs()});
@@ -366,7 +367,12 @@ function renderTriggerTransitionControls(a){
 function updateImageManagerRuntimeState(a){
  if(target!==a||!document.getElementById('imagePanel').classList.contains('open'))return;
  const cfg=imageConfigs[a],s=seqStates[a],active=enabledImages(a),orderPos=active.indexOf(s.current);
- document.querySelectorAll('#imageGrid [data-imgcard]').forEach(card=>card.classList.toggle('current',+card.dataset.imgcard===s.current));
+ const grid=document.getElementById('imageGrid');
+ grid.querySelectorAll('[data-imgcard]').forEach(card=>card.classList.toggle('current',+card.dataset.imgcard===s.current));
+ const currentCard=grid.querySelector('.current');
+ if(currentCard&&grid.dataset.centered!==String(s.current)&&!grid.contains(document.activeElement)){
+  grid.scrollTo({left:currentCard.offsetLeft-(grid.clientWidth-currentCard.offsetWidth)/2,behavior:grid.dataset.centered?'smooth':'instant'});grid.dataset.centered=String(s.current);
+ }
  const beatStatus=document.getElementById('beatTimeStatus'),tempo=sequenceTempo(a);
  beatStatus.hidden=cfg.timeBase!=='beats';
  beatStatus.textContent=cfg.timeBase==='beats'?'BEATS · '+(tempo.source==='live'?Math.round(tempo.bpm)+' BPM':(tempo.source==='last'?'LAST RELIABLE ':'FALLBACK ')+Math.round(tempo.bpm)):'';
@@ -391,7 +397,7 @@ function renderImageManager(){
    const dwellInfo=cfg.timeBase==='beats'?imageDwell(a,i):null,effective=dwellInfo&&dwellInfo.effectiveBeats!==dwellInfo.requestedBeats?'<div class="effectiveDwell">'+dwellInfo.requestedBeats+' BEAT'+(dwellInfo.requestedBeats===1?'':'S')+' → '+dwellInfo.effectiveBeats+' BEATS @ '+Math.round(dwellInfo.tempo.bpm)+' BPM</div>':'';
    h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(source?.missing?'MISSING MEDIA · ':mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+' '+(source?.missing?'disabled':'')+'> ON</label></div><div class="cardLine"><span>Dwell '+(cfg.timeBase==='beats'?'beats':'sec')+'</span>'+dwellControl+'</div>'+effective+'<div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
  });
- document.getElementById('imageGrid').innerHTML=h;
+ document.getElementById('imageGrid').innerHTML=h;delete document.getElementById('imageGrid').dataset.centered;
  updateImageManagerRuntimeState(a);
  document.querySelectorAll('[data-imgen]').forEach(el=>el.onchange=()=>{
    const i=+el.dataset.imgen;
@@ -417,10 +423,10 @@ document.getElementById('closeImageTutorial').onclick=()=>imageTutorialDialog.cl
 document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;saveImageConfigs();renderImageManager()};
 document.getElementById('imageTimeBase').onchange=e=>{imageConfigs[target].timeBase=e.target.value;saveImageConfigs();renderImageManager()};
 document.getElementById('imageOrderMode').onchange=e=>{imageConfigs[target].orderMode=e.target.value;saveImageConfigs();renderImageManager()};
-document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;saveImageConfigs()};
+document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;saveImageConfigs();renderTriggerTransitionControls(target)};
 document.getElementById('imageThreshold').onchange=e=>{imageConfigs[target].threshold=clamp(parseFloat(e.target.value)||.55,.05,.95);e.target.value=imageConfigs[target].threshold;saveImageConfigs()};
-document.getElementById('imgPrev').onclick=()=>imageStep(target,-1);
-document.getElementById('imgNext').onclick=()=>imageStep(target,1);
+document.getElementById('carouselPrev').onclick=()=>imageStep(target,-1);
+document.getElementById('carouselNext').onclick=()=>imageStep(target,1);
 
 const creatorPanel=document.getElementById('creatorPanel');
 const creatorFiles=document.getElementById('customArchFiles');
@@ -754,8 +760,9 @@ function renderArchetypeBar(){
     ['trash-2','Delete archetype',()=>openDeleteArchetype(arch.id)]];
    const toolbar=document.createElement('div');toolbar.className='archToolbar';for(const [glyph,label,action] of actions){const control=document.createElement('button');control.type='button';control.className='iconAction';control.innerHTML=icon(glyph);control.setAttribute('aria-label',label+' '+arch.name);control.dataset.tooltip=label;control.onclick=()=>Promise.resolve(action()).catch(error=>{console.error(error);alert(error.message)});toolbar.appendChild(control)}item.appendChild(toolbar);bar.appendChild(item);
  });
- const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=()=>activeProject?openArchetypeCreator():libraryDialog.showModal();bar.appendChild(createButton);
- const verifyButton=document.createElement('button');verifyButton.className='libraryFooter';verifyButton.innerHTML=icon('file-check-2')+' VERIFY PACKAGE';verifyButton.title='Verify library package without importing it';verifyButton.onclick=()=>document.getElementById('verifyPackageFile').click();bar.appendChild(verifyButton);
+ const actions=document.getElementById('footerActions');actions.replaceChildren();
+ const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.type='button';createButton.className='iconAction footerTab';createButton.dataset.tooltip='Create archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML=icon('plus');createButton.onclick=()=>activeProject?openArchetypeCreator():libraryDialog.showModal();actions.appendChild(createButton);
+ const verifyButton=document.createElement('button');verifyButton.id='verifyPackageBtn';verifyButton.type='button';verifyButton.className='iconAction footerTab';verifyButton.innerHTML=icon('file-check-2');verifyButton.dataset.tooltip='Verify package';verifyButton.setAttribute('aria-label','Verify package');verifyButton.onclick=()=>document.getElementById('verifyPackageFile').click();actions.appendChild(verifyButton);
 }
 const packageDialog=document.createElement('dialog');packageDialog.className='packageDialog';packageDialog.innerHTML='<div class="packageDialogHead"><h2>LIBRARY PACKAGE</h2><button type="button" class="iconAction closeAction" aria-label="Close package report" data-tooltip="Close package report">'+icon('x')+'</button></div><p id="packageMessage"></p><progress id="packageProgress" max="1" value="0" hidden></progress><pre id="packageReport"></pre><div id="packageConfirmation" hidden><button type="button" id="packageContinue">CONTINUE EXPORT</button><button type="button" id="packageCancel">CANCEL</button></div>';document.body.appendChild(packageDialog);
 packageDialog.querySelector('.closeAction').onclick=()=>packageDialog.close();
@@ -951,6 +958,7 @@ transport.subscribe(event=>{
  if(archetypes[target]&&seqStates[target])updateImageManagerRuntimeState(target);
 });
 const workspaceLayout=createWorkspaceLayout({
+ showToast:showShortcutToast,
  getSelection:()=>archetypes[target]?.name||'No archetype selected',
  getProject:()=>activeProject?.name||'Projects',
 });

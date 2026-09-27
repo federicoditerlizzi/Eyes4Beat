@@ -31,12 +31,38 @@ try{
  assert(!doc.querySelector('.workspaceHeader #lookBtn,.workspaceHeader #imageMgrBtn,.workspaceHeader #openMatrix'),'editing actions in header');
  assert($('accountBtn').closest('.workspaceHeader'),'account location');
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
- for(const id of ['lookBtn','openMatrix','imageMgrBtn','presetsTab']){
+ assert(!$('editInspector'),'no redundant EDIT button');
+ assert(visible($('inspectorStrip')),'closed inspector strip visible');
+ for(const [id,key] of [['lookBtn','KeyE'],['openMatrix','KeyR'],['imageMgrBtn','KeyI'],['presetsTab','KeyU']]){
+  $('inspectorShortcut-'+id).click();assert($(id).getAttribute('aria-selected')==='true','strip opens '+id);
+  press('Escape');press(key);assert($(id).getAttribute('aria-selected')==='true','key opens '+id);
   $(id).click();await wait(100);
   assert($('archetypeInspector').classList.contains('open'),'inspector '+id);
+  assert($('archetypeInspector').getBoundingClientRect().left===16,'inspector on left');
+  if(id==='openMatrix'){
+   const header=doc.querySelector('.matrixTop'),top=header.getBoundingClientRect().top,holder=$('matrixHolder');
+   holder.scrollTop=100;assert(holder.scrollTop>0,'routing controls scroll');
+   assert(header.getBoundingClientRect().top===top,'routing header stays fixed');
+   assert(!doc.querySelector('.routingNote'),'no duplicated routing note');holder.scrollTop=0;
+  }
   assert(doc.querySelectorAll('.inspector > [role=tabpanel].open').length===1,'only one tab');
   assert($('archetypeInspector').scrollWidth<=$('archetypeInspector').clientWidth,'inspector horizontal overflow '+id);
  }
+ $('imageMgrBtn').click();await wait(100);
+ const groups=()=>[...doc.querySelectorAll('[data-trigger-section]')].map(el=>el.dataset.triggerSection).sort().join(',');
+ change('imageMode','manual');assert(groups()==='manual','manual transitions only');
+ change('imageMode','auto');assert(groups()==='manual,timed','auto compatible transitions');
+ change('imageMode','mapped');change('imageSource','kick');assert(groups()==='event,manual','event mapping transitions');
+ change('imageSource','energy');assert(groups()==='manual,timed','continuous mapping transitions');
+ const chooser=doc.querySelector('.transitionSelect');assert(!chooser.open,'effects dropdown starts collapsed');chooser.open=true;
+ const checkbox=chooser.querySelector('input:not(:checked)');checkbox.checked=true;checkbox.dispatchEvent(new win.Event('change',{bubbles:true}));assert(chooser.querySelector('summary').textContent.includes(checkbox.parentElement.textContent),'effects selection summary');chooser.open=false;
+ const body=doc.querySelector('.imageManagerBody'),head=doc.querySelector('.imageTop'),headTop=head.getBoundingClientRect().top;body.scrollTop=200;assert(body.scrollTop>0&&head.getBoundingClientRect().top===headTop,'image header fixed');
+ const grid=$('imageGrid');assert(win.getComputedStyle(grid).display==='flex','single row carousel');await wait(200);
+ const current=grid.querySelector('.current');assert(current.getBoundingClientRect().width>grid.querySelector('.imageCard:not(.current)').getBoundingClientRect().width,'current image larger');
+ change('imageMode','manual');body.scrollTop=0;
+ const settings=[...doc.querySelector('.triggerSettings').children].slice(0,3);assert(settings.every(el=>el.getBoundingClientRect().top===settings[0].getBoundingClientRect().top),'three transition settings on one row');
+ const before=grid.querySelector('.current').dataset.imgcard;$('carouselNext').click();await until(()=>grid.querySelector('.current').dataset.imgcard!==before,'carousel next changes rendered image');
+ $('carouselPrev').click();await until(()=>grid.querySelector('.current').dataset.imgcard===before,'carousel previous changes rendered image');
  $('projectManageBtn').click();await wait(100);assert(!$('archetypeInspector').classList.contains('open'),'project closes inspector');
  press('Escape');assert($('projectSwitcher').hidden,'Escape closes project');
  press('KeyE');await wait(100);assert($('archetypeInspector').classList.contains('open'),'E opens inspector');
@@ -48,11 +74,29 @@ try{
  press('KeyQ');assert(doc.body.classList.contains('performMode'),'Q performs');
  assert(!visible($('projectManageBtn'))&&!visible($('archetypeInspector')),'perform hides editing');
  assert(visible($('blackoutBtn'))&&visible($('play'))&&visible(doc.querySelector('.performMeters')),'perform live audio meters');
- press('KeyE');assert(!$('archetypeInspector').classList.contains('open'),'perform prevents editor shortcut');
+ assert(!visible($('inspectorStrip')),'perform hides edit entry points');
+ for(const key of ['KeyE','KeyR','KeyI','KeyU']){
+  press(key);assert(!$('archetypeInspector').classList.contains('open'),'perform prevents editor shortcut');
+  assert($('shortcutToast').classList.contains('show')&&$('shortcutToast').textContent==='Exit perform mode (Q) to edit','perform toast '+key);
+ }
+ await wait(1300);assert(!$('shortcutToast').classList.contains('show'),'toast expires');
  press('KeyQ');assert(!doc.body.classList.contains('performMode'),'Q exits');
  const top=doc.querySelector('.workspaceHeader');assert(top.scrollWidth<=top.clientWidth,'1280 header overflow');
  for(const group of top.children){const box=group.getBoundingClientRect();assert(box.right<=win.innerWidth&&box.left>=0,'group outside viewport')}
- $('lookBtn').click();
+ assert(visible($('inspectorStrip')),'strip returns after perform');
+ const stripBox=$('inspectorStrip').getBoundingClientRect();assert(stripBox.left===0&&stripBox.width<=44,'1280 strip bounds');
+ doc.querySelector('.archItem:has(.arch.active) .archToolbar button').click();assert($('inspectorName').textContent==='Second','card edit uses selected archetype');
+ press('Escape');
+ const actions=$('footerActions'),initialLeft=actions.getBoundingClientRect().left;
+ assert(!actions.closest('#archBar')&&visible($('archetypeCreatorBtn'))&&visible($('verifyPackageBtn')),'fixed footer actions');
+ const bar=$('archBar');
+ const extra=doc.createElement('div');extra.style.cssText='flex:0 0 2000px';bar.append(extra);bar.scrollLeft=500;
+ assert(actions.getBoundingClientRect().left===initialLeft,'actions remain fixed while scrolling');extra.remove();bar.scrollLeft=0;
+ $('archBarToggle').click();assert(visible($('archetypeCreatorBtn'))&&actions.getBoundingClientRect().bottom<=win.innerHeight,'collapsed footer actions visible');$('archBarToggle').click();
+ $('archetypeCreatorBtn').click();assert($('creatorPanel').classList.contains('open'),'fixed create action works');press('Escape');
+ let verified=false;$('verifyPackageFile').click=()=>{verified=true};$('verifyPackageBtn').click();assert(verified,'fixed verify action works');
+ assert(bar.scrollHeight<=bar.clientHeight,'no vertical footer scrolling');
+ for(const card of doc.querySelectorAll('.archItem')){const box=card.getBoundingClientRect(),actions=card.querySelector('.archToolbar').getBoundingClientRect();assert(actions.bottom<=box.bottom&&actions.left>=box.left&&actions.right<=box.right,'toolbar inside card')}
  output.textContent='PASS: 1280px header, inspector tabs, selection, single panel, Escape, menus, perform and shortcuts';
 }catch(error){output.textContent='FAIL: '+error.stack;throw error}
 </script>

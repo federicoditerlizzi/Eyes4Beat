@@ -1,7 +1,7 @@
 import { icon, initIcons } from '../icons.js';
 
 // Reparent existing controls, preserving their event handlers and engine command path.
-export function createWorkspaceLayout({getSelection,getProject}){
+export function createWorkspaceLayout({getSelection,getProject,showToast}){
  const el=id=>document.getElementById(id),ui=document.querySelector('.ui'),top=document.querySelector('.top');
  const make=(tag,className,html='')=>{const node=document.createElement(tag);node.className=className;node.innerHTML=html;return node};
  const move=(parent,...nodes)=>nodes.forEach(node=>parent.append(typeof node==='string'?el(node):node));
@@ -34,6 +34,12 @@ export function createWorkspaceLayout({getSelection,getProject}){
  ui.append(inspector);
  const presetPanel=make('section','inspectorPage');presetPanel.id='musicPresetPanel';inspector.append(presetPanel);move(presetPanel,document.querySelector('.presetDock'),el('react'),document.querySelector('.contextControl'),el('lab'));inspector.append(presetPanel);
  const tabs=[['lookBtn','LOOK','palette','lookPanel','E'],['openMatrix','ROUTING','cable','matrixPanel','R'],['imageMgrBtn','IMAGES','images','imagePanel','I'],['presetsTab','PRESETS','bookmark','musicPresetPanel','U']];
+ const strip=make('nav','inspectorStrip');strip.id='inspectorStrip';strip.setAttribute('aria-label','Open archetype inspector');
+ for(const [id,label,glyph,,key] of tabs){
+  const shortcut=button('inspectorShortcut-'+id,'Open '+label,glyph,key);shortcut.className='iconAction inspectorShortcut';shortcut.disabled=true;
+  shortcut.setAttribute('aria-controls','archetypeInspector');shortcut.onclick=()=>{el(id).click();if(inspector.classList.contains('open'))el(id).focus()};strip.append(shortcut);
+ }
+ ui.append(strip);
  const pages=tabs.map(t=>el(t[3]));
  const toggleDiagnostics=el('diagBtn').onclick;
  function hideDiagnostics(){if(getComputedStyle(el('diag')).display!=='none')toggleDiagnostics()}
@@ -50,7 +56,7 @@ export function createWorkspaceLayout({getSelection,getProject}){
   const tab=el(id)||button(id,label,glyph,key),previous=tab.onclick;
   tab.className='inspectorTab';tab.innerHTML=icon(glyph)+'<span>'+label+'</span>';tab.setAttribute('role','tab');tab.setAttribute('aria-controls',pageId);tip(tab,label,key);
   inspector.querySelector('.inspectorTabs').append(tab);move(inspector,pageId);el(pageId).setAttribute('role','tabpanel');el(pageId).setAttribute('aria-labelledby',id);
-  tab.onclick=()=>{if(document.body.classList.contains('performMode'))return;previous?.();showTab(id)};
+  tab.onclick=()=>{if(document.body.classList.contains('performMode')){showToast('Exit perform mode (Q) to edit');return}if(el('lookBtn').disabled)return;previous?.();showTab(id)};
   tab.onkeydown=event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();event.stopPropagation();const n=tabs.findIndex(t=>t[0]===id),next=tabs[(n+(event.key==='ArrowRight'?1:3))%4][0];el(next).click();el(next).focus()};
  }
  top.replaceChildren(...groups,perform,accountButton);
@@ -74,7 +80,10 @@ export function createWorkspaceLayout({getSelection,getProject}){
   if(event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||document.querySelector('dialog[open]')||event.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
   if(event.code==='KeyQ'){event.preventDefault();perform.click();return}
   const id=keys[event.code];if(!id)return;
-  if(document.body.classList.contains('performMode')&&['lookBtn','openMatrix','imageMgrBtn','presetsTab','projectManageBtn','diagBtn','outputSettingsBtn','outputMenuBtn'].includes(id))return;
+  if(document.body.classList.contains('performMode')&&['lookBtn','openMatrix','imageMgrBtn','presetsTab','projectManageBtn','diagBtn','outputSettingsBtn','outputMenuBtn'].includes(id)){
+   if(tabs.some(tab=>tab[0]===id)){event.preventDefault();showToast('Exit perform mode (Q) to edit')}
+   return;
+  }
   event.preventDefault();el(id).click();
  });
  document.addEventListener('click',event=>{if(!output.contains(event.target)){menu.hidden=true;more.setAttribute('aria-expanded','false')}});
@@ -85,6 +94,7 @@ export function createWorkspaceLayout({getSelection,getProject}){
  el('projectName').textContent=getProject();
  initIcons(inspector);
  return {update(state){
+  for(const shortcut of strip.children)shortcut.disabled=!state.targetId;
   el('inspectorName').textContent=getSelection();el('projectName').textContent=getProject();el('headerBpm').textContent=state.bpm>0?Math.round(state.bpm):'—';el('beatDot').style.opacity=String(.2+.8*state.beat);
   el('audioSourceLabel').textContent=state.transport.mode.toUpperCase();
   el('outputLabel').textContent=el('outputBtn').classList.contains('connected')?'CONNECTED':document.body.classList.contains('remoteControl')?'REOPEN':'OPEN';

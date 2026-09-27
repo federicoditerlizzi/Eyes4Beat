@@ -25,7 +25,7 @@ try{
  let doc=frame.contentDocument,win=frame.contentWindow;const $=id=>doc.getElementById(id);
  const change=(id,value,event='change')=>{const e=$(id);e.value=value;e.dispatchEvent(new win.Event(event,{bubbles:true}))};
  $('imageMgrBtn').click();await until(()=>$('imageGrid').children.length===3,'image manager');
- $('imgNext').click();await until(()=>state.sequences[state.target].current===1,'next');$('imgPrev').click();await until(()=>state.sequences[state.target].current===0,'prev');
+ $('carouselNext').click();await until(()=>state.sequences[state.target].current===1,'next');$('carouselPrev').click();await until(()=>state.sequences[state.target].current===0,'prev');
  change('imageTimeBase','beats');await until(()=>!$('beatTimeStatus').hidden,'beat units');
  change('imageOrderMode','ping-pong');change('imageSource','kick');change('imageThreshold','.7');
  $('closeImageMgr').click();$('lookBtn').click();
@@ -78,9 +78,9 @@ try{
  win.EyesForBeatsSafety.setPanic(false);await until(()=>!state.panic,'control panic release');
  for(const index of [1,0,1])doc.querySelector('.arch[data-a="'+index+'"]').click();
  await until(()=>state.targetId===records[1].id&&!state.archetypeSelectionBusy,'rapid remote archetype changes');
- $('imageMgrBtn').click();$('imgNext').click();$('imgNext').click();$('imgPrev').click();
+ $('imageMgrBtn').click();$('carouselNext').click();$('carouselNext').click();$('carouselPrev').click();
  await until(()=>state.sequences[state.target].current===1&&!state.sequences[state.target].loading,'rapid remote media changes');
- $('imgPrev').click();await until(()=>state.sequences[state.target].current===0,'gray media');$('closeImageMgr').click();
+ $('carouselPrev').click();await until(()=>state.sequences[state.target].current===0,'gray media');$('closeImageMgr').click();
  const readCenter=()=>new Promise(resolve=>outputWindow.requestAnimationFrame(()=>{const canvas=outputWindow.document.querySelector('#gl'),g=canvas.getContext('webgl2'),pixel=new Uint8Array(4);g.readPixels(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1,g.RGBA,g.UNSIGNED_BYTE,pixel);resolve(pixel[0])}));
  await wait(400);const beforeGain=await readCenter();$('lookBtn').click();const remoteGain=doc.querySelector('[aria-label="color gain"]');remoteGain.value='1.4';remoteGain.dispatchEvent(new win.Event('input',{bubbles:true}));await wait(400);
  assert((await readCenter())>beforeGain+20,'remote look did not change rendered pixels');$('closeLook').click();
