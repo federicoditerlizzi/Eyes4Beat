@@ -1,3 +1,5 @@
+import { renderLookControls, updateLookRoutingHints, startingLook } from './ui/look-editor.js';
+import { createWorkspaceLayout } from './ui/workspace-layout.js';
 import './styles.css';
 import { renderEngineState } from './ui/engine-view.js';
 import { createVisualEngine } from './engine/engine.js';
@@ -15,7 +17,7 @@ import { INPUT_DEVICE_KEY } from './audio-input.js';
 import { icon, initIcons } from './icons.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from './package-format.js';
 import { prepareImportedArchetype } from './library/package-mapping.js';
-import { FACTORY_LOOKS, LOOK_FIELDS, NEUTRAL_LOOK, normalizeLook } from './looks.js';
+import { FACTORY_LOOKS, NEUTRAL_LOOK, normalizeLook } from './looks.js';
 import packageInfo from '../package.json';
 import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS } from './transitions.js';
 import { DWELL_BEAT_OPTIONS, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS } from './image-sequencer.js';
@@ -121,39 +123,13 @@ function closeLookEditor(){lookPanel.classList.remove('open')}
 function updateLookRoutingWarning(){
  const map=routingMaps[target],empty=routeSources.every(source=>routeTargets.every(key=>!Number(map?.[source]?.[key])));
  document.getElementById('lookRoutingWarning').hidden=!empty;
+ updateLookRoutingHints(document.getElementById('lookFields'),map);
 }
 function renderLookEditor(){
  document.getElementById('lookArchName').textContent=archetypes[target].name;
- const root=document.getElementById('lookFields');root.replaceChildren();
- const groups=[
-  ['rotation','ROTATION',[['mode','Mode'],['maxAngle','Max angle (deg)'],['maxSpeed','Max speed (deg/s)'],['fill','Fill'],['direction','Direction'],['returnToRest','Return to rest']]],
-  ['pulse','PULSE',[['mode','Mode'],['centerX','Center X'],['centerY','Center Y'],['strength','Strength'],['speed','Speed'],['width','Width'],['chromatic','Chromatic']]],
-  ['bloom','BLOOM',[['base','Base'],['threshold','Threshold'],['knee','Knee'],['radius','Radius'],['tint','Tint'],['stretch','Stretch']]],
-  ['frame','FRAME',[['fit','Fit'],['edge','Edge'],['overscan','Overscan']]],
-  ['distortion','DISTORTION',[['amplitude','Amplitude'],['speed','Speed'],['mode','Mode'],['angle','Angle (degrees)'],['directionStrength','Direction strength']]],
-  ['color','COLOR',[['gain','Gain'],['tint','Tint'],['tintAmount','Tint amount'],['amount','Vignette amount','vignette'],['softness','Vignette softness','vignette']]],
-  ['particles','PARTICLES',[['density','Density'],['speed','Speed'],['style','Style'],['motion','Motion'],['color','Color'],['colorMode','Color mode'],['motionFactor','Motion factor'],['waveAmount','Wave amount'],['jitterAmount','Jitter amount'],['depthOffset','Depth offset'],['streakSlant','Streak slant']]],
-  ['particles.burst','BURST',[['trigger','Trigger'],['amount','Amount'],['speed','Speed'],['spread','Spread'],['origin','Origin']]],
- ];
- const options={direction:['cw','ccw','flip-on-beat'],colorMode:['fixed','palette'],trigger:['none',...eventSourceIds()],origin:['center','random'],fit:['cover','contain','stretch'],edge:['mirror','clamp'],mode:['directional','radial'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']};
- for(const [group,title,fields] of groups){
-  const section=document.createElement('section');section.className='lookGroup';const heading=document.createElement('h3');heading.textContent=title;section.appendChild(heading);
-  for(const [key,label,fieldGroup=group] of fields){
-   const row=document.createElement('label');row.className='lookField';row.dataset.field=key;
-   const caption=document.createElement('span');caption.textContent=label;row.appendChild(caption);
-   const path=fieldGroup.split('.'),settings=path.reduce((value,part)=>value[part],looks[target]);
-   const value=settings[key],choices=key==='mode'?(group==='rotation'?['angle','spin']:group==='pulse'?['breath','shockwave']:options.mode):options[key];let input;
-   if(key==='returnToRest'){input=document.createElement('input');input.type='checkbox';input.checked=value}
-   else if(choices){input=document.createElement('select');for(const choice of choices){const item=document.createElement('option');item.value=choice;item.textContent=choice.replaceAll('-',' ');input.appendChild(item)}input.value=value}
-   else{input=document.createElement('input');input.type=key==='tint'||key==='color'?'color':'number';input.value=String(value);if(input.type==='number'){const [min,max,step]=LOOK_FIELDS[fieldGroup][key];input.min=String(min);input.max=String(max);input.step=String(step)}}
-   input.setAttribute('aria-label',`${title.toLowerCase()} ${label.toLowerCase()}`);
-   input.addEventListener('input',()=>{if(input.type==='number'&&!Number.isFinite(input.valueAsNumber))return;const next=structuredClone(looks[target]);path.reduce((value,part)=>value[part],next)[key]=input.type==='checkbox'?input.checked:input.type==='number'?input.valueAsNumber:input.value;looks[target]=normalizeLook(next);saveLooks();if(group==='distortion'&&key==='mode')section.querySelector('[data-field="angle"]').hidden=input.value!=='directional'});
-   row.appendChild(input);section.appendChild(row);
-  }
-  if(group==='distortion')section.querySelector('[data-field="angle"]').hidden=looks[target].distortion.mode!=='directional';
-  if(group==='particles.burst'){section.classList.add('burstGroup');root.querySelector('[data-look-group=particles]').appendChild(section)}
-  else{section.dataset.lookGroup=group;root.appendChild(section)}
- }
+ const root=document.getElementById('lookFields'),arch=archetypes[target];
+ renderLookControls({root,getLook:()=>looks[target],onChange:look=>{looks[target]=look;saveLooks()},
+  start:startingLook({...arch,look:looks[target]},projectLookPresets,localStorage,repository.cache.name),map:routingMaps[target],openRouting:()=>document.getElementById('openMatrix').click()});
  lookPreset.value='';updateLookRoutingWarning();
 }
 document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeMappingMatrix();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
@@ -691,7 +667,8 @@ async function openProject(projectId,{preferredId=null,recovery=null}={}){
  if(!recovery){const payload={project:nextProject,records,cacheName:repository.cache.name,preferredId};if(transport.disconnected)transport.project=structuredClone(payload);else await send('loadProject',payload)}
  if(generation!==projectSwitchGeneration)return;
  await repository.setActiveProject(activeProject?.id||null);
- projectLookPresets=activeProject?await repository.listLookPresets(activeProject.id):[];renderProjectLookPresets();
+ projectLookPresets=activeProject?await repository.listLookPresets(activeProject.id):[];
+ records.forEach(record=>startingLook(record,projectLookPresets,localStorage,repository.cache.name));renderProjectLookPresets();
  renderArchetypeBar();renderPresetControls();await refreshProjects();
  if(lookPanel.classList.contains('open')){if(archetypes.length)renderLookEditor();else closeLookEditor()}
  if(document.getElementById('imagePanel').classList.contains('open')){if(archetypes.length)renderImageManager();else closeImageManager()}
@@ -778,7 +755,7 @@ function renderArchetypeBar(){
    const origin=arch.origin?.type||'blank',subtitle=origin==='factory'?(FACTORY_LOOKS.find(preset=>preset.id===arch.origin.presetId)?.subtitle||'factory look'):origin==='project-preset'?'project look preset':origin==='import'?'imported':'blank look';
    button.innerHTML='<b></b><span></span>';button.querySelector('b').textContent=(index+1)+' · '+arch.name;button.querySelector('span').textContent=subtitle;button.onclick=()=>selectArchetype(index);
    const item=document.createElement('div');item.className='archItem';item.appendChild(button);
-   const actions=[['pencil','Rename archetype',async()=>{const name=await askLibraryAction({title:'RENAME ARCHETYPE',value:arch.name,confirm:'RENAME'});if(!name)return;fire('updateArchetype',{id:arch.id,patch:{name}});await repository.updateArchetype(arch.id,{name});arch.name=name;renderArchetypeBar();if(lookPanel.classList.contains('open'))renderLookEditor()}],
+   const actions=[['panel-right','Edit archetype (E)',()=>document.getElementById('lookBtn').click()],['pencil','Rename archetype',async()=>{const name=await askLibraryAction({title:'RENAME ARCHETYPE',value:arch.name,confirm:'RENAME'});if(!name)return;fire('updateArchetype',{id:arch.id,patch:{name}});await repository.updateArchetype(arch.id,{name});arch.name=name;renderArchetypeBar();if(lookPanel.classList.contains('open'))renderLookEditor()}],
     ['copy','Duplicate archetype',async()=>{await flushArchetypeWrites();const duplicate=await repository.duplicateArchetype(arch.id);await openProject(activeProject.id,{preferredId:duplicate.id})}],
     ['chevron-left','Move archetype earlier',async()=>{if(index===0)return;const order=[...activeProject.archetypeOrder];[order[index-1],order[index]]=[order[index],order[index-1]];await repository.reorderArchetypes(activeProject.id,order);await openProject(activeProject.id,{preferredId:arch.id})}],
     ['chevron-right','Move archetype later',async()=>{if(index===archetypes.length-1)return;const order=[...activeProject.archetypeOrder];[order[index],order[index+1]]=[order[index+1],order[index]];await repository.reorderArchetypes(activeProject.id,order);await openProject(activeProject.id,{preferredId:arch.id})}],
@@ -982,6 +959,11 @@ transport.subscribe(event=>{
  }
  if(archetypes[target]&&seqStates[target])updateImageManagerRuntimeState(target);
 });
+const workspaceLayout=createWorkspaceLayout({
+ getSelection:()=>archetypes[target]?.name||'No archetype selected',
+ getProject:()=>activeProject?.name||'Projects',
+});
+transport.subscribe(event=>{if(event.type==='state')workspaceLayout.update(event.state)});
 sendControls();
 
 const recovered=await outputController.discover();discoveringOutput=false;

@@ -136,3 +136,108 @@
 .diag{max-height:calc(100vh - 180px);overflow:auto}
 .diag .inputDiag span,.diag .inputDiag em{white-space:normal;overflow-wrap:anywhere}
 .headerTools{flex-wrap:wrap}
+
+/* Workspace layout: shared controls, four header groups, one editing surface. */
+.top.workspaceHeader{display:flex;flex-wrap:wrap;gap:0;padding:8px;align-items:stretch}
+.headerGroup{display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px solid var(--line);min-width:0}
+.headerGroup.groupProject{flex:1;min-width:140px}
+.headerGroup.groupAudio{flex:1;justify-content:center}
+.headerGroup.groupOutput{border:0}
+.workspaceHeader .headerIcon{width:auto;min-width:30px;height:38px;display:inline-flex;gap:6px;padding:6px;font-size:9px;white-space:nowrap}
+.workspaceHeader .projectDropdown{max-width:100%;font-size:12px}
+#projectName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px}
+.statusDot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#728090;flex-shrink:0}
+.connected .statusDot,.statusDot.connected{background:#61e8a9;box-shadow:0 0 8px #61e8a977}
+#beatDot{background:#8de8ff;box-shadow:0 0 8px #8de8ff}
+.tempoReadout{display:flex;align-items:center;gap:5px;font-size:9px;white-space:nowrap;color:var(--muted)}
+.tempoReadout b{color:var(--txt);font-variant-numeric:tabular-nums}
+.workspaceHeader .liveAction{font-size:10px;font-weight:700;padding:8px;min-height:40px}
+.workspaceHeader .blackoutBtn.active{background:#9e233b;color:white}
+.workspaceHeader .panicBtn.active{background:#ffb74a;color:#201000}
+.workspaceHeader #liveLockBtn.active{background:#1d6953;color:#baffdf}
+.workspaceHeader .modeSwitch button{min-height:38px;padding:6px 8px;font-size:9px}
+.workspaceHeader #performBtn{margin-left:auto;padding:8px;font-size:9px}
+.groupOutput{position:relative}
+.outputMenu{position:absolute;right:0;top:calc(100% + 12px);padding:8px;min-width:195px;background:#0c1119;border:1px solid var(--line);border-radius:12px;box-shadow:0 15px 40px #0009;z-index:65}
+.outputMenu:not([hidden]){display:grid;gap:4px}
+.outputMenu .headerIcon{justify-content:flex-start}
+.audioFileControls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px}
+.audioFileControls .seek{flex:1;min-width:130px}
+.audioFileControls .trackInfo{flex:1;min-width:150px}
+.inspector{display:none;position:absolute;right:16px;top:88px;bottom:calc(var(--footer-height,100px) + 32px);width:min(650px,calc(100vw - 32px));background:rgba(8,11,16,.98);border:1px solid var(--line);border-radius:16px;z-index:34;pointer-events:auto;overflow:hidden}
+.inspector.open{display:flex;flex-direction:column}
+.panelHeading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px}
+.panelHeading h2{margin:0;font-size:13px;overflow-wrap:anywhere}
+.inspectorTabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0 12px 12px;border-bottom:1px solid var(--line)}
+.inspectorTab{display:flex;align-items:center;justify-content:center;gap:7px;background:transparent;border:0;border-radius:8px;font-size:10px;min-width:0}
+.inspectorTab[aria-selected=true]{background:#223a49;color:#ade8ff}
+.inspector > .lookPanel,.inspector > .matrixPanel,.inspector > .imagePanel,.inspector > .inspectorPage{position:relative;inset:auto;width:100%;height:auto;max-height:none;min-height:0;flex:1;overflow:auto;padding:14px;border:0;border-radius:0;background:transparent;box-shadow:none}
+.inspector > :is(.lookPanel,.matrixPanel,.imagePanel,.inspectorPage):not(.open){display:none}
+.inspector > .open{display:block}
+.inspector .imageTop,.inspector .matrixTop{position:static;background:none;padding:0;margin:0 0 12px}
+.inspector #closeLook,.inspector #closeMatrix,.inspector #closeImageMgr{display:none}
+.inspector .lookFields{grid-template-columns:repeat(2,minmax(0,1fr))}
+.inspector .lookPresetBar{flex-wrap:wrap}
+.inspector .lookPresetBar select{min-width:180px}
+.inspector .imageGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.inspector .imageControls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.inspector .triggerTransitionControls{grid-template-columns:1fr}
+.inspector .lab{position:static;display:block;width:100%;max-height:none;height:auto;padding:0;border:0;overflow:visible;background:none}
+.inspector .lab:has(.labAccordion[open]){height:auto}
+.inspector .contextControl{display:inline-grid;margin:12px}
+.inspector .presetDock{position:static;margin-bottom:12px}
+.projectPanel,.audioInputPanel,.creatorPanel{right:16px;left:auto;top:88px;width:min(650px,calc(100vw - 32px));max-height:calc(100vh - 210px);border-radius:16px}
+#projectPanel > #projectSelect{width:100%;margin-bottom:12px}
+.legacyExport{margin-top:18px;padding-top:12px;border-top:1px solid var(--line);font-size:11px}
+.legacyExport summary{cursor:pointer}
+.performMeters{display:none;position:absolute;left:20px;top:90px;gap:10px;pointer-events:none}
+.compactMeter{font-size:9px;text-transform:uppercase;color:var(--muted)}
+.compactMeter meter{display:block;width:72px;height:9px}
+.compactMeter[hidden]{display:none}
+.performMode .performMeters{display:flex;flex-wrap:wrap;max-width:calc(100vw - 40px)}
+.performMode .groupProject,.performMode .groupOutput,.performMode .inspector,.performMode .projectPanel,.performMode .creatorPanel,.performMode .diag,.performMode .archToolbar,.performMode .createArchFooter,.performMode .libraryFooter,.performMode .archBarToggle{display:none!important}
+.performMode .arch{min-height:76px;min-width:150px;font-size:13px}
+.performMode .workspaceHeader .groupAudio{justify-content:flex-start}
+.performMode #performBtn{color:#ade8ff;background:#223a49}
+.archToolbar button[aria-label^="Edit archetype"]{display:none}
+.archItem:has(.arch.active) .archToolbar button[aria-label^="Edit archetype"]{display:inline-grid}
+@media(max-width:1280px){.headerGroup{padding:0 7px;gap:4px}.workspaceHeader .liveAction{font-size:9px;padding:6px}.workspaceHeader .headerIcon{gap:4px}#projectName{max-width:130px}}
+@media(max-width:1000px){.top.workspaceHeader{gap:8px}.headerGroup.groupProject{flex:1}.headerGroup.groupAudio{flex:1}.headerGroup.groupLive{flex:1}.inspector,.projectPanel,.audioInputPanel,.creatorPanel{top:130px}.performMeters{top:130px}}
+.inspector,.projectPanel,.audioInputPanel,.creatorPanel{top:var(--header-bottom,88px)}
+.performMeters{top:var(--header-bottom,88px)}
+.inspector .matrixTop{flex-wrap:wrap}
+.inspector .matrixTop h2,.inspector .imageTop h2{font-size:11px}
+.inspector .imageTop{flex-wrap:wrap}
+.inspector input,.inspector select{max-width:100%}
+.inspector .ctlBox{min-width:0}
+.presetDialog,.packageDialog{border-radius:16px;background:rgba(8,11,16,.98)}
+.presetDialog h2,.packageDialog h2,.panelHeading h2{font-size:13px;letter-spacing:.06em}
+.inspector .closeAction::after{left:auto;right:0;transform:translateY(-2px)}
+.inspector .closeAction:hover::after,.inspector .closeAction:focus-visible::after{transform:translateY(0)}
+.workspaceHeader #liveLockBtn[aria-pressed=true]{background:#1d6953;color:#baffdf}
+
+/* LOOK controls: compact primaries, device-local disclosures, precise values. */
+.inspector .lookFields{display:flex;flex-direction:column;gap:10px}
+.lookDisclosure.lookGroup{padding:0;overflow:hidden}
+.lookGroupHeader{display:flex;align-items:center;gap:8px;padding:12px;cursor:pointer;list-style:none}
+.lookGroupHeader::-webkit-details-marker{display:none}
+.lookGroupTitle{font-size:11px;font-weight:700;letter-spacing:.06em}
+.lookGroupHeader::before{content:"";width:6px;height:6px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);margin-right:4px;transition:transform .15s}
+.lookDisclosure[open]>.lookGroupHeader::before{transform:rotate(45deg)}
+.lookGroupReset{margin-left:auto;background:transparent;border:0;padding:4px 6px;color:var(--muted);font-size:10px}
+.lookRouteHint{border:0;background:transparent;padding:4px;color:#92cde2;font-size:10px;text-align:left}
+.lookGroupBody{padding:0 12px 6px}
+.lookGroupBody>.lookField{margin-bottom:12px}
+.lookFieldCaption{font-size:10px}
+.lookSliderControl{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:12px;align-items:center}
+.lookField .lookSlider{padding:0;border:0;accent-color:#8de8ff}
+.lookValue{padding:5px 8px;font-size:11px;font-variant-numeric:tabular-nums;background:#ffffff09;border-color:#ffffff12}
+.lookField .lookValueEditor{padding:5px;width:72px;font-size:11px}
+.lookValue[hidden],.lookValueEditor[hidden],.lookField select[hidden]{display:none}
+.lookSegments{display:flex;flex-wrap:wrap;gap:3px;padding:3px;background:#ffffff05;border-radius:8px}
+.lookSegments button{flex:1;min-width:60px;padding:6px;font-size:10px;border:0;border-radius:5px;background:transparent}
+.lookSegments button[aria-pressed=true]{background:#254450;color:#c3f1ff}
+.lookField .lookSwatch{width:54px;height:30px;padding:2px;cursor:pointer}
+.lookAdvanced{border-top:1px solid var(--line);padding-top:9px;margin-top:5px}
+.lookAdvanced>summary{font-size:10px;color:var(--muted);cursor:pointer;margin-bottom:10px}
+.lookAdvanced>.lookField{margin:12px 0}

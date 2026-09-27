@@ -203,10 +203,20 @@ The renderer uses four fragment samplers: current A/B and target A/B. Only the t
 - Preserve the separation between slow contextual motion and fast rhythmic accents: the code intentionally prevents micro-transients from driving the whole visual world.
 - Check `git diff --stat` after edits and keep functional changes focused.
 
+## Workspace layout
+
+`src/ui/workspace-layout.js` reparents the existing controls without replacing their engine command handlers. The header contains Project, Audio, Live and Output groups. Project management and account live in the project panel; audio file loading/seek/volume live in the Audio Input panel. Output's menu contains diagnostics, device-local output settings and shortcuts.
+
+One right-side archetype inspector hosts LOOK, ROUTING, IMAGES and PRESETS; the latter retains source/target controls and global reactivity/PERF–CTX. E/R/I/U open the tabs; the active archetype's edit action also opens it. J opens projects, N audio, G output, V preview, F fullscreen, O the output menu, H diagnostics, Y output settings, Space playback, M mute and Q PERFORM. Existing performance shortcuts remain. Escape closes the open side panel. Editing fields and dialogs suppress shortcuts.
+
+PERFORM is UI-only: it hides editing/project/output controls, enlarges the archetype bar and shows active-source meters with audio/live controls and preview. It never changes engine state. Existing panels and control IDs remain stable for the command boundary and regression tests. `test/workspace-layout.html` checks the 1280px layout, inspector selection, exclusive panels, shortcuts and PERFORM; `test/engine-app.html` covers the engine/output regressions.
+
+The LOOK tab uses `src/ui/look-editor.js`: COLOR, DISTORTION, PARTICLES, BLOOM, PULSE, ROTATION, FRAME disclosures, each with three primary controls and an Advanced disclosure for remaining fields. Numeric controls retain the original limits and support precise inline entry; enums use segmented buttons and colors native swatches. Disclosure preferences live in `eyes4beat_look_groups`. Group resets use factory/Blank provenance; project-preset and imported baselines are captured on project load in user-cache-scoped device-local `eyes4beat_look_start:…` entries. Older records do not store their original creation look, so imports without provenance use the first look loaded on that device. COLOR reset includes vignette; PARTICLES reset includes burst. The look model and rendering are unchanged.
+
 ## Global UI style guide
 
-- Header utility actions use compact, borderless icon-only controls. Do not add boxed text buttons to the header unless a specific product requirement calls for an exception.
-- BLACKOUT, PANIC and AUDIO INPUT follow the same icon-only header pattern. Their active states must remain unmistakable through color, glow and the persistent safety badge rather than a permanent button outline.
+- Header utility actions use compact, borderless icon controls. Project/audio/output status may include labels; Live uses larger text + icon controls and a segmented SMOOTH/CUT switch.
+- BLACKOUT, PANIC and LIVE LOCK use labeled controls with unmistakable active colors plus persistent safety status. Audio input shows FILE/LIVE.
 - Panels, pages and dialogs use a borderless `×` icon for their close action. Keep text actions such as Create, Apply or Reset only when the wording represents a distinct decision, not merely dismissal.
 - Every button must expose a useful hover tooltip. Icon-only actions require both an accessible `aria-label` and a visible `data-tooltip`; text buttons receive a native title fallback at runtime. Tooltips must describe the action, not the glyph.
 - Reuse the global `.iconAction`, `.headerIcon` and `.closeAction` patterns. The preset action toolbar is the visual reference for compact utility controls.

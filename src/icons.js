@@ -1,4 +1,5 @@
 import {
+  Palette, Cable, Bookmark, MonitorUp, Eye, MonitorCog, Ellipsis, PanelRight, Radio,
   Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft, Copy,
   ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, FolderOpen, Images, Info, Keyboard, Maximize,
   Lock, Minimize, MonitorOff, OctagonAlert, Pause, Pencil, Play, Plus, Save, ScreenShare, SlidersHorizontal, UserRound,
@@ -6,6 +7,7 @@ import {
 } from 'lucide';
 
 const ICONS = {
+  Palette, Cable, Bookmark, MonitorUp, Eye, MonitorCog, Ellipsis, PanelRight, Radio,
   Activity, ArrowDown, ArrowUp, AudioLines, BookOpen, ChevronDown, ChevronLeft, Copy,
   ChevronRight, ChevronUp, Download, FileAudio, FileCheck2, FolderOpen, Images, Info, Keyboard, Maximize,
   Lock, Minimize, MonitorOff, OctagonAlert, Pause, Pencil, Play, Plus, Save, ScreenShare, SlidersHorizontal, UserRound,
@@ -13,6 +15,7 @@ const ICONS = {
 };
 
 const iconByName = {
+  palette: Palette, cable: Cable, bookmark: Bookmark, 'monitor-up': MonitorUp, eye: Eye, 'monitor-cog': MonitorCog, ellipsis: Ellipsis, 'panel-right': PanelRight, radio: Radio,
   activity: Activity,
   'arrow-down': ArrowDown,
   'arrow-up': ArrowUp,
