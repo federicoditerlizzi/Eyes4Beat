@@ -11,9 +11,7 @@ export function createWorkspaceLayout({getSelection,getProject}){
  const [project,audio,live,output]=groups;top.append(...groups);
  const projectButton=el('projectManageBtn');projectButton.innerHTML=icon('folder-open')+'<span id="projectName"></span><span id="syncDot" class="statusDot"></span>'+icon('chevron-down');projectButton.classList.add('projectDropdown');projectButton.setAttribute('aria-expanded','false');
  move(project,projectButton);
- move(el('projectPanel'),el('projectSelect'));el('projectPanel').insertBefore(el('projectSelect'),el('projectPanel').children[1]);
- move(el('projectPanel').querySelector('.syncAccount'),'accountBtn');
- el('accountBtn').onclick=()=>el('accountEmail').scrollIntoView({block:'nearest'});
+ const accountButton=el('accountBtn');
  const audioDetails=make('div','audioFileControls');
  move(audioDetails,document.querySelector('.audioLoad'),document.querySelector('.trackInfo'),'seek','timeDisplay','volume');
  move(el('audioInputPanel'),audioDetails);
@@ -39,9 +37,9 @@ export function createWorkspaceLayout({getSelection,getProject}){
  const pages=tabs.map(t=>el(t[3]));
  const toggleDiagnostics=el('diagBtn').onclick;
  function hideDiagnostics(){if(getComputedStyle(el('diag')).display!=='none')toggleDiagnostics()}
- const sidePanels=[inspector,el('projectPanel'),el('audioInputPanel'),el('creatorPanel')];
+ const sidePanels=[inspector,el('audioInputPanel'),el('creatorPanel')];
  function closeInspector(){for(const page of pages)page.classList.remove('open');inspector.classList.remove('open')}
- function closeSides(except){hideDiagnostics();for(const panel of sidePanels)if(panel!==except){panel.classList.remove('open');if(panel===inspector)closeInspector()}projectButton.setAttribute('aria-expanded',String(except===el('projectPanel')))}
+ function closeSides(except){hideDiagnostics();for(const panel of sidePanels)if(panel!==except){panel.classList.remove('open');if(panel===inspector)closeInspector()}}
  function showTab(id){
   if(document.body.classList.contains('performMode')||el('lookBtn').disabled)return;
   closeSides(inspector);
@@ -55,22 +53,21 @@ export function createWorkspaceLayout({getSelection,getProject}){
   tab.onclick=()=>{if(document.body.classList.contains('performMode'))return;previous?.();showTab(id)};
   tab.onkeydown=event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();event.stopPropagation();const n=tabs.findIndex(t=>t[0]===id),next=tabs[(n+(event.key==='ArrowRight'?1:3))%4][0];el(next).click();el(next).focus()};
  }
- top.replaceChildren(...groups,perform);
+ top.replaceChildren(...groups,perform,accountButton);
  close.onclick=closeInspector;
  el('diagBtn').onclick=()=>{if(getComputedStyle(el('diag')).display!=='none'){toggleDiagnostics();return}closeSides();toggleDiagnostics()};
  for(const id of ['closeLook','closeMatrix','closeImageMgr']){const old=el(id).onclick;el(id).onclick=()=>{old?.();closeInspector()}}
- for(const id of ['projectManageBtn','audioInputBtn']){const old=el(id).onclick;el(id).onclick=()=>{const panel=el(id==='projectManageBtn'?'projectPanel':'audioInputPanel');closeSides(panel);old?.();projectButton.setAttribute('aria-expanded',String(el('projectPanel').classList.contains('open')))}}
+ {const old=el('audioInputBtn').onclick;el('audioInputBtn').onclick=()=>{closeSides(el('audioInputPanel'));old?.()}}
  // Structural actions can also open a side panel (empty project / archetype creator).
  for(const panel of sidePanels)new MutationObserver(records=>{if(records.some(r=>!r.oldValue?.split(' ').includes('open'))&&panel.classList.contains('open'))closeSides(panel)}).observe(panel,{attributes:true,attributeFilter:['class'],attributeOldValue:true});
- const legacy=make('details','legacyExport');legacy.innerHTML='<summary>LEGACY EXPORT</summary>';move(legacy,el('legacySection'));el('projectPanel').append(legacy);
  const meters=make('div','performMeters');meters.setAttribute('aria-label','Active source meters');ui.append(meters);
  for(const name of ['energy','density','drive','boombap','tension','bright','open','beat','kick','snare']){const row=make('label','compactMeter',name+'<meter min="0" max="1" value="0"></meter>');row.dataset.source=name;meters.append(row)}
  function setPerform(value){closeSides();menu.hidden=true;document.body.classList.toggle('performMode',value);perform.setAttribute('aria-pressed',String(value));if(value)document.querySelector('.ui').classList.remove('footerCollapsed')}
  perform.onclick=()=>setPerform(!document.body.classList.contains('performMode'));
  more.onclick=()=>{menu.hidden=!menu.hidden;more.setAttribute('aria-expanded',String(!menu.hidden))};
  menu.addEventListener('click',e=>{if(e.target.closest('button')){menu.hidden=true;more.setAttribute('aria-expanded','false')}});
- const keys={KeyE:'lookBtn',KeyR:'openMatrix',KeyI:'imageMgrBtn',KeyU:'presetsTab',KeyJ:'projectManageBtn',KeyA:null,KeyN:'audioInputBtn',KeyO:'outputMenuBtn',KeyV:'previewBtn',KeyF:'fullscreen',KeyG:'outputBtn',KeyH:'diagBtn',KeyY:'outputSettingsBtn',Space:'play',KeyM:'mute'};
- const tips={projectManageBtn:['Projects','J'],audioInputBtn:['Audio input','N'],play:['Play / pause','Space'],mute:['Mute','M'],blackoutBtn:['Blackout','B'],panicBtn:['Panic','P'],liveLockBtn:['Live lock','L'],smooth:['Smooth transition','S'],cut:['Cut transition','C'],outputBtn:['Open / focus output','G'],previewBtn:['Preview','V'],fullscreen:['Fullscreen','F'],diagBtn:['Diagnostics','H'],outputSettingsBtn:['Output settings','Y'],shortcutHelpBtn:['Keyboard shortcuts','?'],accountBtn:['Account','J']};
+ const keys={KeyE:'lookBtn',KeyR:'openMatrix',KeyI:'imageMgrBtn',KeyU:'presetsTab',KeyJ:'projectManageBtn',KeyK:'accountBtn',KeyA:null,KeyN:'audioInputBtn',KeyO:'outputMenuBtn',KeyV:'previewBtn',KeyF:'fullscreen',KeyG:'outputBtn',KeyH:'diagBtn',KeyY:'outputSettingsBtn',Space:'play',KeyM:'mute'};
+ const tips={projectManageBtn:['Projects','J'],audioInputBtn:['Audio input','N'],play:['Play / pause','Space'],mute:['Mute','M'],blackoutBtn:['Blackout','B'],panicBtn:['Panic','P'],liveLockBtn:['Live lock','L'],smooth:['Smooth transition','S'],cut:['Cut transition','C'],outputBtn:['Open / focus output','G'],previewBtn:['Preview','V'],fullscreen:['Fullscreen','F'],diagBtn:['Diagnostics','H'],outputSettingsBtn:['Output settings','Y'],shortcutHelpBtn:['Keyboard shortcuts','?'],accountBtn:['Account','K']};
  for(const [id,[label,key]] of Object.entries(tips))tip(el(id),label,key);
  document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){closeSides();menu.hidden=true;return}
@@ -84,14 +81,13 @@ export function createWorkspaceLayout({getSelection,getProject}){
  new ResizeObserver(()=>ui.style.setProperty('--header-bottom',Math.ceil(top.getBoundingClientRect().bottom+16)+'px')).observe(top);
  for(const control of document.querySelectorAll('.closeAction'))tip(control,control.getAttribute('aria-label')||'Close','Escape');
  const shortcutGrid=el('shortcutDialog').querySelector('.shortcutList');
- if(shortcutGrid)for(const [key,label] of [['E / R / I / U','Inspector tabs'],['J / N','Projects / Audio input'],['G / V / F','Output / Preview / Fullscreen'],['O / H / Y','Output menu / Diagnostics / Output settings'],['Space / M','Play / pause / Mute'],['Q','Perform mode']])shortcutGrid.append(make('div','', '<kbd>'+key+'</kbd><span>'+label+'</span>'));
+ if(shortcutGrid)for(const [key,label] of [['E / R / I / U','Inspector tabs'],['J / N','Projects / Audio input'],['K','Account menu'],['G / V / F','Output / Preview / Fullscreen'],['O / H / Y','Output menu / Diagnostics / Output settings'],['Space / M','Play / pause / Mute'],['Q','Perform mode']])shortcutGrid.append(make('div','', '<kbd>'+key+'</kbd><span>'+label+'</span>'));
  el('projectName').textContent=getProject();
  initIcons(inspector);
  return {update(state){
   el('inspectorName').textContent=getSelection();el('projectName').textContent=getProject();el('headerBpm').textContent=state.bpm>0?Math.round(state.bpm):'—';el('beatDot').style.opacity=String(.2+.8*state.beat);
   el('audioSourceLabel').textContent=state.transport.mode.toUpperCase();
   el('outputLabel').textContent=el('outputBtn').classList.contains('connected')?'CONNECTED':document.body.classList.contains('remoteControl')?'REOPEN':'OPEN';
-  el('syncDot').classList.toggle('connected',el('syncStatus').textContent.includes('SYNCED'));el('syncDot').title=el('syncStatus').textContent;
   for(const [id,[label,key]] of Object.entries(tips))tip(el(id),label,key);
   const solo=[...document.querySelectorAll('[data-solo].active')].map(n=>n.dataset.solo);
   for(const row of meters.children){const name=row.dataset.source;row.hidden=solo.length?!solo.includes(name):!document.querySelector('[data-on="'+name+'"]').checked;row.querySelector('meter').value=state.eff[name]??state[name]??0}

@@ -32,7 +32,7 @@
       <input id="volume" class="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
     </section>
     <div class="headerTools">
-      <div class="projectSwitch"><select id="projectSelect" aria-label="Active project" title="Active project"></select><button id="projectManageBtn" class="iconAction headerIcon" type="button" aria-label="Manage projects" data-tooltip="Manage projects"><i data-lucide="folder-open"></i></button></div>
+      <div class="projectSwitch"><button id="projectManageBtn" class="iconAction headerIcon" type="button" aria-label="Manage projects" data-tooltip="Manage projects"><i data-lucide="folder-open"></i></button></div>
       <div class="modeSwitch" aria-label="Transition mode"><button id="smooth" class="active">SMOOTH</button><button id="cut">CUT</button></div>
       <select id="react" aria-label="Global reactivity" title="Global reactivity">
         <option value=".55">LOW</option>
@@ -57,17 +57,27 @@
     </div>
   </div>
   <div id="safetyStatus" class="safetyStatus" aria-live="assertive"><span id="blackoutStatus">BLACKOUT</span><span id="panicStatus">PANIC · TARGETS NEUTRAL</span></div>
-  <div class="projectPanel" id="projectPanel">
-    <div class="imageTop"><div class="sectionTitle"><h2>PROJECTS</h2><button class="infoTip" type="button" aria-label="About local projects" data-tooltip="Projects, archetypes, looks, presets and media are stored in this browser. Export a package to move them elsewhere."><i data-lucide="info"></i></button></div><button id="closeProjectPanel" class="iconAction closeAction" type="button" aria-label="Close projects" data-tooltip="Close projects"><i data-lucide="x"></i></button></div>
-    <p id="projectEmptyHint">Create a local project or import a library package to begin.</p>
-    <section class="syncAccount"><h3>ACCOUNT &amp; SYNC</h3><p id="accountEmail">Offline cache</p><p id="syncStatus">OFFLINE</p><p id="syncLast">Last sync: never</p><p id="offlineReady">Offline readiness: checking…</p><div class="projectActions"><button id="syncNow" type="button">SYNC NOW</button><button id="signOut" type="button">SIGN OUT</button></div></section>
-    <div id="projectSummary" class="projectSummary"></div>
-    <div class="projectStorage"><p id="storageStatus" role="status">Checking browser storage…</p><p id="storageUsage"></p><p id="lastExported">Last exported: never</p></div>
-    <div class="projectActions"><button id="createProject" type="button">CREATE PROJECT</button><button id="importPackage" type="button">IMPORT PACKAGE</button><input id="importPackageFile" type="file" accept=".zip,application/zip"><button id="renameProject" type="button">RENAME</button><button id="projectVisibility" type="button">SHARE</button><button id="duplicateProject" type="button">DUPLICATE</button><button id="deleteProject" type="button">DELETE</button><button id="exportProject" type="button">EXPORT PROJECT</button></div>
-    <section id="legacySection" class="legacySection" hidden><h3>LEGACY DATA</h3><p>Back up the previous archetype library before removing it.</p><button id="exportLegacy" type="button">EXPORT LIBRARY</button></section>
-    <section class="legacySection"><h3>BUILT-IN STARTERS</h3><button id="exportBuiltins" type="button">EXPORT BUILT-INS</button></section>
-    <div id="projectStatus" class="tiny" role="status"></div>
+  <div id="projectSwitcher" class="projectSwitcher headerDropdown" hidden>
+    <div id="projectSwitcherList" role="menu" aria-label="Readable projects"></div>
+    <div class="switcherFooter"><button id="switcherNewProject" type="button">New project</button><button id="manageLibrary" type="button">Manage projects…</button></div>
+    <p id="projectSwitcherError" role="alert"></p>
   </div>
+  <div id="accountMenu" class="accountMenu headerDropdown" hidden>
+    <h3>ACCOUNT</h3><p id="accountEmail">Offline cache</p><p id="syncStatus">OFFLINE</p><p id="syncLast">Last sync: never</p>
+    <div class="projectActions"><button id="syncNow" type="button">Sync now</button><button id="signOut" type="button">Sign out</button></div><p id="accountError" role="alert"></p>
+  </div>
+  <dialog id="libraryDialog" class="packageDialog libraryDialog" aria-labelledby="libraryTitle">
+    <header class="packageDialogHead"><h2 id="libraryTitle">LIBRARY</h2><button id="closeLibrary" class="iconAction closeAction" aria-label="Close library" data-tooltip="Close library (Escape)"><i data-lucide="x"></i></button></header>
+    <div class="projectActions libraryTopActions"><button id="createProject" type="button">New project</button><button id="importPackage" type="button">Import package</button><input id="importPackageFile" type="file" accept=".zip,application/zip"></div>
+    <p id="projectEmptyHint">Create a project or import a package to begin.</p>
+    <div class="libraryTableWrap"><table class="libraryTable"><thead><tr><th>Name</th><th>Owner</th><th>Visibility</th><th>Archetypes</th><th>Offline</th><th>Updated</th><th>Actions</th></tr></thead><tbody id="projectRows"></tbody></table></div>
+    <div id="projectStatus" class="tiny" role="status"></div>
+    <details class="backupLegacy"><summary>Backup and legacy</summary>
+      <div class="projectStorage"><p id="storageStatus" role="status">Checking browser storage…</p><p id="storageUsage"></p><p id="lastExported">Last exported: never</p></div>
+      <section id="legacySection" class="legacySection" hidden><h3>LEGACY DATA</h3><p>Back up the previous archetype library before removing it.</p><button id="exportLegacy" type="button">Export legacy library</button></section>
+      <section class="legacySection"><h3>BUILT-IN STARTERS</h3><button id="exportBuiltins" type="button">Export built-ins</button></section>
+    </details>
+  </dialog>
   <div id="libraryNotice" class="libraryNotice" role="status" hidden></div>
   <div id="liveLockBadge" class="liveLockBadge" role="status" hidden>LIVE LOCK · <span>0</span> PENDING</div>
   <div id="saveFailure" class="saveFailure" role="alert" hidden><span>Not saved — retry</span><button id="retrySave" type="button" title="Retry saving changes">RETRY</button></div>

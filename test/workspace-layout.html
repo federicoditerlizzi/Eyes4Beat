@@ -29,7 +29,7 @@ try{
  const press=code=>doc.dispatchEvent(new win.KeyboardEvent('keydown',{code,key:code==='Escape'?'Escape':'',bubbles:true}));
  assert(doc.querySelectorAll('.workspaceHeader > .headerGroup').length===4,'four header groups');
  assert(!doc.querySelector('.workspaceHeader #lookBtn,.workspaceHeader #imageMgrBtn,.workspaceHeader #openMatrix'),'editing actions in header');
- assert($('accountBtn').closest('#projectPanel'),'account location');
+ assert($('accountBtn').closest('.workspaceHeader'),'account location');
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
  for(const id of ['lookBtn','openMatrix','imageMgrBtn','presetsTab']){
   $(id).click();await wait(100);
@@ -38,7 +38,7 @@ try{
   assert($('archetypeInspector').scrollWidth<=$('archetypeInspector').clientWidth,'inspector horizontal overflow '+id);
  }
  $('projectManageBtn').click();await wait(100);assert(!$('archetypeInspector').classList.contains('open'),'project closes inspector');
- press('Escape');assert(!$('projectPanel').classList.contains('open'),'Escape closes project');
+ press('Escape');assert($('projectSwitcher').hidden,'Escape closes project');
  press('KeyE');await wait(100);assert($('archetypeInspector').classList.contains('open'),'E opens inspector');
  doc.querySelector('.arch[data-a="1"]').click();await until(()=>$('inspectorName').textContent==='Second','inspector follows selection');
  $('audioInputBtn').click();await wait(100);assert(!$('archetypeInspector').classList.contains('open'),'audio closes inspector');

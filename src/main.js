@@ -1,3 +1,4 @@
+import { createProjectUi } from './ui/project-ui.js';
 import { renderLookControls, updateLookRoutingHints, startingLook } from './ui/look-editor.js';
 import { createWorkspaceLayout } from './ui/workspace-layout.js';
 import './styles.css';
@@ -22,6 +23,7 @@ import packageInfo from '../package.json';
 import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS } from './transitions.js';
 import { DWELL_BEAT_OPTIONS, IMAGE_TRIGGER_CLASSES, TRANSITION_BEAT_OPTIONS } from './image-sequencer.js';
 
+let projectUi=null;
 let engineState=null,adoptingOutput=false,discoveringOutput=true;
 const transport=new EngineSession(()=>new LocalTransport(createVisualEngine,{canvas:document.getElementById('gl'),particleCanvas:document.getElementById('particles'),blackoutOverlay:document.getElementById('blackoutOverlay')}));
 function send(type,payload={}){return transport.send(type,payload).catch(error=>{const notice=document.getElementById('outputNotice');notice.hidden=false;document.getElementById('outputMessage').textContent=error.message;throw error})}
@@ -42,6 +44,7 @@ let blackoutActive=false,panicActive=false;
 let libraryVersionChanged=false,syncReloadTimer=null,lastConflictKey=null,remoteRefreshPending=false;
 function renderSyncState(state){
  const status=document.getElementById('syncStatus');if(!status)return;
+ void projectUi?.updateSync();
  document.getElementById('accountEmail').textContent=state.email||'Offline cache';status.textContent=state.status.toUpperCase().replace('-',' ');
  document.getElementById('syncLast').textContent='Last sync: '+(state.lastSync?new Date(state.lastSync).toLocaleString():'never');
  if(state.status==='session-expired'){const notice=document.getElementById('libraryNotice');notice.textContent='Session expired — reload to sign in. Cached projects remain available.';notice.hidden=false}
@@ -173,7 +176,7 @@ document.getElementById('openMatrix').onclick=()=>{closeImageManager();closeLook
 document.getElementById('closeMatrix').onclick=closeMappingMatrix;
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){
-   const openDialog=document.querySelector('dialog[open]');if(openDialog){openDialog.close();return}
+   const openDialog=[...document.querySelectorAll('dialog[open]')].at(-1);if(openDialog){e.preventDefault();openDialog.close();return}
    if(document.getElementById('matrixPanel').classList.contains('open'))closeMappingMatrix();
    if(document.getElementById('imagePanel').classList.contains('open'))closeImageManager();
    if(lookPanel.classList.contains('open'))closeLookEditor();
@@ -611,11 +614,12 @@ document.getElementById('confirmDeleteArch').onclick=async()=>{
  finally{button.disabled=false;deletingArchetype=false}
 };
 renderPresetControls();
-const projectSelect=document.getElementById('projectSelect'),projectPanel=document.getElementById('projectPanel');
+const libraryDialog=document.getElementById('libraryDialog');
 const LAST_EXPORTED_KEY='eyes4beat_project_last_exported';
-function renderLastExported(){
- let date=null;try{date=JSON.parse(localStorage.getItem(LAST_EXPORTED_KEY)||'{}')[activeProject?.id]}catch{}
- document.getElementById('lastExported').textContent='Last exported: '+(date?new Date(date).toLocaleString():'never');
+async function renderLastExported(){
+ let latest;try{latest=Object.entries(JSON.parse(localStorage.getItem(LAST_EXPORTED_KEY)||'{}')).sort((a,b)=>b[1].localeCompare(a[1]))[0]}catch{}
+ const project=latest?await repository.getProject(latest[0]):null;
+ document.getElementById('lastExported').textContent=latest?'Last exported: '+(project?.name||'Deleted project')+' · '+new Date(latest[1]).toLocaleString():'Last exported: never';
 }
 async function updateStorageStatus(){
  const status=document.getElementById('storageStatus'),usage=document.getElementById('storageUsage');
@@ -627,18 +631,7 @@ async function updateStorageStatus(){
  catch{usage.textContent='Usage/quota unavailable'}
 }
 async function refreshProjects(){
- const projects=await repository.listProjects();projectSelect.replaceChildren();
- const summary=document.getElementById('projectSummary');summary.replaceChildren();
- if(!projects.length){const option=document.createElement('option');option.textContent='NO PROJECT';option.value='';projectSelect.appendChild(option)}
- else for(const project of projects){const option=document.createElement('option');option.value=project.id;option.textContent=project.name+(project.ownerEmail&&project.ownerEmail!==repository.email?' · SHARED':'');projectSelect.appendChild(option);const row=document.createElement('p');const ready=await repository.projectReadyOffline(project.id);row.textContent=`${project.name} · ${project.ownerEmail||'local'} · ${(project.visibility||'private').toUpperCase()} · ${ready?'READY OFFLINE':'MEDIA MISSING'}`;summary.appendChild(row)}
- projectSelect.value=activeProject?.id||'';
- renderLastExported();
- document.getElementById('projectEmptyHint').hidden=!!projects.length;
- for(const id of ['renameProject','duplicateProject','deleteProject','exportProject'])document.getElementById(id).disabled=!activeProject;
- const owner=!!activeProject&&activeProject.ownerEmail===repository.email;document.getElementById('deleteProject').hidden=!!activeProject&&!owner;document.getElementById('projectVisibility').hidden=!owner;
- if(activeProject)document.getElementById('projectVisibility').textContent=activeProject.visibility==='shared'?'MAKE PRIVATE':'SHARE';
- const ready=activeProject?await repository.projectReadyOffline(activeProject.id):false,offline=document.getElementById('offlineReady');offline.textContent=activeProject?`Offline readiness: ${ready?'Ready offline':'Media missing'}`:'Offline readiness: no project';offline.className='offlineReady '+(ready?'ready':'missing');
- const accountButton=document.getElementById('accountBtn');accountButton.classList.toggle('offlineReadyHeader',!!activeProject&&ready);accountButton.dataset.tooltip=activeProject?(ready?'Account and sync · ready offline':'Account and sync · media missing'):'Account and sync';
+ await projectUi?.refresh();renderLastExported();
 }
 async function openProject(projectId,{preferredId=null,recovery=null}={}){
  if(libraryVersionChanged)throw new Error('Library updated in another tab; reload this page');
@@ -694,7 +687,7 @@ async function initializeLibrary(recovered=false){
  const initial=projects.find(project=>project.id===meta.lastActiveProjectId)||projects[0]||null;
  if(!recovered&&!transport.transport.recovery)await openProject(initial?.id||null,{});
  try{document.getElementById('legacySection').hidden=!(await legacyDataAvailable())}catch(error){console.warn('Legacy archive check failed',error)}
- if(!projects.length)projectPanel.classList.add('open');
+ if(!projects.length)libraryDialog.showModal();
  void repository.initialize().then(async()=>{
    const migrationKey=`eyes4beat_local_migration_${repository.email}`;if(!repository.email||localStorage.getItem(migrationKey))return;
    const legacy=new LocalLibraryRepository('eyes4beat-library');const localProjects=await legacy.listProjects();
@@ -705,44 +698,43 @@ async function initializeLibrary(recovered=false){
    await legacy.close();
  }).catch(()=>{});
 }
-projectSelect.onchange=()=>openProject(projectSelect.value).catch(error=>{console.error(error);document.getElementById('projectStatus').textContent=error.message});
-document.getElementById('projectManageBtn').onclick=()=>projectPanel.classList.toggle('open');
-document.getElementById('closeProjectPanel').onclick=()=>projectPanel.classList.remove('open');
+document.getElementById('closeLibrary').onclick=()=>libraryDialog.close();
 const projectNameDialog=document.getElementById('projectNameDialog'),projectNameInput=document.getElementById('projectNameInput');
-let projectDialogAction='create';
-function openProjectDialog(action){
+let projectDialogAction='create',projectDialogRecord=null;
+function openProjectDialog(action,project=null){
+ projectDialogRecord=project;
  projectDialogAction=action;const deleting=action==='delete';
  document.getElementById('projectDialogTitle').textContent=action==='create'?'CREATE PROJECT':deleting?'DELETE PROJECT':'RENAME PROJECT';
- document.getElementById('projectDialogLabel').textContent=deleting?`TYPE “${activeProject.name}” TO CONFIRM`:'PROJECT NAME';
+ document.getElementById('projectDialogLabel').textContent=deleting?`TYPE “${project.name}” TO CONFIRM`:'PROJECT NAME';
  document.getElementById('confirmProjectDialog').textContent=action.toUpperCase();
  document.getElementById('confirmProjectDialog').classList.toggle('dangerBtn',deleting);
- projectNameInput.value=action==='rename'?activeProject.name:'';
+ projectNameInput.value=action==='rename'?project.name:'';
  document.getElementById('projectDialogError').textContent='';projectNameDialog.showModal();projectNameInput.focus();
 }
 document.getElementById('cancelProjectDialog').onclick=()=>projectNameDialog.close();
 document.getElementById('closeProjectDialog').onclick=()=>projectNameDialog.close();
 document.getElementById('projectNameForm').onsubmit=async event=>{
  event.preventDefault();const name=projectNameInput.value.trim(),button=document.getElementById('confirmProjectDialog');
- if(projectDialogAction==='delete'&&name!==activeProject.name){document.getElementById('projectDialogError').textContent='The name does not match.';return}
+ if(projectDialogAction==='delete'&&name!==projectDialogRecord.name){document.getElementById('projectDialogError').textContent='The name does not match.';return}
  button.disabled=true;
  try{
-  if(projectDialogAction==='create'){const project=await repository.createProject(name);await openProject(project.id);projectPanel.classList.remove('open')}
-  else if(projectDialogAction==='rename'){activeProject=await repository.updateProject(activeProject.id,{name});await refreshProjects()}
-  else{await flushArchetypeWrites();await repository.deleteProject(activeProject.id);const remaining=await repository.listProjects();await openProject(remaining[0]?.id||null);if(!remaining.length)projectPanel.classList.add('open')}
+  if(projectDialogAction==='create'){const project=await repository.createProject(name);await openProject(project.id);libraryDialog.close()}
+  else if(projectDialogAction==='rename'){const updated=await repository.updateProject(projectDialogRecord.id,{name});if(activeProject?.id===updated.id)activeProject=updated;await refreshProjects()}
+  else{await flushArchetypeWrites();await repository.deleteProject(projectDialogRecord.id);if(activeProject?.id===projectDialogRecord.id){const remaining=await repository.listProjects();await openProject(remaining[0]?.id||null)}await refreshProjects()}
   projectNameDialog.close();
  }catch(error){document.getElementById('projectDialogError').textContent=error.message}
  finally{button.disabled=false}
 };
 document.getElementById('createProject').onclick=()=>openProjectDialog('create');
-document.getElementById('renameProject').onclick=()=>{if(activeProject)openProjectDialog('rename')};
-document.getElementById('duplicateProject').onclick=async()=>{
- if(!activeProject)return;try{const project=await repository.duplicateProject(activeProject.id);await openProject(project.id);projectPanel.classList.remove('open')}
- catch(error){document.getElementById('projectStatus').textContent=error.message}
-};
-document.getElementById('deleteProject').onclick=()=>{if(activeProject)openProjectDialog('delete')};
-document.getElementById('projectVisibility').onclick=async()=>{if(!activeProject)return;try{activeProject=await repository.setProjectVisibility(activeProject.id,activeProject.visibility==='shared'?'private':'shared');await repository.sync();await refreshProjects()}catch(error){document.getElementById('projectStatus').textContent=error.message}};
-document.getElementById('accountBtn').onclick=()=>projectPanel.classList.toggle('open');
-document.getElementById('syncNow').onclick=()=>repository.sync().catch(error=>{document.getElementById('projectStatus').textContent=error.message});
+async function projectRowAction(action,project,button){
+ if(['share','delete'].includes(action)&&project.ownerEmail!==repository.email)return;
+ if(action==='rename'||action==='delete'){openProjectDialog(action,project);return}
+ if(action==='export'){await exportProject(project,button);return}
+ if(action==='duplicate'){await flushArchetypeWrites();await repository.duplicateProject(project.id)}
+ if(action==='share'){const updated=await repository.setProjectVisibility(project.id,project.visibility==='shared'?'private':'shared');if(activeProject?.id===updated.id)activeProject=updated;await repository.sync()}
+ await refreshProjects();
+}
+document.getElementById('syncNow').onclick=()=>repository.sync().catch(error=>{document.getElementById('accountError').textContent=error.message});
 document.getElementById('signOut').onclick=()=>{location.href='/cdn-cgi/access/logout'};
 document.getElementById('liveLockBtn').onclick=()=>setLiveLock(!repository.state.liveLock).catch(console.error);
 addEventListener('focus',()=>{void repository.sync().catch(()=>{})});
@@ -762,7 +754,7 @@ function renderArchetypeBar(){
     ['trash-2','Delete archetype',()=>openDeleteArchetype(arch.id)]];
    const toolbar=document.createElement('div');toolbar.className='archToolbar';for(const [glyph,label,action] of actions){const control=document.createElement('button');control.type='button';control.className='iconAction';control.innerHTML=icon(glyph);control.setAttribute('aria-label',label+' '+arch.name);control.dataset.tooltip=label;control.onclick=()=>Promise.resolve(action()).catch(error=>{console.error(error);alert(error.message)});toolbar.appendChild(control)}item.appendChild(toolbar);bar.appendChild(item);
  });
- const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=()=>activeProject?openArchetypeCreator():projectPanel.classList.add('open');bar.appendChild(createButton);
+ const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.className='createArchFooter';createButton.title='Create a new archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML='<b>'+icon('plus')+' CREATE ARCHETYPE</b><span>add your image sequence</span>';createButton.onclick=()=>activeProject?openArchetypeCreator():libraryDialog.showModal();bar.appendChild(createButton);
  const verifyButton=document.createElement('button');verifyButton.className='libraryFooter';verifyButton.innerHTML=icon('file-check-2')+' VERIFY PACKAGE';verifyButton.title='Verify library package without importing it';verifyButton.onclick=()=>document.getElementById('verifyPackageFile').click();bar.appendChild(verifyButton);
 }
 const packageDialog=document.createElement('dialog');packageDialog.className='packageDialog';packageDialog.innerHTML='<div class="packageDialogHead"><h2>LIBRARY PACKAGE</h2><button type="button" class="iconAction closeAction" aria-label="Close package report" data-tooltip="Close package report">'+icon('x')+'</button></div><p id="packageMessage"></p><progress id="packageProgress" max="1" value="0" hidden></progress><pre id="packageReport"></pre><div id="packageConfirmation" hidden><button type="button" id="packageContinue">CONTINUE EXPORT</button><button type="button" id="packageCancel">CANCEL</button></div>';document.body.appendChild(packageDialog);
@@ -814,16 +806,15 @@ async function exportPackage(snapshot,{kind='legacy-library',project=null,lookPr
 }
 document.getElementById('exportLegacy').onclick=async event=>exportPackage(await collectLegacyLibrary(),{button:event.currentTarget});
 document.getElementById('exportBuiltins').onclick=async event=>exportPackage(await collectLegacyLibrary({builtinsOnly:true}),{button:event.currentTarget});
-document.getElementById('exportProject').onclick=async event=>{
- if(!activeProject)return;
+async function exportProject(project,button){
  try{
   await flushArchetypeWrites();
-  const records=new Map((await repository.listArchetypes(activeProject.id)).map(record=>[record.id,record]));
-  const snapshot=[];for(const id of activeProject.archetypeOrder){const record=records.get(id);if(!record)continue;
+  const records=new Map((await repository.listArchetypes(project.id)).map(record=>[record.id,record]));
+  const snapshot=[];for(const id of project.archetypeOrder){const record=records.get(id);if(!record)continue;
     const media=[];for(const [sourceIndex,ref] of record.media.entries()){const saved=await repository.getMedia(ref.mediaId);if(!saved)throw new Error(`Cannot export ${record.name}: missing media ${ref.name}`);media.push({...ref,sourceIndex,blob:saved.blob})}
     snapshot.push({id:record.id,name:record.name,origin:record.origin,look:record.look,routingMap:record.routingMap,imageConfig:record.imageConfig,musicPresets:record.musicPresets,media});
   }
-  await exportPackage(snapshot,{kind:'project',project:activeProject,lookPresets:projectLookPresets,button:event.currentTarget});
+  await exportPackage(snapshot,{kind:'project',project,lookPresets:await repository.listLookPresets(project.id),button});
  }catch(error){console.error('Project export failed',error);packageStatus('Project export unavailable.',null,error.message||String(error))}
 };
 verifyPackageFile.onchange=async()=>{
@@ -875,7 +866,7 @@ document.getElementById('importPackageFile').onchange=async event=>{
     const {project}=await repository.importBatch({projectId:destination.value||null,projectName:name.value.trim(),archetypes:preparedEntries,
       lookPresets:manifest.kind==='project'?manifest.lookPresets.map(preset=>({name:preset.name,look:normalizeLook(preset.look)})):[]});
     imported=true;
-    dialog.close();projectPanel.classList.remove('open');await openProject(project.id);
+    dialog.close();libraryDialog.close();await openProject(project.id);
    }catch(error){console.error('Import failed',error);status.textContent=imported?`Import saved, but opening failed: ${error.message}`:`Import stopped: ${error.message}. No partial import was saved.`;apply.disabled=false}
   };
  }catch(error){console.error('Package validation failed',error);document.getElementById('projectStatus').textContent=error.message}
@@ -964,6 +955,11 @@ const workspaceLayout=createWorkspaceLayout({
  getProject:()=>activeProject?.name||'Projects',
 });
 transport.subscribe(event=>{if(event.type==='state')workspaceLayout.update(event.state)});
+projectUi=createProjectUi({repository,getCurrent:()=>activeProject,selectProject:openProject,
+ createProject:()=>openProjectDialog('create'),rowAction:projectRowAction,
+ pending:()=>({pendingIds:[...pendingWrites.keys()],failedIds:[...failedWrites.keys()]}),
+ closeEditing:()=>document.getElementById('closeInspector').click()});
+
 sendControls();
 
 const recovered=await outputController.discover();discoveringOutput=false;

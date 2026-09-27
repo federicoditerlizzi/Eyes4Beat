@@ -241,3 +241,44 @@
 .lookAdvanced{border-top:1px solid var(--line);padding-top:9px;margin-top:5px}
 .lookAdvanced>summary{font-size:10px;color:var(--muted);cursor:pointer;margin-bottom:10px}
 .lookAdvanced>.lookField{margin:12px 0}
+
+/* Project navigation, library management and account are separate surfaces. */
+.headerDropdown{position:fixed;z-index:80;pointer-events:auto;max-height:calc(100vh - 120px);overflow:auto;padding:10px;border:1px solid var(--line);border-radius:12px;background:rgba(8,11,16,.99);box-shadow:0 20px 50px #0009}
+.headerDropdown[hidden]{display:none}
+.projectSwitcher{width:min(390px,calc(100vw - 16px))}
+.projectChoice{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;width:100%;text-align:left;margin-bottom:5px;padding:10px;background:transparent;border-color:transparent}
+.projectChoice[aria-checked=true]{background:#223a49;border-color:#6093a7}
+.projectChoiceName{font-weight:650;font-size:12px;overflow-wrap:anywhere}
+.projectOwner{font-size:10px;color:var(--muted);overflow-wrap:anywhere}
+.projectBadges{display:flex;flex-wrap:wrap;gap:5px}
+.projectBadge{font-size:8px;letter-spacing:.05em;border-radius:4px;background:#ffffff0d;padding:3px 5px;color:var(--muted)}
+.projectBadge.ready{color:#77dbb0}.projectBadge.missing{color:#e4b47b}
+.switcherFooter{display:grid;gap:4px;padding-top:8px;border-top:1px solid var(--line)}
+.switcherFooter button{text-align:left;border:0;background:transparent}
+.accountMenu{width:min(310px,calc(100vw - 16px))}
+.accountMenu h3{font-size:11px;letter-spacing:.08em}
+.accountMenu p{font-size:11px;overflow-wrap:anywhere;color:var(--muted)}
+.workspaceHeader #accountBtn{border-radius:50%;background:#ffffff0a;width:34px;height:34px;align-self:center;margin-left:6px}
+#syncDot[data-state=synced]{background:#61e8a9}
+#syncDot[data-state=pending]{background:#ffc35f}
+#syncDot[data-state=offline-ready]{background:#80bfff}
+#syncDot[data-state=error]{background:#ff697d}
+#syncDot[data-state=offline]{background:#81909a}
+.libraryDialog{width:min(1120px,calc(100vw - 40px));max-height:calc(100vh - 48px)}
+.libraryTopActions{margin:20px 0}
+.libraryTableWrap{overflow:auto}
+.libraryTable{width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px}
+.libraryTable th,.libraryTable td{text-align:left;padding:12px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere;vertical-align:middle}
+.libraryTable th{font-size:9px;color:var(--muted)}
+.libraryTable th:first-child{width:19%}.libraryTable th:nth-child(2){width:20%}.libraryTable th:last-child{width:170px}
+.libraryTable tr.current{background:#ffffff04}
+.libraryRowActions .iconAction{margin:2px 1px}
+.libraryRowActions .iconAction::after{display:none}
+.backupLegacy{margin-top:24px;font-size:11px;color:var(--muted)}
+.backupLegacy>summary{cursor:pointer;padding:10px 0}
+#projectStatus,#projectSwitcherError,#accountError{color:#ffb987}
+.performMode #accountBtn,.performMode .headerDropdown{display:none!important}
+@media(max-width:700px){.libraryTable{table-layout:auto;min-width:750px}}
+.libraryDialog{pointer-events:auto}
+.workspaceHeader>#accountBtn::after{left:auto;right:0;transform:translateY(-2px)}
+.workspaceHeader>#accountBtn:hover::after,.workspaceHeader>#accountBtn:focus-visible::after{transform:translateY(0)}
