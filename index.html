@@ -91,7 +91,7 @@
   <dialog id="libraryActionDialog" class="presetDialog"><form id="libraryActionForm"><div class="packageDialogHead"><h2 id="libraryActionTitle">ACTION</h2><button id="closeLibraryAction" class="iconAction closeAction" type="button" aria-label="Close dialog" data-tooltip="Close dialog"><i data-lucide="x"></i></button></div><label for="libraryActionInput" id="libraryActionLabel">NAME</label><input id="libraryActionInput" type="text" autocomplete="off"><p id="libraryActionMessage"></p><div class="dialogActions"><button id="cancelLibraryAction" type="button">CANCEL</button><button id="confirmLibraryAction" class="primaryBtn" type="submit">CONFIRM</button></div></form></dialog>
   <div class="footerDock" id="footerDock">
     <div id="footerActions" class="footerActions" aria-label="Archetype library actions"></div>
-    <button id="archBarToggle" class="archBarToggle" aria-expanded="true" aria-controls="archBar"><i data-lucide="chevron-down" class="chevronDownIcon"></i><i data-lucide="chevron-up" class="chevronUpIcon"></i><span>HIDE ARCHETYPES</span></button>
+    <button id="archBarToggle" class="archBarToggle iconAction footerTab" type="button" aria-label="Hide archetypes" data-tooltip="Hide archetypes" aria-expanded="true" aria-controls="archBar"><i data-lucide="chevron-down" class="chevronDownIcon"></i><i data-lucide="chevron-up" class="chevronUpIcon"></i></button>
     <div class="bottom" id="archBar">
       <button class="arch active" data-a="0"><b>1 · DEEP DRIFT</b><span>space / contemplation</span></button>
       <button class="arch" data-a="1"><b>2 · FUNK ELASTIC</b><span>groove / elastic flow</span></button>
@@ -266,18 +266,17 @@
 
 
   <div class="lookPanel" id="lookPanel">
-    <div class="imageTop"><div class="sectionTitle"><h2>LOOK · <span id="lookArchName">DEEP DRIFT</span></h2><button class="infoTip" type="button" aria-label="About archetype looks" data-tooltip="A look defines visual distortion, grading and particle vocabulary. Musical targets still control how strongly these react."><i data-lucide="info"></i></button></div><button id="closeLook" class="iconAction closeAction" type="button" aria-label="Close look editor" data-tooltip="Close look editor"><i data-lucide="x"></i></button></div>
+    <div class="imageTop"><div class="sectionTitle"><button class="infoTip" type="button" aria-label="About archetype looks" data-tooltip="A look defines visual distortion, grading and particle vocabulary. Musical targets still control how strongly these react."><i data-lucide="info"></i></button></div></div>
     <div class="lookPresetBar"><label for="lookPreset">LOAD PRESET</label><select id="lookPreset"><option value="">Select a look…</option></select><button id="saveLookPreset" type="button" title="Save current look as project preset">SAVE AS PROJECT PRESET</button></div>
     <div id="projectLookPresetList" class="projectLookPresetList"></div>
     <div id="lookRoutingWarning" class="lookWarning" hidden>No musical routing active. Connect a source to a target to make this look music-responsive.</div>
     <div id="lookFields" class="lookFields"></div>
-    <p class="lookHint">Distortion is visible only when the Distortion target is routed and active. Changes save automatically for this archetype.</p>
   </div>
 
   <div class="imagePanel" id="imagePanel">
     <div class="imageTop">
-      <div class="sectionTitle"><h2>MEDIA MANAGER · <span id="imageArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and transition style. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently."><i data-lucide="info"></i></button></div>
-      <div class="imageHeaderActions"><button id="openImageTutorial" class="iconAction" type="button" aria-label="Open image manager guide" data-tooltip="Image manager guide"><i data-lucide="book-open"></i></button><button id="closeImageMgr" class="iconAction closeAction" type="button" aria-label="Close image manager" data-tooltip="Close"><i data-lucide="x"></i></button></div>
+      <div class="sectionTitle"><button class="infoTip" aria-label="About media sequencing" data-tooltip="Set media order, dwell and transition style. AUTO uses time, MANUAL uses navigation, MAPPED links continuous levels to positions while Beat, Kick or Snare advance on events. Videos loop silently."><i data-lucide="info"></i></button></div>
+      <div class="imageHeaderActions"><button id="openImageTutorial" class="iconAction" type="button" aria-label="Open image manager guide" data-tooltip="Image manager guide"><i data-lucide="book-open"></i></button></div>
     </div>
     <div class="imageManagerBody">
     <div class="imageControls imageSequenceControls">

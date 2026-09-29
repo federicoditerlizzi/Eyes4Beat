@@ -15,3 +15,9 @@ Manual checklist:
 - Q/PERFORM: editing disappears, active-source meters remain, archetype buttons grow, audio/safety/navigation continue. Exit restores editing access.
 - Repeat with output connected, after control reload, and after output disconnection.
 - At 1280px: header groups, all inspector tabs, project/audio panels and dialogs stay inside viewport with no horizontal overflow. Scroll long forms.
+
+Inspector consistency checks:
+- Switch LOOK / ROUTING / IMAGES: toolbar position, padding and control heights match.
+- Scroll each body: presets or sequence controls remain fixed above it.
+- Check section chevrons, info tooltips, warnings and centered icon hover backgrounds.
+- At 1280 px, no toolbar overflow; PERFORM still hides the inspector.

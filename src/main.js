@@ -129,14 +129,12 @@ function updateLookRoutingWarning(){
  updateLookRoutingHints(document.getElementById('lookFields'),map);
 }
 function renderLookEditor(){
- document.getElementById('lookArchName').textContent=archetypes[target].name;
  const root=document.getElementById('lookFields'),arch=archetypes[target];
  renderLookControls({root,getLook:()=>looks[target],onChange:look=>{looks[target]=look;saveLooks()},
   start:startingLook({...arch,look:looks[target]},projectLookPresets,localStorage,repository.cache.name),map:routingMaps[target],openRouting:()=>document.getElementById('routingTab').click()});
  lookPreset.value='';updateLookRoutingWarning();
 }
 document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeRouting();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
-document.getElementById('closeLook').onclick=closeLookEditor;
 lookPreset.onchange=async()=>{
  const value=lookPreset.value;if(!value)return;
  const factory=FACTORY_LOOKS.find(preset=>value==='factory:'+preset.id),projectPreset=projectLookPresets.find(preset=>value==='project:'+preset.id);
@@ -377,7 +375,6 @@ function updateImageManagerRuntimeState(a){
 }
 function renderImageManager(){
  const a=target,cfg=imageConfigs[a],s=seqStates[a];
- document.getElementById('imageArchName').textContent=archetypes[a].name;
  document.getElementById('imageMode').value=cfg.mode;
  document.getElementById('imageTimeBase').value=cfg.timeBase;
  document.getElementById('imageOrderMode').value=cfg.orderMode;
@@ -413,7 +410,6 @@ function renderImageManager(){
 }
 function closeImageManager(){saveImageConfigs();document.getElementById('imagePanel').classList.remove('open')}
 document.getElementById('imageMgrBtn').onclick=()=>{closeRouting();closeLookEditor();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
-document.getElementById('closeImageMgr').onclick=closeImageManager;
 const imageTutorialDialog=document.getElementById('imageTutorialDialog');
 document.getElementById('openImageTutorial').onclick=()=>{if(!imageTutorialDialog.open)imageTutorialDialog.showModal()};
 document.getElementById('closeImageTutorial').onclick=()=>imageTutorialDialog.close();
@@ -757,7 +753,7 @@ function renderArchetypeBar(){
     ['trash-2','Delete archetype',()=>openDeleteArchetype(arch.id)]];
    const toolbar=document.createElement('div');toolbar.className='archToolbar';for(const [glyph,label,action] of actions){const control=document.createElement('button');control.type='button';control.className='iconAction';control.innerHTML=icon(glyph);control.setAttribute('aria-label',label+' '+arch.name);control.dataset.tooltip=label;control.onclick=()=>Promise.resolve(action()).catch(error=>{console.error(error);alert(error.message)});toolbar.appendChild(control)}item.appendChild(toolbar);bar.appendChild(item);
  });
- const actions=document.getElementById('footerActions');actions.replaceChildren();
+ const actions=document.getElementById('footerActions');actions.replaceChildren(document.getElementById('archBarToggle'));
  const createButton=document.createElement('button');createButton.id='archetypeCreatorBtn';createButton.type='button';createButton.className='iconAction footerTab';createButton.dataset.tooltip='Create archetype';createButton.setAttribute('aria-label','Create archetype');createButton.innerHTML=icon('plus');createButton.onclick=()=>activeProject?openArchetypeCreator():libraryDialog.showModal();actions.appendChild(createButton);
  const verifyButton=document.createElement('button');verifyButton.id='verifyPackageBtn';verifyButton.type='button';verifyButton.className='iconAction footerTab';verifyButton.innerHTML=icon('file-check-2');verifyButton.dataset.tooltip='Verify package';verifyButton.setAttribute('aria-label','Verify package');verifyButton.onclick=()=>document.getElementById('verifyPackageFile').click();actions.appendChild(verifyButton);
 }
@@ -887,7 +883,7 @@ new ResizeObserver(updateFooterMetrics).observe(archBar);updateFooterMetrics();
 function setArchetypeBarCollapsed(collapsed){
  uiRoot.classList.toggle('footerCollapsed',collapsed);
  archBarToggle.setAttribute('aria-expanded',String(!collapsed));archBarToggle.classList.toggle('collapsed',collapsed);
- archBarToggle.querySelector('span').textContent=collapsed?'ARCHETYPES':'HIDE ARCHETYPES';
+ const label=collapsed?'Show archetypes':'Hide archetypes';archBarToggle.dataset.tooltip=label;archBarToggle.setAttribute('aria-label',label);archBarToggle.title=label;
  try{localStorage.setItem('eyesforbeats_footer_collapsed',collapsed?'1':'0')}catch(e){}
 }
 let footerStartsCollapsed=false;

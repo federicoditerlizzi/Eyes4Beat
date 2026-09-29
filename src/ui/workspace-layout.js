@@ -1,3 +1,4 @@
+import { setupInspectorLayout } from './inspector-layout.js';
 import { icon, initIcons } from '../icons.js';
 
 // Reparent existing controls, preserving their event handlers and engine command path.
@@ -65,7 +66,7 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  top.replaceChildren(...groups,perform,accountButton);
  close.onclick=closeInspector;
  el('diagBtn').onclick=()=>{if(getComputedStyle(el('diag')).display!=='none'){toggleDiagnostics();return}closeSides();toggleDiagnostics()};
- for(const id of ['closeLook','closeImageMgr']){const old=el(id).onclick;el(id).onclick=()=>{old?.();closeInspector()}}
+
  {const old=el('audioInputBtn').onclick;el('audioInputBtn').onclick=()=>{closeSides(el('audioInputPanel'));old?.()}}
  // Structural actions can also open a side panel (empty project / archetype creator).
  for(const panel of sidePanels)new MutationObserver(records=>{if(records.some(r=>!r.oldValue?.split(' ').includes('open'))&&panel.classList.contains('open'))closeSides(panel)}).observe(panel,{attributes:true,attributeFilter:['class'],attributeOldValue:true});
@@ -93,8 +94,9 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  new ResizeObserver(()=>ui.style.setProperty('--header-bottom',Math.ceil(top.getBoundingClientRect().bottom+16)+'px')).observe(top);
  for(const control of document.querySelectorAll('.closeAction'))tip(control,control.getAttribute('aria-label')||'Close','Escape');
  const shortcutGrid=el('shortcutDialog').querySelector('.shortcutList');
- if(shortcutGrid)for(const [key,label] of [['E / R / I / U','Inspector tabs'],['J / N','Projects / Audio input'],['K','Account menu'],['G / V / F','Output / Preview / Fullscreen'],['O / H / Y','Output menu / Diagnostics / Output settings'],['Space / M','Play / pause / Mute'],['Q','Perform mode']])shortcutGrid.append(make('div','', '<kbd>'+key+'</kbd><span>'+label+'</span>'));
+ if(shortcutGrid)for(const [key,label] of [['E / R / I','Inspector tabs'],['J / N','Projects / Audio input'],['K','Account menu'],['G / V / F','Output / Preview / Fullscreen'],['O / H / Y','Output menu / Diagnostics / Output settings'],['Space / M','Play / pause / Mute'],['Q','Perform mode']])shortcutGrid.append(make('div','', '<kbd>'+key+'</kbd><span>'+label+'</span>'));
  el('projectName').textContent=getProject();
+ setupInspectorLayout();
  initIcons(inspector);
  return {update(state){
   for(const shortcut of strip.children)shortcut.disabled=!state.targetId;

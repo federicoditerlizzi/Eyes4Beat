@@ -35,12 +35,20 @@ try{
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
  assert(!$('editInspector'),'no redundant EDIT button');
  assert(visible($('inspectorStrip')),'closed inspector strip visible');
+ let toolbarTop;
  for(const [id,key] of [['lookBtn','KeyE'],['routingTab','KeyR'],['imageMgrBtn','KeyI']]){
   $('inspectorShortcut-'+id).click();assert($(id).getAttribute('aria-selected')==='true','strip opens '+id);
   press('Escape');press(key);assert($(id).getAttribute('aria-selected')==='true','key opens '+id);
   $(id).click();await wait(100);
   assert($('archetypeInspector').classList.contains('open'),'inspector '+id);
   assert($('archetypeInspector').getBoundingClientRect().left===16,'inspector on left');
+  const page=doc.querySelector('.inspectorTabPage.open'),toolbar=page.querySelector('.tabToolbar'),scrollBody=page.querySelector('.tabBody'),box=toolbar.getBoundingClientRect();
+  toolbarTop??=box.top;assert(box.top===toolbarTop,'same toolbar position');
+  assert(toolbar.scrollWidth<=toolbar.clientWidth,'toolbar fits at 1280');
+  scrollBody.scrollTop=200;assert(scrollBody.scrollTop>0&&toolbar.getBoundingClientRect().top===toolbarTop,'only body scrolls '+id);scrollBody.scrollTop=0;
+  for(const button of toolbar.querySelectorAll('.iconAction')){const icon=button.querySelector('.lucide'),b=button.getBoundingClientRect(),i=icon.getBoundingClientRect();assert(Math.abs((b.left+b.right-i.left-i.right)/2)<1&&Math.abs((b.top+b.bottom-i.top-i.bottom)/2)<1,'centered toolbar icon')}
+  assert(!page.querySelector('.imageTop h2,#closeLook,#closeImageMgr'),'no duplicate tab header');
+
   assert(doc.querySelectorAll('.inspector > [role=tabpanel].open').length===1,'only one tab');
   assert($('archetypeInspector').scrollWidth<=$('archetypeInspector').clientWidth,'inspector horizontal overflow '+id);
  }
@@ -64,7 +72,7 @@ try{
  change('imageSource','energy');assert(groups()==='manual,timed','continuous mapping transitions');
  const chooser=doc.querySelector('.transitionSelect');assert(!chooser.open,'effects dropdown starts collapsed');chooser.open=true;
  const checkbox=chooser.querySelector('input:not(:checked)');checkbox.checked=true;checkbox.dispatchEvent(new win.Event('change',{bubbles:true}));assert(chooser.querySelector('summary').textContent.includes(checkbox.parentElement.textContent),'effects selection summary');chooser.open=false;
- const body=doc.querySelector('.imageManagerBody'),head=doc.querySelector('.imageTop'),headTop=head.getBoundingClientRect().top;body.scrollTop=200;assert(body.scrollTop>0&&head.getBoundingClientRect().top===headTop,'image header fixed');
+ const body=doc.querySelector('.imageManagerBody'),head=$('imagePanel').querySelector('.tabToolbar'),headTop=head.getBoundingClientRect().top;body.scrollTop=200;assert(body.scrollTop>0&&head.getBoundingClientRect().top===headTop,'image header fixed');
  const grid=$('imageGrid');assert(win.getComputedStyle(grid).display==='flex','single row carousel');await wait(200);
  const current=grid.querySelector('.current');assert(current.getBoundingClientRect().width>grid.querySelector('.imageCard:not(.current)').getBoundingClientRect().width,'current image larger');
  change('imageMode','manual');body.scrollTop=0;
@@ -96,6 +104,7 @@ try{
  doc.querySelector('.archItem:has(.arch.active) .archToolbar button').click();assert($('inspectorName').textContent==='Second','card edit uses selected archetype');
  press('Escape');
  const actions=$('footerActions'),initialLeft=actions.getBoundingClientRect().left;
+ assert(actions.firstElementChild===$('archBarToggle')&&!$('archBarToggle').querySelector('span'),'collapse is first icon tab');
  assert(!actions.closest('#archBar')&&visible($('archetypeCreatorBtn'))&&visible($('verifyPackageBtn')),'fixed footer actions');
  const bar=$('archBar');
  const extra=doc.createElement('div');extra.style.cssText='flex:0 0 2000px';bar.append(extra);bar.scrollLeft=500;

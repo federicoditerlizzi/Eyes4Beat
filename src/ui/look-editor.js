@@ -41,12 +41,12 @@ export function renderLookControls({root,getLook,onChange,start,storage=localSto
  const create=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls;if(text)node.textContent=text;return node};
  function remember(details,key,fallback){details.open=typeof state[key]==='boolean'?state[key]:fallback;details.addEventListener('toggle',()=>{if(!details.isConnected)return;state[key]=details.open;store(storage,OPEN_KEY,state)})}
  for(const [group,title,target,primary,fields] of LOOK_GROUPS){
-  const section=create('details','lookGroup lookDisclosure');section.dataset.lookGroup=group;remember(section,group,true);
-  const heading=create('summary','lookGroupHeader');heading.append(create('span','lookGroupTitle',title));
+  const section=create('details','lookGroup lookDisclosure inspectorSection');section.dataset.lookGroup=group;remember(section,group,true);
+  const heading=create('summary','lookGroupHeader sectionHeader');heading.append(create('span','lookGroupTitle',title));
   if(target){const hint=create('button','lookRouteHint');hint.type='button';hint.dataset.routingTarget=target;hint.onclick=e=>{e.preventDefault();openRouting()};heading.append(hint)}
   const reset=create('button','lookGroupReset','Reset');reset.type='button';reset.title='Reset '+title.toLowerCase()+' to starting look';reset.setAttribute('aria-label',reset.title);
   reset.onclick=e=>{e.preventDefault();onChange(resetLookGroup(getLook(),start,group));renderLookControls({root,getLook,onChange,start,storage,map,openRouting})};heading.append(reset);section.append(heading);
-  const body=create('div','lookGroupBody'),advanced=create('details','lookAdvanced');advanced.append(create('summary','','Advanced'));remember(advanced,group+'.advanced',false);section.append(body);
+  const body=create('div','lookGroupBody sectionBody'),advanced=create('details','lookAdvanced');advanced.append(create('summary','','Advanced'));remember(advanced,group+'.advanced',false);section.append(body);
   for(const [key,label,fieldGroup=group] of fields){
    const path=fieldGroup.split('.'),read=look=>path.reduce((value,part)=>value[part],look)[key],value=read(getLook());
    const row=create('div','lookField');row.dataset.field=key;row.dataset.path=fieldGroup+'.'+key;row.append(create('span','lookFieldCaption',label));

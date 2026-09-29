@@ -233,3 +233,5 @@ Without changing behavior, a practical next sequence is:
 3. Add import/export of performance presets so configuration is portable across origins and machines.
 
 Keep the single-file build available if portability for live performance remains a core goal; it can become a generated distribution artifact rather than the editable source.
+
+Inspector structure is shared by `src/ui/inspector-layout.js`: every tab has a non-scrolling `.tabToolbar` and one `.tabBody` scroller. `.inspectorSection`, `.sectionHeader`, `.sectionBody`, and `.inspectorBanner` are the shared section/banner components; LOOK generates the same classes. Controls are reparented without replacing handlers. Internal LOOK/media titles and close buttons are removed; only the inspector header identifies and closes the archetype.
