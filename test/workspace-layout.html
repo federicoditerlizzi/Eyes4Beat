@@ -17,6 +17,8 @@ try{
  for(const color of ['#808080','#ffff40','#4080ff']){const canvas=document.createElement('canvas');canvas.width=96;canvas.height=64;const ctx=canvas.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,96,64);const blob=await new Promise(r=>canvas.toBlob(r)),m=await repo.putMedia(blob);media.push({mediaId:m.id,mime:'image/png',name:color+'.png',size:blob.size})}
  const cfg=defaultImageConfig(media.length);cfg.mode='manual';cfg.triggers.manual.pool=['cut'];
  const records=[];for(const name of ['First','Second'])records.push(await repo.createArchetype(project.id,{name,look:NEUTRAL_LOOK,routingMap:blankMap(),imageConfig:cfg,media}));
+ const legacyRouting=blankMap();legacyRouting.energy.pulse=-0.7;
+ await repo.updateArchetype(records[0].id,{musicPresets:[{name:'Existing preset',routing:legacyRouting,amounts:{energy:0.31},intensity:{pulse:0.28},reactivity:{pulse:0.6}}]});
  await repo.setActiveProject(project.id);
  let state;
  frame=document.createElement('iframe');frame.width=1280;frame.height=800;frame.src='/';document.body.appendChild(frame);
@@ -28,26 +30,32 @@ try{
  const visible=node=>node.getBoundingClientRect().width>0&&win.getComputedStyle(node).display!=='none';
  const press=code=>doc.dispatchEvent(new win.KeyboardEvent('keydown',{code,key:code==='Escape'?'Escape':'',bubbles:true}));
  assert(doc.querySelectorAll('.workspaceHeader > .headerGroup').length===4,'four header groups');
- assert(!doc.querySelector('.workspaceHeader #lookBtn,.workspaceHeader #imageMgrBtn,.workspaceHeader #openMatrix'),'editing actions in header');
+ assert(!doc.querySelector('.workspaceHeader #lookBtn,.workspaceHeader #imageMgrBtn,.workspaceHeader #routingTab'),'editing actions in header');
  assert($('accountBtn').closest('.workspaceHeader'),'account location');
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
  assert(!$('editInspector'),'no redundant EDIT button');
  assert(visible($('inspectorStrip')),'closed inspector strip visible');
- for(const [id,key] of [['lookBtn','KeyE'],['openMatrix','KeyR'],['imageMgrBtn','KeyI'],['presetsTab','KeyU']]){
+ for(const [id,key] of [['lookBtn','KeyE'],['routingTab','KeyR'],['imageMgrBtn','KeyI']]){
   $('inspectorShortcut-'+id).click();assert($(id).getAttribute('aria-selected')==='true','strip opens '+id);
   press('Escape');press(key);assert($(id).getAttribute('aria-selected')==='true','key opens '+id);
   $(id).click();await wait(100);
   assert($('archetypeInspector').classList.contains('open'),'inspector '+id);
   assert($('archetypeInspector').getBoundingClientRect().left===16,'inspector on left');
-  if(id==='openMatrix'){
-   const header=doc.querySelector('.matrixTop'),top=header.getBoundingClientRect().top,holder=$('matrixHolder');
-   holder.scrollTop=100;assert(holder.scrollTop>0,'routing controls scroll');
-   assert(header.getBoundingClientRect().top===top,'routing header stays fixed');
-   assert(!doc.querySelector('.routingNote'),'no duplicated routing note');holder.scrollTop=0;
-  }
   assert(doc.querySelectorAll('.inspector > [role=tabpanel].open').length===1,'only one tab');
   assert($('archetypeInspector').scrollWidth<=$('archetypeInspector').clientWidth,'inspector horizontal overflow '+id);
  }
+ $('routingTab').click();
+ assert(!$('presetsTab')&&!$('matrixPanel')&&!$('openMatrix'),'old preset tab and mapping removed');
+ const source=doc.querySelector('[data-target-source="pulse"]');
+ change('presetSelect','0');assert(source.value==='energy'&&$('amt-energy').value==='0.31'&&$('g-pulse').value==='0.28','existing preset loads unchanged');
+ $('presetDelete').click();source.value='kick';source.dispatchEvent(new win.Event('change',{bubbles:true}));
+ change('amt-kick','0.42','input');change('g-pulse','0.37','input');change('ga-pulse','0.63','input');
+ $('presetSave').click();$('newPresetName').value='Routing recall';$('presetDialogForm').dispatchEvent(new win.Event('submit',{bubbles:true,cancelable:true}));
+ source.value='';source.dispatchEvent(new win.Event('change',{bubbles:true}));change('amt-kick','1','input');change('g-pulse','1','input');
+ change('presetSelect','0');assert(source.value==='kick'&&$('amt-kick').value==='0.42'&&$('g-pulse').value==='0.37'&&$('ga-pulse').value==='0.63','preset recalls controls and assignments');assert($('react').value==='0.85','preset recalls global reactivity');
+ source.value='snare';source.dispatchEvent(new win.Event('change',{bubbles:true}));$('presetUpdate').click();source.value='';source.dispatchEvent(new win.Event('change',{bubbles:true}));change('presetSelect','0');assert(source.value==='snare','updated preset recalls assignment');
+ $('presetDelete').click();assert($('presetSelect').options.length===1,'routing preset deleted');
+ press('Escape');press('KeyU');assert(!$('archetypeInspector').classList.contains('open'),'U no longer opens a tab');
  $('imageMgrBtn').click();await wait(100);
  const groups=()=>[...doc.querySelectorAll('[data-trigger-section]')].map(el=>el.dataset.triggerSection).sort().join(',');
  change('imageMode','manual');assert(groups()==='manual','manual transitions only');
@@ -75,7 +83,7 @@ try{
  assert(!visible($('projectManageBtn'))&&!visible($('archetypeInspector')),'perform hides editing');
  assert(visible($('blackoutBtn'))&&visible($('play'))&&visible(doc.querySelector('.performMeters')),'perform live audio meters');
  assert(!visible($('inspectorStrip')),'perform hides edit entry points');
- for(const key of ['KeyE','KeyR','KeyI','KeyU']){
+ for(const key of ['KeyE','KeyR','KeyI']){
   press(key);assert(!$('archetypeInspector').classList.contains('open'),'perform prevents editor shortcut');
   assert($('shortcutToast').classList.contains('show')&&$('shortcutToast').textContent==='Exit perform mode (Q) to edit','perform toast '+key);
  }

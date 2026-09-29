@@ -35,8 +35,8 @@
       <div class="projectSwitch"><button id="projectManageBtn" class="iconAction headerIcon" type="button" aria-label="Manage projects" data-tooltip="Manage projects"><i data-lucide="folder-open"></i></button></div>
       <div class="modeSwitch" aria-label="Transition mode"><button id="smooth" class="active">SMOOTH</button><button id="cut">CUT</button></div>
       <select id="react" aria-label="Global reactivity" title="Global reactivity">
-        <option value=".55">LOW</option>
-        <option value=".85" selected>MED</option>
+        <option value="0.55">LOW</option>
+        <option value="0.85" selected>MED</option>
         <option value="1.15">HIGH</option>
       </select>
       <div class="contextControl" title="Performance to context balance">
@@ -103,12 +103,12 @@
   </div>
 
   <div class="lab" id="lab">
-    <div class="presetRow presetDock"><div class="presetToolbar"><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><div class="presetActions"><button id="presetSave" class="iconAction" aria-label="Create new preset" data-tooltip="Create new preset"><i data-lucide="plus"></i></button><button id="presetUpdate" class="iconAction" aria-label="Update current preset" data-tooltip="Update current preset" disabled><i data-lucide="save"></i></button><button id="presetDelete" class="iconAction danger" aria-label="Delete current preset" data-tooltip="Delete current preset"><i data-lucide="trash-2"></i></button></div></div></div>
+    <div class="presetRow presetDock"><div class="presetToolbar"><label for="presetSelect">Routing presets</label><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><div class="presetActions"><button id="presetSave" class="iconAction" aria-label="Create routing preset" data-tooltip="Create routing preset"><i data-lucide="plus"></i></button><button id="presetUpdate" class="iconAction" aria-label="Update routing preset" data-tooltip="Update routing preset" disabled><i data-lucide="save"></i></button><button id="presetDelete" class="iconAction danger" aria-label="Delete routing preset" data-tooltip="Delete routing preset"><i data-lucide="trash-2"></i></button></div></div></div>
     <details class="labAccordion" open>
-      <summary>MODULATION LAB</summary>
-      <button class="infoTip accordionInfo" aria-label="About modulation" data-tooltip="Archetypes define the visual world and media sequence. Musical presets store source controls, target controls and routing. Without a routed signal, musical motion returns to neutral."><i data-lucide="info"></i></button>
+      <summary>SOURCES</summary>
+      <button class="infoTip accordionInfo" aria-label="About modulation" data-tooltip="Archetypes define the visual world and media sequence. Routing presets store source controls, target controls and routing. Without a routed signal, musical motion returns to neutral."><i data-lucide="info"></i></button>
       <div class="accordionBody">
-    <button class="mapOpen" id="openMatrix">OPEN TARGET MAPPING</button>
+    <button id="routingTab">ROUTING</button>
 
     <div class="pRow pHead"><span>PARAM</span><span>ON</span><span>AMOUNT</span><span>SOLO</span><span>VAL</span></div>
 
@@ -126,10 +126,10 @@
     </details>
 
     <details class="labAccordion" open>
-      <summary>MUSICAL TARGETS</summary>
+      <summary>TARGETS</summary>
       <button class="infoTip accordionInfo" aria-label="About musical targets" data-tooltip="On enables a target; Solo isolates one or more targets. Intensity sets maximum strength, Reactivity scales the musical signal, and LIVE shows the result."><i data-lucide="info"></i></button>
       <div class="accordionBody targetBody">
-      <div class="gRow gHead"><span>TARGET</span><span>ON</span><span>INTENS.</span><span>REACT.</span><span>SOLO</span><span>LIVE</span></div>
+      <div class="routingActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button></div><div class="gRow gHead"><span>TARGET</span><span>SOURCE</span><span>ON</span><span>INTENS.</span><span>REACT.</span><span>SOLO</span><span>LIVE</span></div>
       <div class="gRow"><span>Pulse</span><input class="onCheck" type="checkbox" data-target-on="pulse" checked aria-label="Enable Pulse"><input type="range" id="g-pulse" min="0" max="1.5" step="0.01" value="0.90"><input type="range" id="ga-pulse" min="0" max="1.5" step="0.01" value="0.90"><button class="soloBtn" data-target-solo="pulse" title="Solo Pulse" aria-pressed="false">S</button><span id="gf-pulse">0.00</span></div>
       <div class="gRow"><span>Distortion</span><input class="onCheck" type="checkbox" data-target-on="dist" checked aria-label="Enable Distortion"><input type="range" id="g-dist" min="0" max="1.5" step="0.01" value="0.90"><input type="range" id="ga-dist" min="0" max="1.5" step="0.01" value="0.55"><button class="soloBtn" data-target-solo="dist" title="Solo Distortion" aria-pressed="false">S</button><span id="gf-dist">0.00</span></div>
       <div class="gRow"><span>Glow</span><input class="onCheck" type="checkbox" data-target-on="glow" checked aria-label="Enable Glow"><input type="range" id="g-glow" min="0" max="1.8" step="0.01" value="1.00"><input type="range" id="ga-glow" min="0" max="1.5" step="0.01" value="0.65"><button class="soloBtn" data-target-solo="glow" title="Solo Glow" aria-pressed="false">S</button><span id="gf-glow">0.00</span></div>
@@ -170,7 +170,7 @@
 
   <dialog id="presetDialog" class="presetDialog" aria-labelledby="presetDialogTitle">
     <form id="presetDialogForm">
-      <h2 id="presetDialogTitle">NEW MUSICAL PRESET</h2>
+      <h2 id="presetDialogTitle">NEW ROUTING PRESET</h2>
       <label for="newPresetName">PRESET NAME</label>
       <input id="newPresetName" maxlength="40" autocomplete="off" placeholder="e.g. Soft pulse" required>
       <div class="dialogActions"><button id="cancelPreset" type="button">CANCEL</button><button type="submit" class="primaryBtn">CREATE</button></div>
@@ -196,7 +196,7 @@
         <div><kbd>⇧ 1–9</kbd><span>Select archetype 11–19</span></div>
         <div><kbd>←</kbd><kbd>A</kbd><span>Previous archetype</span></div>
         <div><kbd>→</kbd><kbd>D</kbd><span>Next archetype</span></div>
-        <h3>PRESETS · ACTIVE ARCHETYPE</h3>
+        <h3>ROUTING PRESETS · ACTIVE ARCHETYPE</h3>
         <div><kbd>Alt 1–9</kbd><span>Select preset 1–9</span></div>
         <div><kbd>Alt 0</kbd><span>Select preset 10</span></div>
         <div><kbd>Alt ←</kbd><kbd>Alt A</kbd><span>Previous preset</span></div>
@@ -294,11 +294,7 @@
     </div>
   </div>
 
-  <div class="matrixPanel" id="matrixPanel">
-    <div class="matrixTop"><div class="sectionTitle"><h2>TARGET MAPPING · <span id="matrixArchName">DEEP DRIFT</span></h2><button class="infoTip" aria-label="About routing weights" data-tooltip="Choose one musical parameter per target. A parameter can drive multiple targets. Negative amounts invert the response. Changes save automatically."><i data-lucide="info"></i></button></div><div class="matrixActions"><button id="zeroMap">ZERO MAP</button><button id="resetMap">RESET ARCHETYPE</button><button id="closeMatrix" class="iconAction closeAction" type="button" aria-label="Close target mapping" data-tooltip="Close"><i data-lucide="x"></i></button></div></div>
-    <div class="routingColumns" aria-hidden="true"><span>Effect</span><span>Musical parameter</span><span>Amount</span></div>
-    <div id="matrixHolder"></div>
-  </div>
+  <section id="routingPanel" class="inspectorPage"></section>
 
   <div class="diag" id="diag">
     <div id="outputDiagnostics">Local engine</div>

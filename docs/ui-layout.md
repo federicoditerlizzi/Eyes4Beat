@@ -9,7 +9,7 @@ Manual checklist:
 - Audio group: play/pause, mute, FILE/LIVE, BPM and beat indicator. Audio panel: load/seek/volume, live device, trim and calibration.
 - Live group: BLACKOUT, PANIC, LIVE LOCK, SMOOTH/CUT; verify active colors and shortcuts.
 - Output group: open/focus/reopen, connected/disconnected indication, preview and fullscreen. Menu: diagnostics, output settings, keyboard guide.
-- Active archetype edit (E): LOOK editing and look presets; ROUTING source/amount/reset/zero; IMAGES sequencing/media/transitions; PRESETS save/update/delete/select and source/target controls.
+- Active archetype edit (E): LOOK editing and look presets; ROUTING contains Routing presets (select/create/update/delete), SOURCES, then TARGETS with assignment dropdowns, on/intensity/reactivity/solo/live controls; IMAGES contains sequencing/media/transitions. E/R/I open these three tabs; U is unused.
 - Change archetype with every tab open: title and contents follow selection. Keep editing numeric fields: shortcuts must not fire.
 - Open each side panel and press Escape. Only one side panel should be visible.
 - Q/PERFORM: editing disappears, active-source meters remain, archetype buttons grow, audio/safety/navigation continue. Exit restores editing access.

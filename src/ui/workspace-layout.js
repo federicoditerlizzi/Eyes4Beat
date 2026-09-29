@@ -32,8 +32,11 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  inspector.innerHTML='<header class="panelHeading"><h2 id="inspectorName"></h2></header><div class="inspectorTabs" role="tablist" aria-label="Archetype editing"></div>';
  const close=button('closeInspector','Close inspector','x','Escape');close.className='iconAction closeAction';inspector.firstChild.append(close);
  ui.append(inspector);
- const presetPanel=make('section','inspectorPage');presetPanel.id='musicPresetPanel';inspector.append(presetPanel);move(presetPanel,document.querySelector('.presetDock'),el('react'),document.querySelector('.contextControl'),el('lab'));inspector.append(presetPanel);
- const tabs=[['lookBtn','LOOK','palette','lookPanel','E'],['openMatrix','ROUTING','cable','matrixPanel','R'],['imageMgrBtn','IMAGES','images','imagePanel','I'],['presetsTab','PRESETS','bookmark','musicPresetPanel','U']];
+ const routingPanel=el('routingPanel');
+ move(routingPanel,document.querySelector('.presetDock'));
+ const routingGlobals=make('div','routingGlobals');move(routingGlobals,el('react'),document.querySelector('.contextControl'));el('lab').querySelector('.accordionBody').prepend(routingGlobals);
+ move(routingPanel,el('lab'));
+ const tabs=[['lookBtn','LOOK','palette','lookPanel','E'],['routingTab','ROUTING','cable','routingPanel','R'],['imageMgrBtn','IMAGES','images','imagePanel','I']];
  const strip=make('nav','inspectorStrip');strip.id='inspectorStrip';strip.setAttribute('aria-label','Open archetype inspector');
  for(const [id,label,glyph,,key] of tabs){
   const shortcut=button('inspectorShortcut-'+id,'Open '+label,glyph,key);shortcut.className='iconAction inspectorShortcut';shortcut.disabled=true;
@@ -57,12 +60,12 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
   tab.className='inspectorTab';tab.innerHTML=icon(glyph)+'<span>'+label+'</span>';tab.setAttribute('role','tab');tab.setAttribute('aria-controls',pageId);tip(tab,label,key);
   inspector.querySelector('.inspectorTabs').append(tab);move(inspector,pageId);el(pageId).setAttribute('role','tabpanel');el(pageId).setAttribute('aria-labelledby',id);
   tab.onclick=()=>{if(document.body.classList.contains('performMode')){showToast('Exit perform mode (Q) to edit');return}if(el('lookBtn').disabled)return;previous?.();showTab(id)};
-  tab.onkeydown=event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();event.stopPropagation();const n=tabs.findIndex(t=>t[0]===id),next=tabs[(n+(event.key==='ArrowRight'?1:3))%4][0];el(next).click();el(next).focus()};
+  tab.onkeydown=event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();event.stopPropagation();const n=tabs.findIndex(t=>t[0]===id),next=tabs[(n+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length][0];el(next).click();el(next).focus()};
  }
  top.replaceChildren(...groups,perform,accountButton);
  close.onclick=closeInspector;
  el('diagBtn').onclick=()=>{if(getComputedStyle(el('diag')).display!=='none'){toggleDiagnostics();return}closeSides();toggleDiagnostics()};
- for(const id of ['closeLook','closeMatrix','closeImageMgr']){const old=el(id).onclick;el(id).onclick=()=>{old?.();closeInspector()}}
+ for(const id of ['closeLook','closeImageMgr']){const old=el(id).onclick;el(id).onclick=()=>{old?.();closeInspector()}}
  {const old=el('audioInputBtn').onclick;el('audioInputBtn').onclick=()=>{closeSides(el('audioInputPanel'));old?.()}}
  // Structural actions can also open a side panel (empty project / archetype creator).
  for(const panel of sidePanels)new MutationObserver(records=>{if(records.some(r=>!r.oldValue?.split(' ').includes('open'))&&panel.classList.contains('open'))closeSides(panel)}).observe(panel,{attributes:true,attributeFilter:['class'],attributeOldValue:true});
@@ -72,7 +75,7 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  perform.onclick=()=>setPerform(!document.body.classList.contains('performMode'));
  more.onclick=()=>{menu.hidden=!menu.hidden;more.setAttribute('aria-expanded',String(!menu.hidden))};
  menu.addEventListener('click',e=>{if(e.target.closest('button')){menu.hidden=true;more.setAttribute('aria-expanded','false')}});
- const keys={KeyE:'lookBtn',KeyR:'openMatrix',KeyI:'imageMgrBtn',KeyU:'presetsTab',KeyJ:'projectManageBtn',KeyK:'accountBtn',KeyA:null,KeyN:'audioInputBtn',KeyO:'outputMenuBtn',KeyV:'previewBtn',KeyF:'fullscreen',KeyG:'outputBtn',KeyH:'diagBtn',KeyY:'outputSettingsBtn',Space:'play',KeyM:'mute'};
+ const keys={KeyE:'lookBtn',KeyR:'routingTab',KeyI:'imageMgrBtn',KeyJ:'projectManageBtn',KeyK:'accountBtn',KeyA:null,KeyN:'audioInputBtn',KeyO:'outputMenuBtn',KeyV:'previewBtn',KeyF:'fullscreen',KeyG:'outputBtn',KeyH:'diagBtn',KeyY:'outputSettingsBtn',Space:'play',KeyM:'mute'};
  const tips={projectManageBtn:['Projects','J'],audioInputBtn:['Audio input','N'],play:['Play / pause','Space'],mute:['Mute','M'],blackoutBtn:['Blackout','B'],panicBtn:['Panic','P'],liveLockBtn:['Live lock','L'],smooth:['Smooth transition','S'],cut:['Cut transition','C'],outputBtn:['Open / focus output','G'],previewBtn:['Preview','V'],fullscreen:['Fullscreen','F'],diagBtn:['Diagnostics','H'],outputSettingsBtn:['Output settings','Y'],shortcutHelpBtn:['Keyboard shortcuts','?'],accountBtn:['Account','K']};
  for(const [id,[label,key]] of Object.entries(tips))tip(el(id),label,key);
  document.addEventListener('keydown',event=>{
@@ -80,7 +83,7 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
   if(event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||document.querySelector('dialog[open]')||event.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
   if(event.code==='KeyQ'){event.preventDefault();perform.click();return}
   const id=keys[event.code];if(!id)return;
-  if(document.body.classList.contains('performMode')&&['lookBtn','openMatrix','imageMgrBtn','presetsTab','projectManageBtn','diagBtn','outputSettingsBtn','outputMenuBtn'].includes(id)){
+  if(document.body.classList.contains('performMode')&&['lookBtn','routingTab','imageMgrBtn','projectManageBtn','diagBtn','outputSettingsBtn','outputMenuBtn'].includes(id)){
    if(tabs.some(tab=>tab[0]===id)){event.preventDefault();showToast('Exit perform mode (Q) to edit')}
    return;
   }

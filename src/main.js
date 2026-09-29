@@ -132,10 +132,10 @@ function renderLookEditor(){
  document.getElementById('lookArchName').textContent=archetypes[target].name;
  const root=document.getElementById('lookFields'),arch=archetypes[target];
  renderLookControls({root,getLook:()=>looks[target],onChange:look=>{looks[target]=look;saveLooks()},
-  start:startingLook({...arch,look:looks[target]},projectLookPresets,localStorage,repository.cache.name),map:routingMaps[target],openRouting:()=>document.getElementById('openMatrix').click()});
+  start:startingLook({...arch,look:looks[target]},projectLookPresets,localStorage,repository.cache.name),map:routingMaps[target],openRouting:()=>document.getElementById('routingTab').click()});
  lookPreset.value='';updateLookRoutingWarning();
 }
-document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeMappingMatrix();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
+document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeRouting();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
 document.getElementById('closeLook').onclick=closeLookEditor;
 lookPreset.onchange=async()=>{
  const value=lookPreset.value;if(!value)return;
@@ -152,40 +152,37 @@ document.getElementById('saveLookPreset').onclick=async()=>{
 let routingMaps=[];
 const addedTargetKeys=new Set(['rotate','spiral','tiles']);
 function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]})}
-function renderMatrixEditor(){
- const a=(typeof target==='number')?target:0;document.getElementById('matrixArchName').textContent=archetypes[a].name;
- const holder=document.getElementById('matrixHolder');
- holder.innerHTML=routeTargets.map(t=>{
-   const source=assignedSource(routingMaps[a],t),weight=source?routingMaps[a][source][t]:1;
-   return '<div class="routeRow"><h3>'+targetLabels[t]+'</h3><label><select class="routeSource" data-t="'+t+'" aria-label="Parameter for '+targetLabels[t]+'"><option value="">None</option>'+routeSources.map(s=>'<option value="'+s+'"'+(s===source?' selected':'')+'>'+sourceLabels[s]+'</option>').join('')+'</select></label><label class="routeAmount"><output>'+weight.toFixed(2)+'</output><input class="routeWeight" aria-label="Amount for '+targetLabels[t]+'" type="range" min="-1.5" max="1.5" step="0.05" value="'+weight+'"'+(!source?' disabled':'')+'></label></div>';
- }).join('');
- holder.querySelectorAll('.routeRow').forEach(card=>{
-   const select=card.querySelector('select'),slider=card.querySelector('input'),output=card.querySelector('output');
-   const update=()=>{
-     assignTarget(routingMaps[a],select.dataset.t,select.value,+slider.value);
-     slider.disabled=!select.value;output.value=(+slider.value).toFixed(2);
-     saveRoutingMaps();if(lookPanel.classList.contains('open'))updateLookRoutingWarning();
+function refreshRoutingSources(){
+ for(const t of routeTargets){
+  const row=document.querySelector('[data-target-on="'+t+'"]').closest('.gRow');
+  let select=row.querySelector('.targetSource');
+  if(!select){
+   select=document.createElement('select');select.className='targetSource';select.dataset.targetSource=t;
+   select.setAttribute('aria-label','Source for '+targetLabels[t]);
+   select.innerHTML='<option value="">None</option>'+routeSources.map(id=>'<option value="'+id+'">'+sourceLabels[id]+'</option>').join('');
+   row.children[0].after(select);
+   select.onchange=()=>{
+    const map=routingMaps[target],previous=assignedSource(map,t),weight=previous?map[previous][t]:1;
+    assignTarget(map,t,select.value,weight);saveRoutingMaps();
    };
-   select.onchange=()=>{if(select.value && +slider.value===0)slider.value=1;update()};
-   slider.oninput=update;
- });
-
+  }
+  select.value=assignedSource(routingMaps[target],t)||'';
+ }
 }
-function closeMappingMatrix(){saveRoutingMaps();document.getElementById('matrixPanel').classList.remove('open')}
-document.getElementById('openMatrix').onclick=()=>{closeImageManager();closeLookEditor();renderMatrixEditor();document.getElementById('matrixPanel').classList.add('open')};
-document.getElementById('closeMatrix').onclick=closeMappingMatrix;
+function closeRouting(){document.getElementById('routingPanel').classList.remove('open')}
+document.getElementById('routingTab').onclick=()=>{closeImageManager();closeLookEditor();refreshRoutingSources();document.getElementById('routingPanel').classList.add('open')};
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){
    const openDialog=[...document.querySelectorAll('dialog[open]')].at(-1);if(openDialog){e.preventDefault();openDialog.close();return}
-   if(document.getElementById('matrixPanel').classList.contains('open'))closeMappingMatrix();
+   if(document.getElementById('routingPanel').classList.contains('open'))closeRouting();
    if(document.getElementById('imagePanel').classList.contains('open'))closeImageManager();
    if(lookPanel.classList.contains('open'))closeLookEditor();
    if(document.getElementById('creatorPanel').classList.contains('open'))closeArchetypeCreator();
    if(document.getElementById('audioInputPanel').classList.contains('open'))document.getElementById('audioInputPanel').classList.remove('open');
  }
 });
-document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
-document.getElementById('resetMap').onclick=()=>{routingMaps[target]=normalizeRoutingMap(defaultRoutingMaps[target]);saveRoutingMaps();renderMatrixEditor();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
+document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();refreshRoutingSources();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
+document.getElementById('resetMap').onclick=()=>{routingMaps[target]=normalizeRoutingMap(defaultRoutingMaps[target]);saveRoutingMaps();refreshRoutingSources();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
 
 const modState = {
  enabled:{energy:true,density:true,drive:true,boombap:true,tension:true,bright:true,open:true,beat:true,kick:true,snare:true},
@@ -265,7 +262,7 @@ function applyMusicPreset(p,{viewOnly=false}={}){
   if(p.globalReact!=null)document.getElementById('react').value=String(p.globalReact);
   if(p.routing)routingMaps[target]=normalizeRoutingMap(p.routing,defaultRoutingMaps[target]);
   if(!viewOnly){saveRoutingMaps();sendControls()}
-  if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+  if(document.getElementById('routingPanel').classList.contains('open'))refreshRoutingSources();
 }
 function syncPresetActions(){
   const hasSelection=document.getElementById('presetSelect').value!=='';
@@ -276,7 +273,7 @@ function syncPresetActions(){
 }
 function renderPresetControls(selectedIndex=''){
   const select=document.getElementById('presetSelect'),items=musicPresets[target]||[];select.innerHTML='';
-  const empty=document.createElement('option');empty.value='';empty.textContent=items.length?'SELECT MUSICAL PRESET':'NO SAVED PRESET';select.appendChild(empty);
+  const empty=document.createElement('option');empty.value='';empty.textContent=items.length?'SELECT ROUTING PRESET':'NO SAVED PRESET';select.appendChild(empty);
   items.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.name;select.appendChild(o)});
   if(selectedIndex!==''&&items[+selectedIndex])select.value=String(selectedIndex);
   syncPresetActions();
@@ -415,7 +412,7 @@ function renderImageManager(){
  document.querySelectorAll('[data-imgdown]').forEach(el=>el.onclick=()=>{moveImageBy(a,+el.dataset.imgdown,1);renderImageManager()});
 }
 function closeImageManager(){saveImageConfigs();document.getElementById('imagePanel').classList.remove('open')}
-document.getElementById('imageMgrBtn').onclick=()=>{closeMappingMatrix();closeLookEditor();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
+document.getElementById('imageMgrBtn').onclick=()=>{closeRouting();closeLookEditor();renderImageManager();document.getElementById('imagePanel').classList.add('open')};
 document.getElementById('closeImageMgr').onclick=closeImageManager;
 const imageTutorialDialog=document.getElementById('imageTutorialDialog');
 document.getElementById('openImageTutorial').onclick=()=>{if(!imageTutorialDialog.open)imageTutorialDialog.showModal()};
@@ -459,7 +456,7 @@ function setCreatorMode(mode){
 }
 function closeArchetypeCreator(){creatorPanel.classList.remove('open');resetCreatorPreview();creatorFiles.value='';pendingArchetypeFiles=[];document.getElementById('customArchFileCount').textContent='No media selected';setCreatorMode('upload')}
 function openArchetypeCreator(){
- closeImageManager();closeMappingMatrix();closeLookEditor();
+ closeImageManager();closeRouting();closeLookEditor();
  const select=document.getElementById('customArchTemplate');select.innerHTML='';
  const blank=document.createElement('option');blank.value='blank';blank.textContent='Blank';select.appendChild(blank);
  FACTORY_LOOKS.forEach(preset=>{const option=document.createElement('option');option.value='factory:'+preset.id;option.textContent=preset.name;select.appendChild(option)});
@@ -543,7 +540,7 @@ seekControl.oninput=()=>{seeking=true;updateTimeDisplay((+seekControl.value/1000
 seekControl.onchange=()=>{fire('audioSeek',{fraction:+seekControl.value/1000});seeking=false};
 volumeControl.oninput=()=>fire('audioVolume',{value:+volumeControl.value});
 muteButton.onclick=()=>fire('audioMute',{value:!engineState?.transport.muted});
-document.getElementById('audioInputBtn').onclick=()=>{closeImageManager();closeMappingMatrix();creatorPanel.classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');fire('enumerateInputs')};
+document.getElementById('audioInputBtn').onclick=()=>{closeImageManager();closeRouting();creatorPanel.classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');fire('enumerateInputs')};
 document.getElementById('closeAudioInput').onclick=()=>document.getElementById('audioInputPanel').classList.remove('open');
 document.getElementById('fileModeBtn').onclick=()=>fire('setInput',{mode:'file'});
 const startLiveInput=()=>fire('setInput',{mode:'live',device:audioDevice.value});
@@ -671,9 +668,9 @@ async function openProject(projectId,{preferredId=null,recovery=null}={}){
  renderArchetypeBar();renderPresetControls();await refreshProjects();
  if(lookPanel.classList.contains('open')){if(archetypes.length)renderLookEditor();else closeLookEditor()}
  if(document.getElementById('imagePanel').classList.contains('open')){if(archetypes.length)renderImageManager();else closeImageManager()}
- if(document.getElementById('matrixPanel').classList.contains('open')){if(archetypes.length)renderMatrixEditor();else closeMappingMatrix()}
+ if(document.getElementById('routingPanel').classList.contains('open')){if(archetypes.length)refreshRoutingSources();else closeRouting()}
  document.getElementById('lookBtn').disabled=!archetypes.length;document.getElementById('imageMgrBtn').disabled=!archetypes.length;
- document.getElementById('openMatrix').disabled=!archetypes.length;
+ document.getElementById('routingTab').disabled=!archetypes.length;
  document.getElementById('projectStatus').textContent='';
  }finally{if(generation===projectSwitchGeneration)projectSwitching=false}
 }
@@ -952,7 +949,7 @@ transport.subscribe(event=>{
  document.querySelectorAll('.arch').forEach(button=>button.classList.toggle('active',+button.dataset.a===target));
  if(previousTarget!==engineState.targetId&&!projectSwitching&&archetypes.length){
   renderPresetControls();if(lookPanel.classList.contains('open'))renderLookEditor();
-  if(document.getElementById('matrixPanel').classList.contains('open'))renderMatrixEditor();
+  if(document.getElementById('routingPanel').classList.contains('open'))refreshRoutingSources();
   if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
  }
  if(archetypes[target]&&seqStates[target])updateImageManagerRuntimeState(target);

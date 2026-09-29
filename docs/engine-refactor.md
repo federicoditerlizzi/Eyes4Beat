@@ -26,7 +26,7 @@ State events contain `protocol`, a monotonically increasing `version`, `appliedS
 | --- | --- |
 | Open/reload/import/duplicate/reorder/delete project or archetype | `loadProject` after UI repository operation |
 | Edit look/routing/image settings/presets or rename archetype | `updateArchetype`, immediately before save debounce |
-| Source and target controls, PERF/CTX, reactivity, apply music preset | `setControls` |
+| Source and target controls, PERF/CTX, reactivity, apply routing preset | `setControls` |
 | Archetype button or shortcut | `selectArchetype` |
 | Image next/previous/test or disable current image | `imageStep`, `imageGoto` |
 | Smooth/cut buttons or shortcut | `setTransition` |
@@ -54,7 +54,7 @@ Compare with the previous build using the same project and audio file.
 
 - [ ] Projects: create, switch, rename, duplicate, reorder/delete archetypes, delete project, empty project, sharing, sync, offline cache, conflict restore and Live Lock deferral.
 - [ ] Packages and creator: import older/current ZIP, export/verify, media upload/preview/removal, factory/Blank/project-preset creation and generated images.
-- [ ] Archetypes: buttons and rapid selections, smooth/cut, duplicate/rename/delete, footer collapse, musical presets save/apply/update/delete.
+- [ ] Archetypes: buttons and rapid selections, smooth/cut, duplicate/rename/delete, footer collapse, routing presets save/apply/update/delete.
 - [ ] Look editor: every ROTATION, PULSE, BLOOM, FRAME, DISTORTION, COLOR, PARTICLES/BURST control changes live; presets replace/save/rename/delete; persistence after reload.
 - [ ] Routing: source assignment, positive/negative weight, zero/reset, source/target On/Solo, amount, intensity, reactivity and PERF/CTX.
 - [ ] Image Manager: mode, source, threshold, order, dwell, enabled images, next/previous, all transition pools/TEST/easing/directions, seconds/beats, focused controls during automatic advances.

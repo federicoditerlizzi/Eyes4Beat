@@ -16,9 +16,9 @@ npm run dev
 
 Open the local URL printed by Vite, load an audio file, and use the routing matrix to connect musical sources to visual targets.
 
-In Musical Targets, each effect has independent On and Solo controls beside its intensity and reactivity sliders. Switching a target off returns only that effect to its neutral value; Solo isolates one or more targets. Musical presets save these switches as well as the slider values.
+In ROUTING → TARGETS, each effect has independent On and Solo controls beside its intensity and reactivity sliders. Switching a target off returns only that effect to its neutral value; Solo isolates one or more targets. Routing presets save these switches as well as the slider values.
 
-Custom archetypes can be removed with the trash icon on their footer card. Confirming permanently deletes that archetype's locally stored media, sequence settings, routing and musical presets from this browser. The six built-in archetypes cannot be deleted. If the deleted archetype is active, the app switches to Deep Drift; playback continues. The active engine receives the updated project records.
+Custom archetypes can be removed with the trash icon on their footer card. Confirming permanently deletes that archetype's locally stored media, sequence settings, routing and routing presets from this browser. The six built-in archetypes cannot be deleted. If the deleted archetype is active, the app switches to Deep Drift; playback continues. The active engine receives the updated project records.
 
 ## Quality checks
 

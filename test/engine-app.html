@@ -35,8 +35,8 @@ try{
  assert((await repo.getArchetype(records[0].id)).look.color.gain===1.25,'debounced persistence');
  $('closeLook').click();$('cut').click();doc.querySelector('.arch[data-a="1"]').click();await until(()=>state.targetId===records[1].id&&!state.transitioning,'select cut');
  doc.dispatchEvent(new win.KeyboardEvent('keydown',{key:'1',code:'Digit1',bubbles:true}));await until(()=>state.targetId===records[0].id,'shortcut');
- $('openMatrix').click();const source=doc.querySelector('.routeSource[data-t="luma"]');source.value='energy';source.dispatchEvent(new win.Event('change',{bubbles:true}));
- $('closeMatrix').click();
+ $('routingTab').click();const source=doc.querySelector('.targetSource[data-target-source="luma"]');source.value='energy';source.dispatchEvent(new win.Event('change',{bubbles:true}));
+ $('closeInspector').click();
  // 60 seconds of PCM exercises actual file playback and worklet delivery.
  const samples=48000*60,buffer=new ArrayBuffer(44+samples*2),v=new DataView(buffer),text=(offset,s)=>[...s].forEach((c,i)=>v.setUint8(offset+i,c.charCodeAt(0)));
  text(0,'RIFF');v.setUint32(4,36+samples*2,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,48000,true);v.setUint32(28,96000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,samples*2,true);
@@ -84,7 +84,7 @@ try{
  const readCenter=()=>new Promise(resolve=>outputWindow.requestAnimationFrame(()=>{const canvas=outputWindow.document.querySelector('#gl'),g=canvas.getContext('webgl2'),pixel=new Uint8Array(4);g.readPixels(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1,g.RGBA,g.UNSIGNED_BYTE,pixel);resolve(pixel[0])}));
  await wait(400);const beforeGain=await readCenter();$('lookBtn').click();const remoteGain=doc.querySelector('[aria-label="color gain"]');remoteGain.value='1.4';remoteGain.dispatchEvent(new win.Event('input',{bubbles:true}));await wait(400);
  assert((await readCenter())>beforeGain+20,'remote look did not change rendered pixels');$('closeLook').click();
- $('openMatrix').click();const remoteSource=doc.querySelector('.routeSource[data-t="luma"]');remoteSource.value='energy';remoteSource.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>state.finalG.luma>1,'remote routing edit');$('zeroMap').click();await until(()=>state.finalG.luma===1,'remote zero routing');$('closeMatrix').click();
+ $('routingTab').click();const remoteSource=doc.querySelector('.targetSource[data-target-source="luma"]');remoteSource.value='energy';remoteSource.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>state.finalG.luma>1,'remote routing edit');$('zeroMap').click();await until(()=>state.finalG.luma===1,'remote zero routing');$('closeInspector').click();
  $('audioInputBtn').click();$('liveModeBtn').click();await until(()=>state.transport.mode==='live'&&state.transport.diagnostics?.mode==='live','remote live input');
  assert(contexts.every(context=>context.state==='closed'),'live input reopened control audio');
  $('fileModeBtn').click();await until(()=>state.transport.mode==='file','remote file mode');$('play').click();await until(()=>!state.transport.paused,'remote play again');
