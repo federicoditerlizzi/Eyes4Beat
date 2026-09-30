@@ -1,4 +1,4 @@
-import { createPresetMenu } from './ui/preset-menu.js';
+import { createPresetBar } from './ui/preset-bar.js';
 import { createProjectUi } from './ui/project-ui.js';
 import { renderLookControls, updateLookRoutingHints, startingLook } from './ui/look-editor.js';
 import { createWorkspaceLayout } from './ui/workspace-layout.js';
@@ -125,7 +125,7 @@ async function manageLookPreset(value,remove=false){
  else{const name=await askLibraryAction({title:'RENAME LOOK PRESET',value:preset.name,confirm:'RENAME'});if(!name)return;await repository.updateLookPreset(preset.id,{name})}
  if(activeProject?.id===projectId){projectLookPresets=await repository.listLookPresets(projectId);renderProjectLookPresets()}
 }
-createPresetMenu(lookPreset,{label:'Look presets',onRename:value=>manageLookPreset(value),onDelete:value=>manageLookPreset(value,true)});
+createPresetBar(lookPreset,{label:'LOOK PRESET',save:document.getElementById('saveLookPreset'),onRename:value=>manageLookPreset(value),onDelete:value=>manageLookPreset(value,true)});
 function closeLookEditor(){lookPanel.classList.remove('open')}
 function updateLookRoutingWarning(){
  const map=routingMaps[target],empty=routeSources.every(source=>routeTargets.every(key=>!Number(map?.[source]?.[key])));
@@ -153,7 +153,7 @@ document.getElementById('saveLookPreset').onclick=async()=>{
 };
 let routingMaps=[];
 const addedTargetKeys=new Set(['rotate','spiral','tiles']);
-function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]})}
+function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]});syncPresetActions()}
 function refreshRoutingSources(){
  for(const t of routeTargets){
   const row=document.querySelector('[data-target-on="'+t+'"]').closest('.gRow');
@@ -240,6 +240,9 @@ document.querySelectorAll('[data-solo]').forEach(btn=>btn.onclick=()=>{
 });
 
 let musicPresets=[];
+let activeRoutingPreset='',routingBaseline=null;
+function routingSignature(){return JSON.stringify(captureMusicPreset(''))}
+function routingModified(){return activeRoutingPreset!==''&&routingBaseline!==null&&routingSignature()!==routingBaseline}
 function saveMusicPresets(){queueArchetypeWrite(target,{musicPresets:musicPresets[target]})}
 function captureMusicPreset(name){
   const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
@@ -267,10 +270,11 @@ function applyMusicPreset(p,{viewOnly=false}={}){
   if(document.getElementById('routingPanel').classList.contains('open'))refreshRoutingSources();
 }
 function syncPresetActions(){
-  const hasSelection=document.getElementById('presetSelect').value!=='';
+  const modified=routingModified();
   document.getElementById('presetSelect').disabled=!archetypes.length;
   document.getElementById('presetSave').disabled=!archetypes.length;
-  document.getElementById('presetUpdate').disabled=!hasSelection;
+  document.getElementById('presetUpdate').disabled=!modified;
+  document.getElementById('presetSelect').dataset.modified=String(modified);
   document.getElementById('presetSelect').presetMenu?.refresh();
 }
 function renderPresetControls(selectedIndex=''){
@@ -278,6 +282,7 @@ function renderPresetControls(selectedIndex=''){
   const empty=document.createElement('option');empty.value='';empty.textContent=items.length?'SELECT ROUTING PRESET':'NO SAVED PRESET';select.appendChild(empty);
   items.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.name;o.dataset.group='Project presets';o.dataset.managed='true';select.appendChild(o)});
   if(selectedIndex!==''&&items[+selectedIndex])select.value=String(selectedIndex);
+  activeRoutingPreset=select.value;routingBaseline=activeRoutingPreset===''?null:routingSignature();
   syncPresetActions();
 }
 const presetDialog=document.getElementById('presetDialog'),newPresetName=document.getElementById('newPresetName');
@@ -287,13 +292,15 @@ document.getElementById('presetDialogForm').onsubmit=e=>{
   e.preventDefault();const name=newPresetName.value.trim();if(!name){newPresetName.focus();return}
   musicPresets[target].push(captureMusicPreset(name));saveMusicPresets();renderPresetControls(musicPresets[target].length-1);presetDialog.close();
 };
-document.getElementById('presetSelect').onchange=e=>{const i=e.target.value;if(i!=='')applyMusicPreset(musicPresets[target][+i]);syncPresetActions()};
-function activatePreset(index){
- const items=musicPresets[target]||[];
- if(!items.length){showShortcutToast('NO PRESETS FOR THIS ARCHETYPE');return false}
- if(index<0||index>=items.length){showShortcutToast('PRESET '+String(index+1).padStart(2,'0')+' NOT AVAILABLE');return false}
- const select=document.getElementById('presetSelect');select.value=String(index);applyMusicPreset(items[index]);syncPresetActions();
- showShortcutToast('PRESET '+String(index+1).padStart(2,'0')+' · '+items[index].name);return true;
+document.getElementById('presetSelect').onchange=e=>{const i=e.target.value;e.target.value=activeRoutingPreset;if(i!=='')activatePreset(+i)};
+async function activatePreset(index){
+ const items=musicPresets[target]||[],preset=items[index],archId=archetypes[target]?.id;
+ if(!preset){showShortcutToast('PRESET NOT AVAILABLE');return false}
+ if(routingModified()&&!await askLibraryAction({title:'LOAD ROUTING PRESET',message:'Discard the unsaved preset modifications and load “'+preset.name+'”?',confirm:'LOAD',requireInput:false})){syncPresetActions();return false}
+ if(archetypes[target]?.id!==archId||musicPresets[target]?.[index]!==preset)return false;
+ const select=document.getElementById('presetSelect');select.value=String(index);applyMusicPreset(preset);
+ activeRoutingPreset=String(index);routingBaseline=routingSignature();syncPresetActions();
+ showShortcutToast('PRESET '+String(index+1).padStart(2,'0')+' · '+preset.name);return true;
 }
 function stepPreset(direction){
  const items=musicPresets[target]||[];
@@ -313,9 +320,9 @@ async function manageRoutingPreset(value,remove=false){
  const index=idToIndex.get(arch.id);if(index==null)return;
  const items=musicPresets[index],position=items.indexOf(preset);if(position<0)return;
  if(remove)items.splice(position,1);else preset.name=result;
- queueArchetypeWrite(index,{musicPresets:items});if(target===index)renderPresetControls(remove?'':position);
+ queueArchetypeWrite(index,{musicPresets:items});if(target===index){const active=activeRoutingPreset===''?-1:+activeRoutingPreset,baseline=routingBaseline;renderPresetControls(remove?(active===position?'':active>position?active-1:active<0?'':active):active<0?'':active);if(activeRoutingPreset!=='')routingBaseline=baseline;syncPresetActions()}
 }
-createPresetMenu(document.getElementById('presetSelect'),{label:'Routing presets',onRename:value=>manageRoutingPreset(value),onDelete:value=>manageRoutingPreset(value,true)});
+createPresetBar(document.getElementById('presetSelect'),{label:'ROUTING PRESET',save:document.getElementById('presetSave'),update:document.getElementById('presetUpdate'),onRename:value=>manageRoutingPreset(value),onDelete:value=>manageRoutingPreset(value,true)});
 
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
@@ -933,7 +940,7 @@ function imageStep(a,direction,trigger='manual'){const id=archetypes[a]?.id;if(i
 function requestImageChange(a,index,trigger='manual'){const id=archetypes[a]?.id;if(id)fire('imageGoto',{id,index,trigger})}
 function sendControls(){
  const controls=captureMusicPreset('');delete controls.name;delete controls.routing;
- fire('setControls',{controls});
+ fire('setControls',{controls});syncPresetActions();
 }
 // Only control actions cross the boundary; editor persistence remains in the UI.
 const controlSelector='[data-on],[data-solo],[data-target-on],[data-target-solo],#ctxPerf,#react,'+sourceKeys.map(k=>'#amt-'+k).join(',')+','+routeTargets.flatMap(k=>['#g-'+k,'#ga-'+k]).join(',');

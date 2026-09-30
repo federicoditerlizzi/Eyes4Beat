@@ -8,7 +8,7 @@ export function createPresetMenu(select,{label,onRename,onDelete}){
  function close(focus=false){menu.hidden=true;trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus()}
  function position(){const rect=trigger.getBoundingClientRect();menu.style.width=Math.min(Math.max(rect.width,280),innerWidth-32)+'px';menu.style.left=Math.max(16,Math.min(rect.left,innerWidth-menu.offsetWidth-16))+'px';menu.style.top=rect.bottom+4+'px';menu.style.maxHeight=Math.max(80,innerHeight-rect.bottom-20)+'px'}
  function render(){
-  const selected=select.selectedOptions[0];const caption=document.createElement('span');caption.textContent=selected?.textContent||label;trigger.replaceChildren(caption);trigger.insertAdjacentHTML('beforeend',icon('chevron-down'));trigger.disabled=select.disabled;
+  const selected=select.selectedOptions[0];const caption=document.createElement('span');caption.textContent=selected?.textContent||label;trigger.replaceChildren(caption);if(select.dataset.modified==='true'){const dot=document.createElement('span');dot.className='presetModified';dot.title='Modified';dot.setAttribute('aria-label','Modified');trigger.append(dot)}trigger.insertAdjacentHTML('beforeend',icon('chevron-down'));trigger.disabled=select.disabled;
   menu.replaceChildren();let group='',managed=0;
   for(const option of select.options){if(!option.value)continue;
    if(option.dataset.group&&option.dataset.group!==group){group=option.dataset.group;const title=document.createElement('div');title.className='presetMenuHeading';title.textContent=group;title.setAttribute('role','presentation');menu.append(title)}

@@ -374,3 +374,9 @@
 .presetActions .iconAction::after{left:auto;right:0;transform:translateY(0)}
 .presetMenuTrigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .presetMenuTrigger .lucide{flex-shrink:0}
+
+.tabToolbar .presetBar{display:flex;align-items:center;gap:var(--tab-gap);flex:1;min-width:0}
+.presetBar>label{white-space:nowrap}
+.presetBarActions{display:flex;gap:5px;flex-shrink:0}
+.presetBarAction{font-size:8px;white-space:nowrap;padding:5px 8px}
+.presetModified{width:6px;height:6px;border-radius:50%;background:#ffc76c;flex-shrink:0}

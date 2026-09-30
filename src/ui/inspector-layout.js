@@ -15,7 +15,7 @@ export function setupInspectorLayout(){
  const look=el('lookPanel'),lookInfo=look.querySelector('.infoTip');
  lookInfo.dataset.tooltip+=' Distortion requires an active routed target. Changes save automatically.';
  const warning=el('lookRoutingWarning');warning.className='inspectorBanner';
- tab(look,[look.querySelector('.lookPresetBar')],[lookInfo],[warning,el('lookFields')]);
+ tab(look,[look.querySelector('.presetBar')],[lookInfo],[warning,el('lookFields')]);
  const routing=el('routingPanel'),lab=el('lab'),routingInfo=lab.querySelector('.infoTip').cloneNode(true);
  routingInfo.classList.remove('accordionInfo');routingInfo.setAttribute('aria-label','About routing');
  tab(routing,[routing.querySelector('.presetDock')],[routingInfo],[lab]);
