@@ -1,3 +1,5 @@
+import { normalizeMusicPresets, normalizeRoutingRecord } from '../routing-presets.js';
+export { normalizeMusicPresets } from '../routing-presets.js';
 import { assignedSource, assignTarget } from '../routing.js';
 import { blankMap, routeSources, routeTargets } from '../config.js';
 import { normalizeImageConfigStore } from '../image-sequencer.js';
@@ -34,16 +36,11 @@ export function defaultImageConfig(count, imageSource = 'boombap') {
     images: Array.from({ length: count }, (_, index) => ({ enabled: true, duration: [10,10,12,9,11][index % 5], durationBeats: 4, order: index })) };
 }
 
-export function normalizeMusicPresets(value) {
-  return Array.isArray(value) ? value.filter(preset => preset && typeof preset.name === 'string' && preset.name.trim())
-    .map(preset => copy(preset)) : [];
-}
-
 export function buildProjectRuntime(project, records, mediaSource = media => media.mediaId) {
-  const byId = new Map(records.filter(item => !item.deletedAt && item.projectId === project.id).map(item => [item.id, item]));
+  const byId = new Map(records.map(normalizeRoutingRecord).filter(item => !item.deletedAt && item.projectId === project.id).map(item => [item.id, item]));
   const ordered = project.archetypeOrder.map(id => byId.get(id)).filter(Boolean);
   const ids = ordered.map(item => item.id), idToIndex = new Map(ids.map((id, index) => [id, index]));
-  const archetypes = ordered.map(item => ({ id: item.id, name: item.name, origin: copy(item.origin) }));
+  const archetypes = ordered.map(item => copy(item));
   const imageSets = ordered.map(item => item.media.map(media => mediaSource(media) ?? {
     url: null, type: media.mime, name: media.name, mediaId: media.mediaId, missing: true,
   }));

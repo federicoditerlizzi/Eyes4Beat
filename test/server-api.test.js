@@ -124,3 +124,12 @@ test('project deletion atomically tombstones its archetypes and look presets', a
   assert.equal(db.sqlite.prepare('SELECT deleted_at FROM look_presets WHERE id=?').get(preset.id).deleted_at !== null, true);
   db.close();
 });
+
+test('routing preset ids and active selection persist through API updates and project reads',async()=>{
+ const {call}=fixture(),p=await createProject(call);
+ const created=await call(alice,'POST',`/api/projects/${p.id}/archetypes`,{...archetypeData(),musicPresets:[{name:'Old',amounts:{energy:.5}}]});
+ assert.equal(created.status,201);const a=created.data,presetId=a.musicPresets[0].id;assert.ok(presetId);
+ const selected=await call(alice,'PATCH',`/api/archetypes/${a.id}`,{if_version:a.version,activeRoutingPresetId:presetId,routingControls:{amounts:{energy:.7}}});assert.equal(selected.status,200);
+ const renamed=await call(alice,'PATCH',`/api/archetypes/${a.id}`,{if_version:selected.data.version,name:'Renamed'});assert.equal(renamed.data.activeRoutingPresetId,presetId);
+ const snapshot=await call(alice,'GET',`/api/projects/${p.id}`);assert.equal(snapshot.data.archetypes[0].musicPresets[0].id,presetId);assert.equal(snapshot.data.archetypes[0].routingControls.amounts.energy,.7);
+});

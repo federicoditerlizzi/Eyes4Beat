@@ -137,7 +137,7 @@ function publish(now,eff=getEffectiveState(),force=false){
  if(disposed||(!force&&now-lastPublish<50))return;lastPublish=now;
  emit(snapshot(++version,appliedSeq,{
  projectId:activeProject?.id||null,currentId:archetypes[current]?.id||null,targetId:archetypes[target]?.id||null,
- current,target,archMix,transitioning,mode,archetypeSelectionBusy,projectSwitching,
+ current,target,archMix,transitioning,mode,archetypeSelectionBusy,projectSwitching,activeRoutingPresetId:archetypes[target]?.activeRoutingPresetId||null,
  images:seqStates.map((s,a)=>({id:archetypes[a].id,index:s.transitioning&&s.blend>=.5?s.next:s.current})),
  sequences:seqStates.map((s,a)=>({...sequenceSnapshot(a),loading:s.loading,lastReliableBpm:s.lastReliableBpm})),
  imageTiming:seqStates.map((s,a)=>({tempo:sequenceTempo(a),dwell:imageConfigs[a].images.map((_,i)=>imageDwell(a,i))})),
@@ -168,6 +168,8 @@ async function loadProject({project,records,cacheName,preferredId,imagePositions
 }
 function updateArchetype({id,patch}){
  const a=idToIndex.get(id);if(a==null)return;
+ Object.assign(archetypes[a],structuredClone(patch));
+ if(a===target&&patch.routingControls)controls=structuredClone(patch.routingControls);
  if(patch.look)looks[a]=normalizeLook(patch.look);
  if(patch.routingMap)routingMaps[a]=normalizeRoutingMap(patch.routingMap);
  if(patch.name)archetypes[a].name=patch.name;

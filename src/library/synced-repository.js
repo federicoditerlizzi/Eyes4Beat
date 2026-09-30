@@ -1,3 +1,4 @@
+import { normalizeRoutingRecord } from '../routing-presets.js';
 import { LibraryRepository } from './repository.js';
 import { LocalLibraryRepository } from './local-repository.js';
 import { LibraryApiClient } from './api-client.js';
@@ -8,8 +9,8 @@ const epoch = new Date(0).toISOString();
 const copy = value => structuredClone(value);
 const cacheName = email => `eyes4beat-cache-${cacheUserKey(email || 'offline')}`;
 const normalizeProject = value => ({ ...value, ownerEmail: value.owner_email ?? value.ownerEmail ?? null, updatedAt: value.updated_at ?? value.updatedAt, createdAt: value.created_at ?? value.createdAt, deletedAt: value.deleted_at ?? value.deletedAt ?? null });
-const normalizeArchetype = value => ({ ...value, updatedAt: value.updated_at ?? value.updatedAt, createdAt: value.created_at ?? value.createdAt, deletedAt: value.deleted_at ?? value.deletedAt ?? null });
-const normalizePreset = normalizeArchetype;
+const normalizeArchetype = value => normalizeRoutingRecord({ ...value, updatedAt: value.updated_at ?? value.updatedAt, createdAt: value.created_at ?? value.createdAt, deletedAt: value.deleted_at ?? value.deletedAt ?? null });
+const normalizePreset = value => ({...value,updatedAt:value.updated_at??value.updatedAt,createdAt:value.created_at??value.createdAt,deletedAt:value.deleted_at??value.deletedAt??null});
 
 export class SyncedLibraryRepository extends LibraryRepository {
   constructor({ api = new LibraryApiClient(), email = localStorage.getItem(LAST_SYNC_USER_KEY) || '', onState = () => {}, onLibraryChanged = () => {}, readOnly = false } = {}) {
@@ -48,27 +49,31 @@ export class SyncedLibraryRepository extends LibraryRepository {
   }
   async pull() {
     const meta = await this.syncMeta(), changes = await this.api.changes(overlapCursor(meta.cursor));
-    const dirty = meta.dirty || {}, deferred = meta.deferred || [];
-    for (const remote of changes.projects || []) {
-      if (remote.removed || remote.deleted_at) { await this.cache.removeProjectCache(remote.id);continue; }
-      if (this.state.liveLock && remote.id === this.activeProjectId) { deferred.push({ store: 'projects', value: remote });continue; }
-      if (!dirty[`projects:${remote.id}`] && shouldApplyRemote(await this.cache.getProject(remote.id), remote)) await this.cache.replaceRecord('projects', normalizeProject(remote));
+    const dirty=meta.dirty||{},deferred=meta.deferred||[],applied=[];
+    for(const [store,values,normalizer] of [['projects',changes.projects||[],normalizeProject],['archetypes',changes.archetypes||[],normalizeArchetype],['lookPresets',changes.lookPresets||[],normalizePreset]])for(const remote of values){
+      const cached=await this.cache.get(store,remote.id),removed=remote.removed||remote.deleted_at||remote.deletedAt;
+      if(dirty[`${store}:${remote.id}`])continue;
+      if(removed?!cached:!shouldApplyRemote(cached,remote))continue;
+      if(removed&&remote.version!=null&&!shouldApplyRemote(cached,remote))continue;
+      const active=store==='projects'?remote.id===this.activeProjectId:(remote.projectId||cached?.projectId)===this.activeProjectId;
+      if(this.state.liveLock&&active){const i=deferred.findIndex(x=>x.store===store&&x.value.id===remote.id);if(i<0)deferred.push({store,value:remote});else if(shouldApplyRemote(deferred[i].value,remote))deferred[i]={store,value:remote};continue}
+      if(removed){if(store==='projects')await this.cache.removeProjectCache(remote.id);else await this.cache.removeRecord(store,remote.id)}
+      else await this.cache.replaceRecord(store,normalizer(remote));
+      applied.push({store,id:remote.id,projectId:remote.projectId||cached?.projectId,removed:!!removed});
     }
-    for (const [store, values, normalizer] of [['archetypes', changes.archetypes || [], normalizeArchetype], ['lookPresets', changes.lookPresets || [], normalizePreset]]) for (const remote of values) {
-      const active = remote.projectId === this.activeProjectId;
-      if (this.state.liveLock && active) { deferred.push({ store, value: remote });continue; }
-      if (remote.deleted_at) await this.cache.removeRecord(store, remote.id);
-      else if (!dirty[`${store}:${remote.id}`] && shouldApplyRemote(await this.cache.get(store, remote.id), remote)) await this.cache.replaceRecord(store, normalizer(remote));
-    }
-    meta.cursor = changes.serverTime;meta.deferred = deferred;await this.saveSyncMeta(meta);this.onLibraryChanged({ remote: true });
+    meta.cursor=changes.serverTime;meta.deferred=deferred;await this.saveSyncMeta(meta);
+    if(applied.length)this.onLibraryChanged({remote:true,records:applied});
   }
-  async applyDeferred() {
-    const meta = await this.syncMeta(), pending = meta.deferred || [];meta.deferred = [];
-    for (const item of pending) {
-      if (item.value.removed || item.value.deleted_at) item.store === 'projects' ? await this.cache.removeProjectCache(item.value.id) : await this.cache.removeRecord(item.store, item.value.id);
-      else await this.cache.replaceRecord(item.store, item.store === 'projects' ? normalizeProject(item.value) : normalizeArchetype(item.value));
+  async applyDeferred(){
+    const meta=await this.syncMeta(),pending=meta.deferred||[],applied=[];meta.deferred=[];
+    for(const item of pending){
+      const cached=await this.cache.get(item.store,item.value.id),removed=item.value.removed||item.value.deleted_at;
+      if(meta.dirty?.[`${item.store}:${item.value.id}`]||(!removed&&!shouldApplyRemote(cached,item.value)))continue;
+      if(removed)item.store==='projects'?await this.cache.removeProjectCache(item.value.id):await this.cache.removeRecord(item.store,item.value.id);
+      else await this.cache.replaceRecord(item.store,item.store==='projects'?normalizeProject(item.value):item.store==='archetypes'?normalizeArchetype(item.value):normalizePreset(item.value));
+      applied.push({store:item.store,id:item.value.id,projectId:item.value.projectId||cached?.projectId,removed:!!removed});
     }
-    await this.saveSyncMeta(meta);this.onLibraryChanged({ deferredApplied: true });
+    await this.saveSyncMeta(meta);if(applied.length)this.onLibraryChanged({deferredApplied:true,records:applied});
   }
   async setLiveLock(value) { this.setState({ liveLock: !!value });if (!value) await this.applyDeferred();return this.state.liveLock; }
   requireNetwork() { if (!this.online || ['offline', 'session-expired'].includes(this.state.status)) throw new Error('This action requires a network connection. Your cached projects remain available.'); }
@@ -96,6 +101,7 @@ export class SyncedLibraryRepository extends LibraryRepository {
         meta.conflicts[key] = { localChanges: item.changes, server: error.current };delete meta.dirty[key];
         await this.cache.replaceRecord(item.store, item.store === 'projects' ? normalizeProject(error.current) : normalizeArchetype(error.current));
         this.onState({ ...this.state, conflict: { key, name: error.current.name, updatedBy: error.current.updated_by } });
+        this.onLibraryChanged({remote:true,records:[{store:item.store,id:item.id,projectId:error.current.projectId}]});
       }
     }
     await this.saveSyncMeta(meta);

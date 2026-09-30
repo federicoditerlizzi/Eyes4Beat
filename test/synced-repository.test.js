@@ -67,3 +67,15 @@ test('different users have isolated IndexedDB caches', async () => {
   await a.cache.replaceRecord('projects', project(id));
   assert.equal((await a.listProjects()).length, 1);assert.equal((await b.listProjects()).length, 0);
 });
+
+test('own write echo at the acknowledged version emits no library change; newer remote reports affected record',async()=>{
+ const api=new FakeApi(),changes=[],sync=new SyncedLibraryRepository({api,email:'echo-'+crypto.randomUUID()+'@example.com',onLibraryChanged:change=>changes.push(change)});
+ const p=project(),item=archetype(crypto.randomUUID(),p.id);api.remote=item;
+ await sync.cache.replaceRecord('archetypes',item);
+ await sync.updateArchetype(item.id,{musicPresets:[{id:'stable',name:'Saved'}],activeRoutingPresetId:'stable'});clearTimeout(sync.pushTimer);
+ await sync.pushDirty();const acknowledged=await sync.getArchetype(item.id);
+ api.changeSets.push({archetypes:[acknowledged],serverTime:new Date().toISOString()});await sync.pull();assert.equal(changes.length,0);
+ api.changeSets.push({archetypes:[{...acknowledged,version:acknowledged.version+1,name:'Remote'}],serverTime:new Date().toISOString()});await sync.pull();
+ assert.equal(changes.length,1);assert.deepEqual(changes[0].records,[{store:'archetypes',id:item.id,projectId:p.id,removed:false}]);
+ assert.equal((await sync.getArchetype(item.id)).activeRoutingPresetId,'stable');await sync.cache.close();
+});

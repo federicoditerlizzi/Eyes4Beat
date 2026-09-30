@@ -97,13 +97,14 @@ try{
  Object.defineProperty(doc,'hidden',{configurable:true,get:()=>true});doc.dispatchEvent(new win.Event('visibilitychange'));assert($('outputPreviewFallback').hidden,'hidden control must disable preview');
  delete doc.hidden;captureCanvas.captureStream=captureStream;doc.dispatchEvent(new win.Event('visibilitychange'));await until(()=>!$('outputPreview').hidden,'preview resumes after visibility');
  change('ctxPerf','.8','input');
+ $('routingTab').click();$('presetSave').click();$('newPresetName').value='Output preset';$('presetDialogForm').dispatchEvent(new win.Event('submit',{bubbles:true,cancelable:true}));const outputPresetId=$('presetSelect').value;await until(()=>state.activeRoutingPresetId===outputPresetId,'remote active routing preset');$('closeInspector').click();
  const beforeReload=state.transport.currentTime,outputGl=outputWindow.document.querySelector('#gl').getContext('webgl2');
  let outputDraws=0;const outputDraw=outputGl.drawArrays.bind(outputGl);outputGl.drawArrays=(...args)=>{outputDraws++;return outputDraw(...args)};
  frame.contentWindow.location.reload();await wait(400);assert(!outputWindow.closed,'control reload closed output');
  await until(()=>frame.contentWindow.EyesForBeatsEngine,'reloaded controller');doc=frame.contentDocument;win=frame.contentWindow;
  frame.contentWindow.EyesForBeatsEngine.subscribe(event=>{if(event.type==='state')state=event.state});
  await until(()=>doc.body.classList.contains('remoteControl')&&!state.transport.paused&&!state.transport.locked,'reattach authoritative state');
- assert(state.targetId===records[1].id,'reload lost output selection');assert(+$('ctxPerf').value===.8,'reload did not adopt controls');assert(state.transport.currentTime>=beforeReload,'reload rewound audio');assert(outputDraws>0,'output stopped drawing during reload');
+ assert(state.targetId===records[1].id,'reload lost output selection');assert(state.activeRoutingPresetId===outputPresetId&&$('presetSelect').value===outputPresetId,'output reload lost active routing preset');assert(+$('ctxPerf').value===.8,'reload did not adopt controls');assert(state.transport.currentTime>=beforeReload,'reload rewound audio');assert(outputDraws>0,'output stopped drawing during reload');
  assert(+$('renderScale').value===.6&&$('bloomQuality').value==='high','settings lost after control reload');
  $('lookBtn').click();assert(+doc.querySelector('[aria-label="color gain"]').value===1.4,'look UI did not adopt output');$('closeInspector').click();
  await until(()=>!$('outputPreview').hidden&&$('outputPreview').videoWidth>0,'preview after reload');

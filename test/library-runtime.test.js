@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { blankMap } from '../src/config.js';
 import { FACTORY_LOOKS, NEUTRAL_LOOK } from '../src/looks.js';
-import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, starterRoutingForOrigin } from '../src/library/runtime.js';
+import { buildProjectRuntime, defaultImageConfig, normalizeRoutingMap, normalizeMusicPresets, starterRoutingForOrigin } from '../src/library/runtime.js';
 import { mapImportedMedia, prepareImportedArchetype } from '../src/library/package-mapping.js';
 import { buildLibraryPackage, readPackage, verifyLibraryPackage } from '../src/package-format.js';
 
@@ -61,7 +61,7 @@ test('project v3 ZIP round trip preserves settings and ordered media', async () 
   assert.equal(imported.name, original.name);
   assert.deepEqual(imported.look, original.look);
   assert.deepEqual(imported.routingMap, normalizeRoutingMap(original.routingMap));
-  assert.deepEqual(imported.musicPresets, original.musicPresets);
+  assert.deepEqual(imported.musicPresets, normalizeMusicPresets(original.musicPresets));
   assert.deepEqual(imported.imageConfig.images, original.imageConfig.images);
   assert.deepEqual(imported.media.map(item => item.name), original.media.map(item => item.name));
   assert.deepEqual(imported.media.map(item => new TextDecoder().decode(files[item.path])), ['second', 'first']);

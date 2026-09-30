@@ -235,3 +235,9 @@ Without changing behavior, a practical next sequence is:
 Keep the single-file build available if portability for live performance remains a core goal; it can become a generated distribution artifact rather than the editable source.
 
 Inspector structure is shared by `src/ui/inspector-layout.js`: every tab has a non-scrolling `.tabToolbar` and one `.tabBody` scroller. `.inspectorSection`, `.sectionHeader`, `.sectionBody`, and `.inspectorBanner` are the shared section/banner components; LOOK generates the same classes. Controls are reparented without replacing handlers. Internal LOOK/media titles and close buttons are removed; only the inspector header identifies and closes the archetype.
+
+## Routing preset identity and sync refresh
+
+Routing presets have stable `id` fields (legacy ids are migrated deterministically by `src/routing-presets.js`). Archetypes store `activeRoutingPresetId` and `routingControls`; D1 migration `0003_routing_preset_selection.sql` adds these columns. Packages keep their existing version and accept these optional fields. The modified indicator compares current controls/routing with the selected preset's data, without a captured baseline. Do not identify presets by their array position except to resolve numbered shortcuts to an id.
+
+Sync only emits library-change notifications for records whose newer versions were applied, not equal-version write echoes. The controller patches changed records and the active engine in place; structural/media changes rebuild runtime slots while retaining inspector state. Keep active preset ids, panel state and scroll position intact during refreshes.

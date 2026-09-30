@@ -1,3 +1,4 @@
+import { normalizeRoutingRecord } from '../routing-presets.js';
 import { sha256 } from '../package-format.js';
 import { LibraryRepository } from './repository.js';
 
@@ -126,12 +127,12 @@ export class LocalLibraryRepository extends LibraryRepository {
     return this.getProject(duplicate.id);
   }
 
-  async listArchetypes(projectId) { return (await this.getAll('archetypes')).filter(item => item.projectId === projectId && !item.deletedAt); }
-  getArchetype(archetypeId) { return this.get('archetypes', archetypeId); }
+  async listArchetypes(projectId) { return (await this.getAll('archetypes')).filter(item => item.projectId === projectId && !item.deletedAt).map(normalizeRoutingRecord); }
+  getArchetype(archetypeId) { return this.get('archetypes', archetypeId).then(normalizeRoutingRecord); }
   async createArchetype(projectId, data) {
     const date = now(), item = { id: id(), projectId, name: String(data.name || '').trim(),
       origin: copy(data.origin || { type: 'blank', presetId: null }), look: copy(data.look), routingMap: copy(data.routingMap),
-      imageConfig: copy(data.imageConfig), musicPresets: copy(data.musicPresets || []), media: copy(data.media || []),
+      imageConfig: copy(data.imageConfig), ...normalizeRoutingRecord({musicPresets:data.musicPresets,activeRoutingPresetId:data.activeRoutingPresetId,routingControls:data.routingControls}), media: copy(data.media || []),
       createdAt: date, updatedAt: date, version: 1, deletedAt: null };
     if (!item.name) throw new Error('Archetype name is required');
     return this.serializeWrite(() => this.write(['projects', 'archetypes'], (transaction, finish, abort) => {
@@ -214,7 +215,7 @@ export class LocalLibraryRepository extends LibraryRepository {
       }
       archetypeRecords.push({ id: id(), projectId: destinationId, name: source.name, origin: source.origin,
         look: source.look, routingMap: source.routingMap, imageConfig: source.imageConfig,
-        musicPresets: source.musicPresets, media, createdAt: date, updatedAt: date, version: 1, deletedAt: null });
+        ...normalizeRoutingRecord({musicPresets:source.musicPresets,activeRoutingPresetId:source.activeRoutingPresetId,routingControls:source.routingControls}), media, createdAt: date, updatedAt: date, version: 1, deletedAt: null });
     }
     const presetRecords = lookPresets.map(source => ({ id: id(), projectId: destinationId, name: source.name, look: source.look,
       createdAt: date, updatedAt: date, version: 1, deletedAt: null }));

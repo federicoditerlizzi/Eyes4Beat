@@ -1,3 +1,4 @@
+import { normalizeRoutingRecord } from '../../src/routing-presets.js';
 import { blankMap } from '../../src/config.js';
 import { normalizeLook } from '../../src/looks.js';
 import { normalizeImageConfigStore } from '../../src/image-sequencer.js';
@@ -27,7 +28,7 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const visibility = value => ['private', 'shared'].includes(value) ? value : fail(400, 'invalid_input', 'Invalid visibility');
 const jsonColumn = value => value == null ? null : parse(value);
 function project(row) { return row && { id: row.id, owner_email: row.owner_email, name: row.name, visibility: row.visibility, archetypeOrder: parse(row.archetype_order), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
-function archetype(row) { return row && { id: row.id, projectId: row.project_id, name: row.name, origin: jsonColumn(row.origin), look: jsonColumn(row.look), routingMap: jsonColumn(row.routing_map), imageConfig: jsonColumn(row.image_config), musicPresets: jsonColumn(row.music_presets), media: jsonColumn(row.media), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
+function archetype(row) { return row && { id: row.id, projectId: row.project_id, name: row.name, origin: jsonColumn(row.origin), look: jsonColumn(row.look), routingMap: jsonColumn(row.routing_map), imageConfig: jsonColumn(row.image_config), ...normalizeRoutingRecord({musicPresets:jsonColumn(row.music_presets),activeRoutingPresetId:row.active_routing_preset_id,routingControls:jsonColumn(row.routing_controls)}), media: jsonColumn(row.media), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
 function preset(row) { return row && { id: row.id, projectId: row.project_id, name: row.name, look: jsonColumn(row.look), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
 const canRead = (row, email) => row && !row.deleted_at && (row.owner_email === email || row.visibility === 'shared');
 async function readable(db, projectId, email) {
@@ -90,9 +91,9 @@ function normalizedArchetype(data) {
   const refs = mediaRefs(data.media);
   const fallback = defaultImageConfig(refs.length);
   const config = normalizeImageConfigStore({ configs: [data.imageConfig] }, [fallback]).configs[0];
-  return { name: nonempty(data.name, 'name'), origin: object(data.origin), look: normalizeLook(data.look), routingMap: normalizeRoutingMap(data.routingMap, blankMap()), imageConfig: config, musicPresets: normalizeMusicPresets(data.musicPresets), media: refs };
+  return { name: nonempty(data.name, 'name'), origin: object(data.origin), look: normalizeLook(data.look), routingMap: normalizeRoutingMap(data.routingMap, blankMap()), imageConfig: config, ...normalizeRoutingRecord({musicPresets:data.musicPresets,activeRoutingPresetId:data.activeRoutingPresetId,routingControls:data.routingControls}), media: refs };
 }
-function insertArchetype(db, row) { return stmt(db, 'INSERT INTO archetypes(id,project_id,name,origin,look,routing_map,image_config,music_presets,media,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', row.id, row.projectId, row.name, json(row.origin), json(row.look), json(row.routingMap), json(row.imageConfig), json(row.musicPresets), json(row.media), row.created_at, row.updated_at, row.version, row.deleted_at, row.updated_by); }
+function insertArchetype(db, row) { return stmt(db, 'INSERT INTO archetypes(id,project_id,name,origin,look,routing_map,image_config,music_presets,active_routing_preset_id,routing_controls,media,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', row.id, row.projectId, row.name, json(row.origin), json(row.look), json(row.routingMap), json(row.imageConfig), json(row.musicPresets), row.activeRoutingPresetId??null, json(row.routingControls), json(row.media), row.created_at, row.updated_at, row.version, row.deleted_at, row.updated_by); }
 function insertPreset(db, row) { return stmt(db, 'INSERT INTO look_presets(id,project_id,name,look,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?)', row.id, row.projectId, row.name, json(row.look), row.created_at, row.updated_at, row.version, row.deleted_at, row.updated_by); }
 
 export async function serveApi(request, db, bucket, user) {
@@ -227,7 +228,7 @@ async function archetypeRoute(request, db, segments, url, email) {
     const date = now();
     await batch(db, [
       guard(db, "EXISTS(SELECT 1 FROM archetypes a JOIN projects p ON p.id=a.project_id WHERE a.id=? AND a.version=? AND a.deleted_at IS NULL AND p.deleted_at IS NULL AND (p.owner_email=? OR p.visibility='shared'))", [itemId, source.version, email])[0],
-      stmt(db, 'UPDATE archetypes SET name=?,origin=?,look=?,routing_map=?,image_config=?,music_presets=?,media=?,version=version+1,updated_at=?,updated_by=? WHERE id=?', normalized.name, json(normalized.origin), json(normalized.look), json(normalized.routingMap), json(normalized.imageConfig), json(normalized.musicPresets), json(normalized.media), date, email, itemId),
+      stmt(db, 'UPDATE archetypes SET name=?,origin=?,look=?,routing_map=?,image_config=?,music_presets=?,active_routing_preset_id=?,routing_controls=?,media=?,version=version+1,updated_at=?,updated_by=? WHERE id=?', normalized.name, json(normalized.origin), json(normalized.look), json(normalized.routingMap), json(normalized.imageConfig), json(normalized.musicPresets), normalized.activeRoutingPresetId, json(normalized.routingControls), json(normalized.media), date, email, itemId),
       ...mediaLinks(db, itemId, normalized.media),
     ]);
     return answer(archetype(await first(db, 'SELECT * FROM archetypes WHERE id=?', itemId)));

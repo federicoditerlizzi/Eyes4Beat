@@ -1,3 +1,4 @@
+import { normalizeRoutingRecord } from '../routing-presets.js';
 import { BLOOM_DEFAULTS } from '../bloom.js';
 import { blankMap } from '../config.js';
 import { normalizeImageConfigStore } from '../image-sequencer.js';
@@ -25,6 +26,6 @@ export function prepareImportedArchetype(archetype, formatVersion) {
     sourceId: archetype.id || archetype.legacyId || null, startingRoutingMap: structuredClone(routingMap) },
     look: normalizeLook({ ...(formatVersion === 1 ? lookForProfile(factoryIndex) : (archetype.look || lookForProfile(factoryIndex))),
       bloom: archetype.look?.bloom || BLOOM_DEFAULTS }),
-    routingMap, imageConfig, musicPresets: normalizeMusicPresets(archetype.musicPresets),
+    routingMap, imageConfig, ...normalizeRoutingRecord({musicPresets:archetype.musicPresets,activeRoutingPresetId:archetype.activeRoutingPresetId,routingControls:archetype.routingControls}),
     media: mapped.media };
 }

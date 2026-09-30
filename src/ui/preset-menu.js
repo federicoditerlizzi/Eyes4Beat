@@ -26,7 +26,7 @@ export function createPresetMenu(select,{label,onRename,onDelete}){
   }
   if(!managed){const empty=document.createElement('p');empty.className='presetMenuEmpty';empty.textContent='No project presets yet';menu.append(empty)}
  }
- function refresh(){render();if(!menu.hidden)position()}
+ function refresh(){const focused=document.activeElement,row=focused?.closest('.presetMenuRow'),value=row?.dataset.value,index=row?[...row.querySelectorAll('button')].indexOf(focused):-1;render();if(!menu.hidden){position();if(index>=0){const next=[...menu.querySelectorAll('.presetMenuRow')].find(el=>el.dataset.value===value);(next?.querySelectorAll('button')[index]||menu.querySelector('button')||trigger).focus()}}}
  function open(last=false){refresh();menu.hidden=false;trigger.setAttribute('aria-expanded','true');position();const items=menu.querySelectorAll('button');(last?items[items.length-1]:items[0])?.focus()}
  trigger.onclick=()=>menu.hidden?open():close();
  trigger.onkeydown=e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();e.stopPropagation();open(e.key==='ArrowUp')}};

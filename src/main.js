@@ -1,3 +1,4 @@
+import { normalizeRoutingRecord, routingPresetModified } from './routing-presets.js';
 import { createPresetBar } from './ui/preset-bar.js';
 import { createProjectUi } from './ui/project-ui.js';
 import { renderLookControls, updateLookRoutingHints, startingLook } from './ui/look-editor.js';
@@ -53,11 +54,57 @@ function renderSyncState(state){
  const lock=document.getElementById('liveLockBtn'),badge=document.getElementById('liveLockBadge');lock.setAttribute('aria-pressed',String(state.liveLock));badge.hidden=!state.liveLock;badge.querySelector('span').textContent=String(state.pending||0);
  if(state.conflict){lastConflictKey=state.conflict.key;const notice=document.getElementById('libraryNotice');notice.replaceChildren(document.createTextNode(`${state.conflict.name} was changed by ${state.conflict.updatedBy||'another user'}. `));notice.hidden=false;const button=document.createElement('button');button.textContent='RESTORE MY VERSION';button.onclick=()=>repository.restoreConflict(lastConflictKey).catch(console.error);notice.appendChild(button)}
 }
+let remoteChanges=[];
 function onSyncedLibraryChanged(change={}){
  if(change.userChanged){clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(()=>location.reload(),50);return}
- if(change.deferredApplied){remoteRefreshPending=true;return}
- if(transport.transport.recovery){remoteRefreshPending=true;return}
- if(projectSwitching)return;clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(async()=>{const projects=await repository.listProjects(),wanted=activeProject&&projects.some(item=>item.id===activeProject.id)?activeProject.id:projects[0]?.id||null;await openProject(wanted,{preferredId:archetypes[target]?.id})},250);
+ if(!change.records?.length)return;
+ remoteChanges.push(...change.records);
+ if(transport.transport.recovery||projectSwitching){remoteRefreshPending=true;return}
+ clearTimeout(syncReloadTimer);syncReloadTimer=setTimeout(()=>{void refreshSyncedRecords().catch(console.error)},250);
+}
+async function refreshSyncedRecords(){
+ const changes=remoteChanges.splice(0);if(!changes.length)return;
+ if(!activeProject){await refreshProjects();return}
+ const project=await repository.getProject(activeProject.id);
+ if(!project){await openProject((await repository.listProjects())[0]?.id||null);return}
+ const relevant=changes.filter(c=>c.projectId===project.id||(c.store==='projects'&&c.id===project.id));
+ if(!relevant.length){await refreshProjects();return}
+ const scroll=[...document.querySelectorAll('.tabBody,.sectionBody,#archBar')].map(el=>[el,el.scrollTop,el.scrollLeft]);
+ const details=[...document.querySelectorAll('.inspectorTabPage details')].map(el=>[el.querySelector('summary')?.textContent,el.open]);
+ const selectedId=archetypes[target]?.id;let targetPatch={};
+ const records=(await repository.listArchetypes(project.id)).map(record=>normalizeRoutingRecord({...record,...failedWrites.get(record.id),...pendingWrites.get(record.id)?.changes}));
+ const byId=new Map(records.map(r=>[r.id,r]));
+ const ordered=project.archetypeOrder.filter(id=>byId.has(id));
+ const structural=JSON.stringify(ordered)!==JSON.stringify(archetypes.map(a=>a.id))||archetypes.some(a=>JSON.stringify(a.media)!==JSON.stringify(byId.get(a.id)?.media));
+ activeProject=project;
+ if(structural){
+  const positions=engineState?.images||[],urls=new Map();
+  for(const record of records)for(const media of record.media){if(!urls.has(media.mediaId)){const saved=await repository.getMedia(media.mediaId);urls.set(media.mediaId,saved?URL.createObjectURL(saved.blob):null)}}
+  const runtime=buildProjectRuntime(project,records,m=>urls.get(m.mediaId)?{url:urls.get(m.mediaId),type:m.mime,name:m.name,mediaId:m.mediaId}:null);
+  for(const source of IMAGE_SETS.flat())if(source?.url)URL.revokeObjectURL(source.url);
+  archetypes.splice(0,archetypes.length,...runtime.archetypes);IMAGE_SETS.splice(0,IMAGE_SETS.length,...runtime.IMAGE_SETS);
+  defaultRoutingMaps.splice(0,defaultRoutingMaps.length,...runtime.defaultRoutingMaps);defaultImageConfigs.splice(0,defaultImageConfigs.length,...runtime.defaultImageConfigs);
+  routingMaps=runtime.routingMaps;imageConfigs=runtime.imageConfigs;musicPresets=runtime.musicPresets;looks=runtime.looks;idToIndex=runtime.idToIndex;target=idToIndex.get(selectedId)??0;
+  await send('loadProject',{project,records,cacheName:repository.cache.name,preferredId:archetypes[target]?.id,imagePositions:positions});
+ }else{
+  for(const record of records){const i=idToIndex.get(record.id);if(i==null)continue;
+   const patch={};for(const key of ['name','origin','look','routingMap','imageConfig','musicPresets','activeRoutingPresetId','routingControls'])if(JSON.stringify(archetypes[i][key])!==JSON.stringify(record[key]))patch[key]=record[key];
+   if(i===target)targetPatch=patch;
+   Object.assign(archetypes[i],record);musicPresets[i]=record.musicPresets;routingMaps[i]=normalizeRoutingMap(record.routingMap,defaultRoutingMaps[i]);looks[i]=normalizeLook(record.look);imageConfigs[i]=record.imageConfig;
+   if(Object.keys(patch).length)fire('updateArchetype',{id:record.id,patch});
+  }
+ }
+ if(transport.project)transport.project.project=structuredClone(project);
+ projectLookPresets=await repository.listLookPresets(project.id);
+ const menuOpen=!document.getElementById('presetSelectMenu').hidden;
+ renderArchetypeBar();renderPresetControls();renderProjectLookPresets();if(structural||targetPatch.routingControls)restoreRoutingControls();
+ if(menuOpen)document.getElementById('presetSelectMenu').hidden=false;
+ if((structural||targetPatch.look)&&lookPanel.classList.contains('open'))renderLookEditor();
+ if((structural||targetPatch.routingMap||targetPatch.routingControls)&&document.getElementById('routingPanel').classList.contains('open'))refreshRoutingSources();
+ if((structural||targetPatch.imageConfig)&&document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
+ for(const [el,top,left] of scroll){el.scrollTop=top;el.scrollLeft=left}
+ for(const el of document.querySelectorAll('.inspectorTabPage details')){const saved=details.find(([label])=>label===el.querySelector('summary')?.textContent);if(saved)el.open=saved[1]}
+ await refreshProjects();
 }
 const repository=new SyncedLibraryRepository({ onState:renderSyncState, onLibraryChanged:onSyncedLibraryChanged });
 window.EyesForBeatsSync={sync:()=>repository.sync(),setLiveLock:value=>setLiveLock(value),toggleLiveLock:()=>setLiveLock(!repository.state.liveLock)};
@@ -69,6 +116,7 @@ const pendingWrites=new Map(),failedWrites=new Map();
 let writeQueue=Promise.resolve();
 function queueArchetypeWrite(index,changes){
  const id=archetypes[index]?.id;if(!id)return;
+ Object.assign(archetypes[index],structuredClone(changes));
  fire('updateArchetype',{id,patch:changes});
  const pending=pendingWrites.get(id)||{changes:{...failedWrites.get(id)},timer:null};failedWrites.delete(id);
  Object.assign(pending.changes,structuredClone(changes));clearTimeout(pending.timer);
@@ -240,9 +288,9 @@ document.querySelectorAll('[data-solo]').forEach(btn=>btn.onclick=()=>{
 });
 
 let musicPresets=[];
-let activeRoutingPreset='',routingBaseline=null;
-function routingSignature(){return JSON.stringify(captureMusicPreset(''))}
-function routingModified(){return activeRoutingPreset!==''&&routingBaseline!==null&&routingSignature()!==routingBaseline}
+function activeRoutingPreset(){return musicPresets[target]?.find(p=>p.id===archetypes[target]?.activeRoutingPresetId)}
+function routingModified(){const preset=activeRoutingPreset();return routingPresetModified(captureMusicPreset(''),preset?{...preset,routing:preset.routing?normalizeRoutingMap(preset.routing,defaultRoutingMaps[target]):undefined}:null)}
+function restoreRoutingControls(){const controls=archetypes[target]?.routingControls;if(controls){applyMusicPreset(controls,{viewOnly:true});sendControls()}}
 function saveMusicPresets(){queueArchetypeWrite(target,{musicPresets:musicPresets[target]})}
 function captureMusicPreset(name){
   const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
@@ -277,12 +325,11 @@ function syncPresetActions(){
   document.getElementById('presetSelect').dataset.modified=String(modified);
   document.getElementById('presetSelect').presetMenu?.refresh();
 }
-function renderPresetControls(selectedIndex=''){
+function renderPresetControls(){
   const select=document.getElementById('presetSelect'),items=musicPresets[target]||[];select.innerHTML='';
   const empty=document.createElement('option');empty.value='';empty.textContent=items.length?'SELECT ROUTING PRESET':'NO SAVED PRESET';select.appendChild(empty);
-  items.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.name;o.dataset.group='Project presets';o.dataset.managed='true';select.appendChild(o)});
-  if(selectedIndex!==''&&items[+selectedIndex])select.value=String(selectedIndex);
-  activeRoutingPreset=select.value;routingBaseline=activeRoutingPreset===''?null:routingSignature();
+  items.forEach((p,i)=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;o.dataset.group='Project presets';o.dataset.managed='true';select.appendChild(o)});
+  select.value=items.some(p=>p.id===archetypes[target]?.activeRoutingPresetId)?archetypes[target].activeRoutingPresetId:'';
   syncPresetActions();
 }
 const presetDialog=document.getElementById('presetDialog'),newPresetName=document.getElementById('newPresetName');
@@ -290,38 +337,36 @@ document.getElementById('presetSave').onclick=()=>{newPresetName.value='';preset
 document.getElementById('cancelPreset').onclick=()=>presetDialog.close();
 document.getElementById('presetDialogForm').onsubmit=e=>{
   e.preventDefault();const name=newPresetName.value.trim();if(!name){newPresetName.focus();return}
-  musicPresets[target].push(captureMusicPreset(name));saveMusicPresets();renderPresetControls(musicPresets[target].length-1);presetDialog.close();
+  const preset={...captureMusicPreset(name),id:crypto.randomUUID()};musicPresets[target].push(preset);queueArchetypeWrite(target,{musicPresets:musicPresets[target],activeRoutingPresetId:preset.id});persistRoutingControls();renderPresetControls();presetDialog.close();
 };
-document.getElementById('presetSelect').onchange=e=>{const i=e.target.value;e.target.value=activeRoutingPreset;if(i!=='')activatePreset(+i)};
-async function activatePreset(index){
- const items=musicPresets[target]||[],preset=items[index],archId=archetypes[target]?.id;
+document.getElementById('presetSelect').onchange=e=>{const id=e.target.value;e.target.value=archetypes[target]?.activeRoutingPresetId||'';if(id)activatePreset(id)};
+async function activatePreset(id){
+ const preset=musicPresets[target]?.find(p=>p.id===id),archId=archetypes[target]?.id;
  if(!preset){showShortcutToast('PRESET NOT AVAILABLE');return false}
  if(routingModified()&&!await askLibraryAction({title:'LOAD ROUTING PRESET',message:'Discard the unsaved preset modifications and load “'+preset.name+'”?',confirm:'LOAD',requireInput:false})){syncPresetActions();return false}
- if(archetypes[target]?.id!==archId||musicPresets[target]?.[index]!==preset)return false;
- const select=document.getElementById('presetSelect');select.value=String(index);applyMusicPreset(preset);
- activeRoutingPreset=String(index);routingBaseline=routingSignature();syncPresetActions();
- showShortcutToast('PRESET '+String(index+1).padStart(2,'0')+' · '+preset.name);return true;
+ if(archetypes[target]?.id!==archId||!musicPresets[target]?.some(p=>p.id===id))return false;
+ applyMusicPreset(preset);queueArchetypeWrite(target,{activeRoutingPresetId:id,musicPresets:musicPresets[target]});persistRoutingControls();renderPresetControls();
+ showShortcutToast('PRESET · '+preset.name);return true;
 }
 function stepPreset(direction){
- const items=musicPresets[target]||[];
- if(!items.length){showShortcutToast('NO PRESETS FOR THIS ARCHETYPE');return}
- const value=document.getElementById('presetSelect').value;
- const index=value===''?(direction>0?0:items.length-1):(+value+direction+items.length)%items.length;
- activatePreset(index);
+ const items=musicPresets[target]||[];if(!items.length){showShortcutToast('NO PRESETS FOR THIS ARCHETYPE');return}
+ const index=items.findIndex(p=>p.id===archetypes[target]?.activeRoutingPresetId);
+ activatePreset(items[index<0?(direction>0?0:items.length-1):(index+direction+items.length)%items.length].id);
 }
 document.getElementById('presetUpdate').onclick=()=>{
-  const select=document.getElementById('presetSelect'),i=select.value;if(i==='')return;
-  const name=musicPresets[target][+i].name;musicPresets[target][+i]=captureMusicPreset(name);saveMusicPresets();renderPresetControls(i);
+ const preset=activeRoutingPreset();if(!preset)return;
+ Object.assign(preset,captureMusicPreset(preset.name));saveMusicPresets();persistRoutingControls();renderPresetControls();
 };
 async function manageRoutingPreset(value,remove=false){
- const a=target,arch=archetypes[a],preset=musicPresets[a]?.[+value];if(!preset)return;
+ const arch=archetypes[target],preset=musicPresets[target]?.find(p=>p.id===value);if(!preset)return;
  const result=await askLibraryAction(remove?{title:'DELETE ROUTING PRESET',message:`Delete “${preset.name}”?`,confirm:'DELETE',requireInput:false}:{title:'RENAME ROUTING PRESET',value:preset.name,confirm:'RENAME'});
  if(!result)return;
  const index=idToIndex.get(arch.id);if(index==null)return;
- const items=musicPresets[index],position=items.indexOf(preset);if(position<0)return;
- if(remove)items.splice(position,1);else preset.name=result;
- queueArchetypeWrite(index,{musicPresets:items});if(target===index){const active=activeRoutingPreset===''?-1:+activeRoutingPreset,baseline=routingBaseline;renderPresetControls(remove?(active===position?'':active>position?active-1:active<0?'':active):active<0?'':active);if(activeRoutingPreset!=='')routingBaseline=baseline;syncPresetActions()}
+ const items=musicPresets[index],position=items.findIndex(p=>p.id===value);if(position<0)return;
+ if(remove)items.splice(position,1);else items[position].name=result;
+ queueArchetypeWrite(index,{musicPresets:items,activeRoutingPresetId:remove&&archetypes[index].activeRoutingPresetId===value?null:archetypes[index].activeRoutingPresetId});if(target===index)renderPresetControls();
 }
+function persistRoutingControls(){const controls=captureMusicPreset('');delete controls.name;delete controls.routing;queueArchetypeWrite(target,{routingControls:controls});syncPresetActions()}
 createPresetBar(document.getElementById('presetSelect'),{label:'ROUTING PRESET',save:document.getElementById('presetSave'),update:document.getElementById('presetUpdate'),onRename:value=>manageRoutingPreset(value),onDelete:value=>manageRoutingPreset(value,true)});
 
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
@@ -682,14 +727,14 @@ async function openProject(projectId,{preferredId=null,recovery=null}={}){
  await repository.setActiveProject(activeProject?.id||null);
  projectLookPresets=activeProject?await repository.listLookPresets(activeProject.id):[];
  records.forEach(record=>startingLook(record,projectLookPresets,localStorage,repository.cache.name));renderProjectLookPresets();
- renderArchetypeBar();renderPresetControls();await refreshProjects();
+ restoreRoutingControls();renderArchetypeBar();renderPresetControls();await refreshProjects();
  if(lookPanel.classList.contains('open')){if(archetypes.length)renderLookEditor();else closeLookEditor()}
  if(document.getElementById('imagePanel').classList.contains('open')){if(archetypes.length)renderImageManager();else closeImageManager()}
  if(document.getElementById('routingPanel').classList.contains('open')){if(archetypes.length)refreshRoutingSources();else closeRouting()}
  document.getElementById('lookBtn').disabled=!archetypes.length;document.getElementById('imageMgrBtn').disabled=!archetypes.length;
  document.getElementById('routingTab').disabled=!archetypes.length;
  document.getElementById('projectStatus').textContent='';
- }finally{if(generation===projectSwitchGeneration)projectSwitching=false}
+ }finally{if(generation===projectSwitchGeneration){projectSwitching=false;if(remoteChanges.length&&!transport.transport.recovery)syncReloadTimer=setTimeout(()=>void refreshSyncedRecords().catch(console.error),250)}}
 }
 async function setLiveLock(value){await send('setSafety',{control:'liveLock',value:!!value});return repository.setLiveLock(value)}
 async function adoptOutput(recovery){
@@ -833,7 +878,7 @@ async function exportProject(project,button){
   const records=new Map((await repository.listArchetypes(project.id)).map(record=>[record.id,record]));
   const snapshot=[];for(const id of project.archetypeOrder){const record=records.get(id);if(!record)continue;
     const media=[];for(const [sourceIndex,ref] of record.media.entries()){const saved=await repository.getMedia(ref.mediaId);if(!saved)throw new Error(`Cannot export ${record.name}: missing media ${ref.name}`);media.push({...ref,sourceIndex,blob:saved.blob})}
-    snapshot.push({id:record.id,name:record.name,origin:record.origin,look:record.look,routingMap:record.routingMap,imageConfig:record.imageConfig,musicPresets:record.musicPresets,media});
+    snapshot.push({id:record.id,name:record.name,origin:record.origin,look:record.look,routingMap:record.routingMap,imageConfig:record.imageConfig,musicPresets:record.musicPresets,activeRoutingPresetId:record.activeRoutingPresetId,routingControls:record.routingControls,media});
   }
   await exportPackage(snapshot,{kind:'project',project,lookPresets:await repository.listLookPresets(project.id),button});
  }catch(error){console.error('Project export failed',error);packageStatus('Project export unavailable.',null,error.message||String(error))}
@@ -894,7 +939,7 @@ document.getElementById('importPackageFile').onchange=async event=>{
 };
 async function selectArchetype(a){
  if(!archetypes[a]||projectSwitching||deletingArchetype)return;
- if(remoteRefreshPending){remoteRefreshPending=false;await openProject(activeProject.id,{preferredId:archetypes[a].id});return}
+ if(remoteRefreshPending){remoteRefreshPending=false;await refreshSyncedRecords()}
  await send('selectArchetype',{id:archetypes[a].id});
 }
 
@@ -927,7 +972,7 @@ document.addEventListener('keydown',event=>{
    showShortcutToast(action.control.toUpperCase()+' · '+(active?'ON':'OFF'));return;
  }
  if(action.type==='transition'){setTransitionMode(action.mode);showShortcutToast(action.mode.toUpperCase()+' TRANSITIONS');return}
- if(action.type==='preset-select'){activatePreset(action.index);return}
+ if(action.type==='preset-select'){activatePreset(musicPresets[target]?.[action.index]?.id);return}
  if(action.type==='preset-step'){stepPreset(action.direction);return}
  if(action.type==='media-step'){
    imageStep(target,action.direction);showShortcutToast(action.direction>0?'NEXT MEDIA':'PREVIOUS MEDIA');return;
@@ -944,7 +989,7 @@ function sendControls(){
 }
 // Only control actions cross the boundary; editor persistence remains in the UI.
 const controlSelector='[data-on],[data-solo],[data-target-on],[data-target-solo],#ctxPerf,#react,'+sourceKeys.map(k=>'#amt-'+k).join(',')+','+routeTargets.flatMap(k=>['#g-'+k,'#ga-'+k]).join(',');
-for(const event of ['input','change','click'])document.addEventListener(event,e=>{if(e.target.closest?.(controlSelector))sendControls()});
+for(const event of ['input','change','click'])document.addEventListener(event,e=>{if(e.target.closest?.(controlSelector)){sendControls();persistRoutingControls()}});
 const outputSettingsDialog=document.getElementById('outputSettingsDialog');
 document.getElementById('outputSettingsBtn').onclick=()=>outputSettingsDialog.showModal();
 document.getElementById('closeOutputSettings').onclick=()=>outputSettingsDialog.close();
@@ -965,7 +1010,7 @@ transport.subscribe(event=>{
  smoothButton.classList.toggle('active',mode==='smooth');cutButton.classList.toggle('active',mode==='cut');
  document.querySelectorAll('.arch').forEach(button=>button.classList.toggle('active',+button.dataset.a===target));
  if(previousTarget!==engineState.targetId&&!projectSwitching&&archetypes.length){
-  renderPresetControls();if(lookPanel.classList.contains('open'))renderLookEditor();
+  restoreRoutingControls();renderPresetControls();if(lookPanel.classList.contains('open'))renderLookEditor();
   if(document.getElementById('routingPanel').classList.contains('open'))refreshRoutingSources();
   if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager();
  }

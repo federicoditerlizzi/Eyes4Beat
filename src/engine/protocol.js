@@ -10,9 +10,9 @@ const controls=v=>object(v)&&['enabled','solo','targetEnabled','targetSolo'].eve
 const media=v=>object(v)&&id(v.mediaId)&&typeof v.mime==='string';
 const record=v=>object(v)&&id(v.id)&&id(v.projectId)&&Array.isArray(v.media)&&v.media.every(media);
 const project=v=>v===null||(object(v)&&id(v.id)&&Array.isArray(v.archetypeOrder)&&v.archetypeOrder.every(id));
-const patch=v=>object(v)&&Object.keys(v).every(k=>['look','routingMap','imageConfig','musicPresets','name','origin'].includes(k))&&
+const patch=v=>object(v)&&Object.keys(v).every(k=>['look','routingMap','imageConfig','musicPresets','activeRoutingPresetId','routingControls','name','origin'].includes(k))&&
  (v.name===undefined||id(v.name))&&['look','routingMap','imageConfig','origin'].every(k=>v[k]===undefined||object(v[k]))&&
- (v.musicPresets===undefined||Array.isArray(v.musicPresets));
+ (v.musicPresets===undefined||Array.isArray(v.musicPresets))&&(v.activeRoutingPresetId==null||id(v.activeRoutingPresetId))&&(v.routingControls==null||controls(v.routingControls));
 export const COMMANDS={
  loadProject:p=>project(p.project)&&Array.isArray(p.records)&&p.records.every(record)&&id(p.cacheName)&&(p.preferredId==null||id(p.preferredId))&&(p.imagePositions===undefined||Array.isArray(p.imagePositions)&&p.imagePositions.every(v=>id(v.id)&&Number.isInteger(v.index)&&v.index>=0)),
  updateArchetype:p=>id(p.id)&&patch(p.patch),
