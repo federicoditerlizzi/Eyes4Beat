@@ -1,3 +1,4 @@
+import { updateLookRelevance } from './control-relevance.js';
 import { LOOK_FIELDS, FACTORY_LOOKS, NEUTRAL_LOOK, normalizeLook } from '../looks.js';
 import { eventSourceIds, sourceLabels } from '../config.js';
 import { assignedSource } from '../routing.js';
@@ -53,7 +54,7 @@ export function renderLookControls({root,getLook,onChange,start,storage=localSto
    const aria=title.toLowerCase()+' '+label.toLowerCase();
    const choices=key==='mode'?(group==='rotation'?['angle','spin']:group==='pulse'?['breath','shockwave']:['directional','radial']):
     ({direction:['cw','ccw','flip-on-beat'],colorMode:['fixed','palette'],trigger:['none',...eventSourceIds()],origin:['center','random'],fit:['cover','contain','stretch'],edge:['mirror','clamp'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']})[key];
-   const apply=value=>{const next=structuredClone(getLook());path.reduce((v,p)=>v[p],next)[key]=value;onChange(normalizeLook(next));return read(getLook())};
+   const apply=value=>{const next=structuredClone(getLook());path.reduce((v,p)=>v[p],next)[key]=value;onChange(normalizeLook(next));updateLookRelevance(root,getLook());return read(getLook())};
    if(LOOK_FIELDS[fieldGroup]?.[key]){
     const [min,max,step]=LOOK_FIELDS[fieldGroup][key],control=create('div','lookSliderControl'),slider=create('input','lookSlider'),display=create('button','lookValue'),editor=create('input','lookValueEditor');
     slider.type='range';editor.type='number';for(const input of [slider,editor]){input.min=min;input.max=max;input.step=step;input.value=value}
@@ -72,7 +73,7 @@ export function renderLookControls({root,getLook,onChange,start,storage=localSto
     const input=create('select','');input.hidden=true;input.setAttribute('aria-label',aria);
     for(const choice of choices){const option=document.createElement('option');option.value=choice;option.textContent=choice;input.append(option);
      const b=create('button','',choice.replaceAll('-',' '));b.type='button';b.dataset.value=choice;b.title=label+': '+choice;b.setAttribute('aria-pressed',String(value===choice));b.onclick=()=>{input.value=choice;input.dispatchEvent(new Event('input',{bubbles:true}))};segments.append(b)}
-    input.value=value;input.oninput=()=>{apply(input.value);for(const b of segments.children)b.setAttribute('aria-pressed',String(b.dataset.value===input.value));if(group==='distortion'&&key==='mode')section.querySelector('[data-field=angle]').hidden=input.value!=='directional'};
+    input.value=value;input.oninput=()=>{apply(input.value);for(const b of segments.children)b.setAttribute('aria-pressed',String(b.dataset.value===input.value))};
     row.append(segments,input);
    }else{
     const input=create('input',typeof value==='boolean'?'':'lookSwatch');input.type=typeof value==='boolean'?'checkbox':'color';input.setAttribute('aria-label',aria);
@@ -82,8 +83,7 @@ export function renderLookControls({root,getLook,onChange,start,storage=localSto
    (fieldGroup===group&&primary.includes(key)?body:advanced).append(row);
   }
   if(advanced.children.length>1)body.append(advanced);
-  if(group==='distortion')section.querySelector('[data-field=angle]').hidden=getLook().distortion.mode!=='directional';
   root.append(section);
  }
- updateLookRoutingHints(root,map);
+ updateLookRoutingHints(root,map);updateLookRelevance(root,getLook());
 }

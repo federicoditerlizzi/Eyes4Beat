@@ -1,8 +1,10 @@
+import { updateBloomRelevance } from './control-relevance.js';
 // UI reads full engine snapshots; no AudioNodes, textures or runtime state are shared.
 export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
  if(state.outputSettings){
   const {quality,renderScale}=state.outputSettings;
   document.getElementById('bloomQuality').value=quality;
+  const fields=document.getElementById('lookFields');if(fields.dataset.bloomQuality!==quality)updateBloomRelevance(fields,quality);
   const slider=document.getElementById('renderScale');
   if(document.activeElement!==slider)slider.value=renderScale;
   document.getElementById('renderScaleValue').textContent=Math.round(Number(slider.value)*100)+'%';
@@ -15,6 +17,7 @@ export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
  for(const id of ['play','seek','mute','volume'])el(id).disabled=t.mode!=='file'||!t.loaded;
  if(!seeking){el('seek').value=t.duration>0?String(Math.round(t.currentTime/t.duration*1000)):'0';el('timeDisplay').textContent=format(t.currentTime)+' / '+format(t.duration);el('headerElapsed').textContent=format(t.currentTime);el('headerDuration').textContent=format(t.duration)}
  el('trackName').textContent=t.trackName;
+ for(const id of ['mute','volume'])el(id).hidden=t.mode==='live';
  for(const section of document.querySelectorAll('[data-audio-mode]'))section.hidden=section.dataset.audioMode!==t.mode;
  el('fileModeBtn').setAttribute('aria-pressed',String(t.mode==='file'));el('liveModeBtn').setAttribute('aria-pressed',String(t.mode==='live'));
  for(const [id,active] of [['fileModeBtn',t.mode==='file'],['liveModeBtn',t.mode==='live'],['audioInputBtn',t.mode==='live']])el(id).classList.toggle('active',active);

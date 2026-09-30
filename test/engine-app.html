@@ -56,7 +56,7 @@ try{
  win.EyesForBeatsSafety.setBlackout(true);await until(()=>state.blackout,'blackout');win.EyesForBeatsSafety.setBlackout(false);
  win.EyesForBeatsSafety.setPanic(true);await until(()=>state.panic&&state.finalG.luma===1,'panic');win.EyesForBeatsSafety.setPanic(false);
  await win.EyesForBeatsSync.setLiveLock(true);assert($('liveLockBtn').getAttribute('aria-pressed')==='true','live lock');await win.EyesForBeatsSync.setLiveLock(false);
- $('liveModeBtn').click();await until(()=>$('audioInputStatus').textContent.includes('Live input active'),'live fake device');assert(doc.querySelector('[data-audio-mode=file]').hidden&&[...doc.querySelectorAll('[data-audio-mode=live]')].every(el=>!el.hidden),'LIVE applicable controls');assert($('headerTimeline').hidden&&!$('headerInputMeter').hidden,'live header meter replaces transport');
+ $('liveModeBtn').click();await until(()=>$('audioInputStatus').textContent.includes('Live input active'),'live fake device');assert(doc.querySelector('[data-audio-mode=file]').hidden&&[...doc.querySelectorAll('[data-audio-mode=live]')].every(el=>!el.hidden),'LIVE applicable controls');assert($('volume').hidden&&$('mute').hidden,'LIVE hides playback volume and mute');assert($('headerTimeline').hidden&&!$('headerInputMeter').hidden,'live header meter replaces transport');
  $('fileModeBtn').click();await until(()=>$('fileModeBtn').classList.contains('active'),'return to file');
  assert($('gl').getContext('webgl2').getError()===0,'GL error');
  $('closeAudioInput').click();$('play').click();await until(()=>!state.transport.paused,'play before output');
@@ -89,7 +89,7 @@ try{
  assert(contexts.every(context=>context.state==='closed'),'live input reopened control audio');
  $('fileModeBtn').click();await until(()=>state.transport.mode==='file','remote file mode');$('play').click();await until(()=>!state.transport.paused,'remote play again');
  await until(()=>!$('outputPreview').hidden&&$('outputPreview').videoWidth>0,'live capture preview');
- assert($('outputPreview').muted,'preview must be muted');$('previewBtn').click();assert($('outputPreview').hidden,'preview toggle off');$('previewBtn').click();await until(()=>!$('outputPreview').hidden,'preview toggle on');
+ assert(!$('previewBtn').disabled,'preview enabled with output');assert($('outputPreview').muted,'preview must be muted');$('previewBtn').click();assert($('outputPreview').hidden,'preview toggle off');$('previewBtn').click();await until(()=>!$('outputPreview').hidden,'preview toggle on');
  const captureCanvas=outputWindow.EyesForBeatsPreview.canvas,captureStream=captureCanvas.captureStream;
  $('previewBtn').click();captureCanvas.captureStream=undefined;$('previewBtn').click();
  await until(()=>!$('outputPreviewFallback').hidden&&$('outputPreviewFallback').width>300,'bitmap preview fallback');
@@ -108,7 +108,7 @@ try{
  assert(+$('renderScale').value===.6&&$('bloomQuality').value==='high','settings lost after control reload');
  $('lookBtn').click();assert(+doc.querySelector('[aria-label="color gain"]').value===1.4,'look UI did not adopt output');$('closeInspector').click();
  await until(()=>!$('outputPreview').hidden&&$('outputPreview').videoWidth>0,'preview after reload');
- const resumeAt=state.transport.currentTime;outputWindow.close();await until(()=>!$('outputNotice').hidden&&$('outputMessage').textContent.includes('disconnected'),'disconnect notice');
+ const resumeAt=state.transport.currentTime;outputWindow.close();await until(()=>!$('outputNotice').hidden&&$('outputMessage').textContent.includes('disconnected'),'disconnect notice');assert($('previewBtn').disabled&&$('previewBtn').dataset.tooltip.includes('Open an output window'),'disconnected preview disabled with reason');
  await wait(300);assert(doc.body.classList.contains('remoteControl'),'automatic local fallback');
  $('play').click();await until(()=>$('outputMessage').textContent.includes('command not sent'),'visible rejected command');
  $('useLocalOutput').click();await until(()=>!doc.body.classList.contains('remoteControl')&&!state.transport.paused,'explicit local fallback');

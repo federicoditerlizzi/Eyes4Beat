@@ -380,3 +380,8 @@
 .presetBarActions{display:flex;gap:5px;flex-shrink:0}
 .presetBarAction{font-size:8px;white-space:nowrap;padding:5px 8px}
 .presetModified{width:6px;height:6px;border-radius:50%;background:#ffc76c;flex-shrink:0}
+
+#imagePanel [hidden]{display:none}
+
+.isDimmed{opacity:.45}
+.lookField[hidden],.headerGroup>[hidden]{display:none}

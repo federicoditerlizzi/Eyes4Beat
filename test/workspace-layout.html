@@ -52,6 +52,24 @@ try{
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
  const preview=$('previewBtn');
  for(const enabled of [false,true]){preview.setAttribute('aria-pressed',String(enabled));await wait(20);assert(preview.querySelector(enabled?'.lucide-eye-off':'.lucide-eye')&&preview.getAttribute('aria-label')===(enabled?'Hide preview':'Show preview'),'preview action reflects state')}
+ assert(preview.disabled&&preview.dataset.tooltip.includes('Open an output window'),'preview unavailable reason');
+ $('lookBtn').click();
+ const lookRow=path=>doc.querySelector('[data-path="'+path+'"]');
+ const choose=(path,value)=>lookRow(path).querySelector('button[data-value="'+value+'"]').click();
+ const shown=(path,expected)=>assert(!lookRow(path).hidden===expected,path+' relevance');
+ choose('rotation.mode','angle');shown('rotation.maxAngle',true);for(const key of ['maxSpeed','direction','returnToRest'])shown('rotation.'+key,false);
+ choose('rotation.mode','spin');shown('rotation.maxAngle',false);for(const key of ['maxSpeed','direction','returnToRest'])shown('rotation.'+key,true);
+ choose('pulse.mode','breath');for(const key of ['speed','width','chromatic'])shown('pulse.'+key,false);
+ choose('pulse.mode','shockwave');for(const key of ['speed','width','chromatic'])shown('pulse.'+key,true);
+ choose('particles.colorMode','palette');shown('particles.color',false);choose('particles.colorMode','fixed');shown('particles.color',true);
+ const wave=lookRow('particles.waveAmount').querySelector('input[type=range]');wave.value='1.23';wave.dispatchEvent(new win.Event('input',{bubbles:true}));
+ for(const motion of ['rise','wave-flow','radial','jitter-flow','depth-flow']){choose('particles.motion',motion);shown('particles.waveAmount',['wave-flow','depth-flow'].includes(motion));shown('particles.jitterAmount',motion==='jitter-flow');shown('particles.depthOffset',motion==='depth-flow')}
+ choose('particles.motion','wave-flow');assert(wave.value==='1.23','hidden particle value retained');
+ choose('particles.style','dots');shown('particles.streakSlant',false);choose('particles.style','streaks');shown('particles.streakSlant',true);
+ for(const trigger of ['none','kick']){choose('particles.burst.trigger',trigger);for(const key of ['amount','speed','spread','origin'])shown('particles.burst.'+key,trigger!=='none');shown('particles.burst.trigger',true)}
+ choose('frame.fit','contain');shown('frame.edge',false);shown('frame.overscan',false);choose('frame.fit','cover');shown('frame.edge',true);shown('frame.overscan',true);
+ change('bloomQuality','off');await until(()=>doc.querySelector('[data-look-group=bloom]').classList.contains('isDimmed'),'bloom dimmed');assert(lookRow('bloom.base').querySelector('input').title.includes('Bloom quality is Off')&&!lookRow('bloom.base').querySelector('input').disabled,'dim bloom remains editable with reason');change('bloomQuality','high');await until(()=>!doc.querySelector('[data-look-group=bloom]').classList.contains('isDimmed'),'bloom restored');
+ press('Escape');
  assert(!$('editInspector'),'no redundant EDIT button');
  $('lookBtn').click();$('lookPresetTrigger').click();assert(!$('lookPresetMenu').hidden&&$('lookPresetMenu').textContent.includes('No project presets yet'),'look empty project state');
  const first=$('lookPresetMenu').querySelector('button');assert(doc.activeElement===first,'keyboard focus first item');first.dispatchEvent(new win.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert(doc.activeElement!==first,'menu arrow navigation');doc.activeElement.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert($('lookPresetMenu').hidden&&doc.activeElement===$('lookPresetTrigger'),'Escape restores focus');
@@ -81,7 +99,7 @@ try{
  $('routingTab').click();
  assert(!$('presetsTab')&&!$('matrixPanel')&&!$('openMatrix'),'old preset tab and mapping removed');
  const source=doc.querySelector('[data-target-source="pulse"]');
- change('presetSelect',$('presetSelect').options[1].value);assert(source.value==='energy'&&$('amt-energy').value==='0.31'&&$('g-pulse').value==='0.28','existing preset loads unchanged');
+ change('presetSelect',$('presetSelect').options[1].value);assert(source.value==='energy'&&$('amt-energy').value==='0.31'&&$('g-pulse').value==='0.28','existing preset loads unchanged');assert(!doc.querySelector('[data-p=energy]').classList.contains('isDimmed')&&doc.querySelector('[data-p=density]').classList.contains('isDimmed'),'unused sources dimmed');assert($('amt-density').title.includes('No target uses')&&!$('amt-density').disabled,'unused source editable with reason');assert($('g-luma').classList.contains('isDimmed')&&$('ga-luma').title.includes('no source'),'unassigned target settings dimmed');
  $('presetSelectTrigger').click();doc.querySelector('#presetSelectMenu .presetMenuRow .presetMenuAction:last-child').click();$('confirmLibraryAction').click();await wait(100);source.value='kick';source.dispatchEvent(new win.Event('change',{bubbles:true}));
  change('amt-kick','0.42','input');change('g-pulse','0.37','input');change('ga-pulse','0.63','input');
  $('presetSave').click();$('newPresetName').value='Routing recall';$('presetDialogForm').dispatchEvent(new win.Event('submit',{bubbles:true,cancelable:true}));
@@ -97,6 +115,21 @@ try{
  change('imageMode','auto');assert(doc.querySelector('[data-imgdur]').getAttribute('aria-label')==='DURATION seconds','auto duration label');assert(groups()==='manual,timed','auto compatible transitions');
  change('imageMode','mapped');assert(doc.querySelector('[data-imgdur]').getAttribute('aria-label')==='MIN HOLD seconds','mapped hold label');assert(doc.querySelector('[data-imgdur]').title==='Time before the music can change this image again. The next trigger after it changes the image.','hold tooltip');change('imageTimeBase','beats');assert(doc.querySelector('[data-imgbeats]').getAttribute('aria-label')==='MIN HOLD beats','beat hold label');change('imageTimeBase','seconds');change('imageSource','kick');assert(groups()==='event,manual','event mapping transitions');
  change('imageSource','energy');assert(groups()==='manual,timed','continuous mapping transitions');
+ const imageVisibility=(order,source,threshold,dwell)=>{
+  assert(visible($('imageMode'))&&visible($('imageTimeBase')),'mode and time base always visible');
+  for(const [id,expected] of [['imageOrderMode',order],['imageSource',source],['imageThreshold',threshold]])assert(visible($(id))===expected,id+' visibility');
+  assert(visible(doc.querySelector('[data-imgdur]'))===dwell,'per-image dwell visibility');
+  assert(visible($('imageSource').closest('.inspectorSection'))===source,'empty mapping section hidden');
+ };
+ change('imageMode','auto');imageVisibility(true,false,false,true);change('imageOrderMode','ping-pong');
+ const dwell=doc.querySelector('[data-imgdur]');dwell.value='23';dwell.dispatchEvent(new win.Event('change',{bubbles:true}));
+ change('imageMode','manual');imageVisibility(true,false,false,false);
+ change('imageMode','mapped');change('imageSource','kick');imageVisibility(true,true,true,true);change('imageThreshold','0.75');
+ change('imageSource','energy');imageVisibility(false,true,false,true);
+ change('imageMode','auto');imageVisibility(true,false,false,true);
+ change('imageMode','mapped');assert($('imageSource').value==='energy','hidden mapped source retained');imageVisibility(false,true,false,true);
+ change('imageSource','kick');assert($('imageThreshold').value==='0.75'&&$('imageOrderMode').value==='ping-pong'&&doc.querySelector('[data-imgdur]').value==='23','hidden values retained');
+ change('imageOrderMode','sequential');change('imageSource','energy');
  const chooser=doc.querySelector('.transitionSelect');assert(!chooser.open,'effects dropdown starts collapsed');chooser.open=true;
  const checkbox=chooser.querySelector('input:not(:checked)');checkbox.checked=true;checkbox.dispatchEvent(new win.Event('change',{bubbles:true}));assert(chooser.querySelector('summary').textContent.includes(checkbox.parentElement.textContent),'effects selection summary');chooser.open=false;
  const body=doc.querySelector('.imageManagerBody'),head=$('imagePanel').querySelector('.tabToolbar'),headTop=head.getBoundingClientRect().top;body.scrollTop=200;assert(body.scrollTop>0&&head.getBoundingClientRect().top===headTop,'image header fixed');

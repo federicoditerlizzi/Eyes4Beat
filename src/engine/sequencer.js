@@ -14,7 +14,7 @@ function enabledImages(a){
 return orderedImages(a,true)}
 function chooseOrderedImage(a,direction=1){
  const {imageConfigs}=getRuntime();
- const s=seqStates[a],mode=imageConfigs[a].orderMode;
+ const s=seqStates[a],cfg=imageConfigs[a],mode=cfg.mode==='mapped'&&!mappedSourceIsEvent(cfg.source)?'sequential':cfg.orderMode;
  if((mode==='random-no-repeat'||mode==='shuffle')&&direction<0){s.shownHistoryCursor=Math.max(0,s.shownHistoryCursor-1);return s.shownHistory[s.shownHistoryCursor]??s.current}
  if((mode==='random-no-repeat'||mode==='shuffle')&&s.shownHistoryCursor<s.shownHistory.length-1){s.shownHistoryCursor+=1;return s.shownHistory[s.shownHistoryCursor]}
  const result=nextSequenceIndex({enabled:enabledImages(a),current:navigationBase(s),direction,mode,state:s.orderState});

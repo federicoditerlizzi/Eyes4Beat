@@ -1,3 +1,4 @@
+import { dimSetting } from './ui/control-relevance.js';
 import { normalizeRoutingRecord, routingPresetModified } from './routing-presets.js';
 import { createPresetBar } from './ui/preset-bar.js';
 import { createProjectUi } from './ui/project-ui.js';
@@ -202,6 +203,11 @@ document.getElementById('saveLookPreset').onclick=async()=>{
 let routingMaps=[];
 const addedTargetKeys=new Set(['rotate','spiral','tiles']);
 function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]});syncPresetActions()}
+function updateRoutingRelevance(){
+ const used=new Set(routeTargets.map(t=>assignedSource(routingMaps[target],t)).filter(Boolean));
+ for(const source of routeSources)dimSetting(document.querySelector('[data-p="'+source+'"]'),used.has(source)?'':'No target uses this source. Assign it to a target to give these settings an effect.');
+ for(const t of routeTargets)for(const prefix of ['g-','ga-'])dimSetting(document.getElementById(prefix+t),assignedSource(routingMaps[target],t)?'':'This target has no source. Assign a source to give intensity and reactivity an effect.');
+}
 function refreshRoutingSources(){
  for(const t of routeTargets){
   const row=document.querySelector('[data-target-on="'+t+'"]').closest('.gRow');
@@ -213,11 +219,12 @@ function refreshRoutingSources(){
    row.children[0].after(select);
    select.onchange=()=>{
     const map=routingMaps[target],previous=assignedSource(map,t),weight=previous?map[previous][t]:1;
-    assignTarget(map,t,select.value,weight);saveRoutingMaps();
+    assignTarget(map,t,select.value,weight);saveRoutingMaps();updateRoutingRelevance();
    };
   }
   select.value=assignedSource(routingMaps[target],t)||'';
  }
+ updateRoutingRelevance();
 }
 function closeRouting(){document.getElementById('routingPanel').classList.remove('open')}
 document.getElementById('routingTab').onclick=()=>{closeImageManager();closeLookEditor();refreshRoutingSources();document.getElementById('routingPanel').classList.add('open')};
@@ -439,6 +446,15 @@ function updateImageManagerRuntimeState(a){
  beatStatus.textContent=cfg.timeBase==='beats'?'BEATS · '+(tempo.source==='live'?Math.round(tempo.bpm)+' BPM':(tempo.source==='last'?'LAST RELIABLE ':'FALLBACK ')+Math.round(tempo.bpm)):'';
  document.getElementById('imageManagerStatus').textContent='Current IMAGE '+(s.current+1)+' · active position '+(orderPos>=0?orderPos+1:'—')+' / '+active.length+' · mode '+cfg.mode.toUpperCase();
 }
+function updateImageControlVisibility(){
+ const cfg=imageConfigs[target],mapped=cfg.mode==='mapped',event=mapped&&eventSourceIds().includes(cfg.source);
+ const source=document.getElementById('imageSource');
+ source.closest('.ctlBox').hidden=!mapped;
+ document.getElementById('imageThreshold').closest('.ctlBox').hidden=!event;
+ document.getElementById('imageOrderMode').closest('.ctlBox').hidden=mapped&&!event;
+ const mapping=source.closest('.inspectorSection');if(mapping)mapping.hidden=!mapped;
+ document.querySelectorAll('[data-image-dwell]').forEach(row=>row.hidden=cfg.mode==='manual');
+}
 function renderImageManager(){
  const a=target,cfg=imageConfigs[a],s=seqStates[a];
  document.getElementById('imageMode').value=cfg.mode;
@@ -456,11 +472,11 @@ function renderImageManager(){
    const dwellLabel=cfg.mode==='mapped'?'MIN HOLD':'DURATION',dwellTooltip=cfg.mode==='mapped'?'Time before the music can change this image again. The next trigger after it changes the image.':'Time this image stays visible before the automatic change.';
    const dwellAttributes=' aria-label="'+dwellLabel+' '+(cfg.timeBase==='beats'?'beats':'seconds')+'" title="'+dwellTooltip+'"';
    const dwellControl=cfg.timeBase==='beats'?'<select'+dwellAttributes+' data-imgbeats="'+i+'">'+DWELL_BEAT_OPTIONS.map(value=>'<option value="'+value+'" '+(im.durationBeats===value?'selected':'')+'>'+value+'</option>').join('')+'</select>':'<input'+dwellAttributes+' type="number" data-imgdur="'+i+'" min="2" max="60" step="1" value="'+im.duration+'">';
-   const dwellInfo=cfg.timeBase==='beats'?imageDwell(a,i):null,effective=dwellInfo&&dwellInfo.effectiveBeats!==dwellInfo.requestedBeats?'<div class="effectiveDwell">'+dwellInfo.requestedBeats+' BEAT'+(dwellInfo.requestedBeats===1?'':'S')+' → '+dwellInfo.effectiveBeats+' BEATS @ '+Math.round(dwellInfo.tempo.bpm)+' BPM</div>':'';
-   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(source?.missing?'MISSING MEDIA · ':mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+' '+(source?.missing?'disabled':'')+'> ON</label></div><div class="cardLine"><span title="'+dwellTooltip+'">'+dwellLabel+' · '+(cfg.timeBase==='beats'?'BEATS':'SEC')+'</span>'+dwellControl+'</div>'+effective+'<div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
+   const dwellInfo=cfg.timeBase==='beats'&&cfg.mode!=='manual'?imageDwell(a,i):null,effective=dwellInfo&&dwellInfo.effectiveBeats!==dwellInfo.requestedBeats?'<div class="effectiveDwell">'+dwellInfo.requestedBeats+' BEAT'+(dwellInfo.requestedBeats===1?'':'S')+' → '+dwellInfo.effectiveBeats+' BEATS @ '+Math.round(dwellInfo.tempo.bpm)+' BPM</div>':'';
+   h+='<div class="imageCard '+(s.current===i?'current':'')+'" data-imgcard="'+i+'">'+preview+'<div class="cardLine"><b>'+(source?.missing?'MISSING MEDIA · ':mediaIsVideo(source)?'VIDEO ':'IMAGE ')+(i+1)+'</b><label><input type="checkbox" data-imgen="'+i+'" '+(im.enabled?'checked':'')+' '+(source?.missing?'disabled':'')+'> ON</label></div><div class="cardLine" data-image-dwell><span title="'+dwellTooltip+'">'+dwellLabel+' · '+(cfg.timeBase==='beats'?'BEATS':'SEC')+'</span>'+dwellControl+'</div>'+effective+'<div class="cardLine"><span>Order</span><div class="orderCtl"><button data-imgup="'+i+'" aria-label="Move image earlier">'+icon('arrow-up')+'</button><select data-imgorder="'+i+'">'+opts+'</select><button data-imgdown="'+i+'" aria-label="Move image later">'+icon('arrow-down')+'</button></div></div></div>';
  });
  document.getElementById('imageGrid').innerHTML=h;delete document.getElementById('imageGrid').dataset.centered;
- updateImageManagerRuntimeState(a);
+ updateImageControlVisibility();updateImageManagerRuntimeState(a);
  document.querySelectorAll('[data-imgen]').forEach(el=>el.onchange=()=>{
    const i=+el.dataset.imgen;
    imageConfigs[a].images[i].enabled=el.checked;
@@ -484,7 +500,7 @@ document.getElementById('closeImageTutorial').onclick=()=>imageTutorialDialog.cl
 document.getElementById('imageMode').onchange=e=>{imageConfigs[target].mode=e.target.value;saveImageConfigs();renderImageManager()};
 document.getElementById('imageTimeBase').onchange=e=>{imageConfigs[target].timeBase=e.target.value;saveImageConfigs();renderImageManager()};
 document.getElementById('imageOrderMode').onchange=e=>{imageConfigs[target].orderMode=e.target.value;saveImageConfigs();renderImageManager()};
-document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;saveImageConfigs();renderTriggerTransitionControls(target)};
+document.getElementById('imageSource').onchange=e=>{imageConfigs[target].source=e.target.value;saveImageConfigs();updateImageControlVisibility();renderTriggerTransitionControls(target)};
 document.getElementById('imageThreshold').onchange=e=>{imageConfigs[target].threshold=clamp(parseFloat(e.target.value)||.55,.05,.95);e.target.value=imageConfigs[target].threshold;saveImageConfigs()};
 document.getElementById('carouselPrev').onclick=()=>imageStep(target,-1);
 document.getElementById('carouselNext').onclick=()=>imageStep(target,1);

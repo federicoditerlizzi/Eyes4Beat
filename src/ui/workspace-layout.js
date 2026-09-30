@@ -33,8 +33,8 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  for(const [id,label] of [['blackoutBtn','BLACKOUT'],['panicBtn','PANIC'],['liveLockBtn','LIVE LOCK']]){el(id).append(make('span','',label));el(id).classList.add('liveAction')}
  el('outputBtn').innerHTML=icon('monitor-up')+'<span id="outputLabel">OPEN</span><span class="statusDot"></span>';
  const previewButton=el('previewBtn');
- function updatePreviewAction(){const enabled=previewButton.getAttribute('aria-pressed')==='true',label=enabled?'Hide preview':'Show preview';previewButton.innerHTML=icon(enabled?'eye-off':'eye');previewButton.setAttribute('aria-label',label);tip(previewButton,label,'V')}
- updatePreviewAction();new MutationObserver(updatePreviewAction).observe(previewButton,{attributes:true,attributeFilter:['aria-pressed']});
+ function updatePreviewAction(){const enabled=previewButton.getAttribute('aria-pressed')==='true',label=enabled?'Hide preview':'Show preview';previewButton.innerHTML=icon(enabled?'eye-off':'eye');previewButton.setAttribute('aria-label',label);tip(previewButton,previewButton.disabled?'Open an output window to use preview':label,'V')}
+ updatePreviewAction();new MutationObserver(updatePreviewAction).observe(previewButton,{attributes:true,attributeFilter:['aria-pressed','disabled']});
  el('outputSettingsBtn').innerHTML=icon('monitor-cog');
  move(output,'outputBtn','previewBtn');
  const more=button('outputMenuBtn','App menu','ellipsis','O'),menu=make('div','outputMenu');menu.hidden=true;menu.id='outputMenu';more.setAttribute('aria-expanded','false');app.append(more,menu,accountButton);

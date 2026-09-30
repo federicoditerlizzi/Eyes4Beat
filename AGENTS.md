@@ -217,6 +217,9 @@ Project UI is in `src/ui/project-ui.js`. Library row actions pass an explicit pr
 
 ## Global UI style guide
 
+- Hide controls that belong to another mode. Dim valid settings that currently have no effect, keeping them editable and explaining why in a tooltip. Disable temporarily unavailable actions and explain the reason in their tooltip. Hidden values are kept, never reset when switching modes.
+
+
 - Header utility actions use compact, borderless icon controls. Project/audio/output status may include labels; Live uses larger text + icon controls and a segmented SMOOTH/CUT switch.
 - BLACKOUT, PANIC and LIVE LOCK use labeled controls with unmistakable active colors plus persistent safety status. Audio input shows FILE/LIVE.
 - Panels, pages and dialogs use a borderless `×` icon for their close action. Keep text actions such as Create, Apply or Reset only when the wording represents a distinct decision, not merely dismissal.

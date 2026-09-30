@@ -18,6 +18,7 @@ export function createOutputPreview({button,video,canvas,onError=()=>{}}){
    catch(error){onError('Preview unavailable: '+error.message);stop()}finally{bitmap?.close();busy=false}
   },250);
  }
- button.onclick=()=>{enabled=!enabled;void start()};document.addEventListener('visibilitychange',()=>void start());
+ button.disabled=true;
+ button.onclick=()=>{if(!output||output.closed)return;enabled=!enabled;void start()};document.addEventListener('visibilitychange',()=>void start());
  return {connect(win){output=win;void start()},disconnect(){stop();output=null;button.disabled=true},stop};
 }

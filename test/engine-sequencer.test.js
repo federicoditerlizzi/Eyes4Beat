@@ -61,3 +61,12 @@ test('continuous mapping keeps its image positions and uses beat hold with tempo
  runtime.BPM=60;runtime.BPMConfidence=1;assert.equal(seq.imageDwell(0,0).seconds,4);
  runtime.BPM=0;runtime.BPMConfidence=0;assert.equal(seq.imageDwell(0,0).seconds,4,'last reliable tempo is retained');
 });
+
+test('continuous mapped navigation is sequential without changing the saved order mode',()=>{
+ const {seq,runtime}=fixture(),cfg=runtime.imageConfigs[0];cfg.mode='mapped';cfg.source='energy';cfg.orderMode='ping-pong';
+ seq.seqStates[0].current=3;
+ assert.equal(seq.chooseOrderedImage(0,1),0,'continuous manual next wraps sequentially');
+ seq.seqStates[0].current=0;assert.equal(seq.chooseOrderedImage(0,-1),3,'continuous manual previous wraps sequentially');
+ assert.equal(cfg.orderMode,'ping-pong','hidden order is retained');
+ cfg.source='kick';seq.seqStates[0].current=3;assert.equal(seq.chooseOrderedImage(0,1),2,'event mode still follows saved order');
+});
