@@ -103,7 +103,7 @@
   </div>
 
   <div class="lab" id="lab">
-    <div class="presetRow presetDock"><div class="presetToolbar"><label for="presetSelect">Routing presets</label><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><div class="presetActions"><button id="presetSave" class="iconAction" aria-label="Create routing preset" data-tooltip="Create routing preset"><i data-lucide="plus"></i></button><button id="presetUpdate" class="iconAction" aria-label="Update routing preset" data-tooltip="Update routing preset" disabled><i data-lucide="save"></i></button><button id="presetDelete" class="iconAction danger" aria-label="Delete routing preset" data-tooltip="Delete routing preset"><i data-lucide="trash-2"></i></button></div></div></div>
+    <div class="presetRow presetDock"><div class="presetToolbar"><label for="presetSelect">Routing presets</label><select id="presetSelect"><option value="">NO SAVED PRESET</option></select><div class="presetActions"><button id="presetSave" class="iconAction" aria-label="Create routing preset" data-tooltip="Create routing preset"><i data-lucide="plus"></i></button><button id="presetUpdate" class="iconAction" aria-label="Update routing preset" data-tooltip="Update routing preset" disabled><i data-lucide="save"></i></button></div></div></div>
     <details class="labAccordion" open>
       <summary>SOURCES</summary>
       <button class="infoTip accordionInfo" aria-label="About modulation" data-tooltip="Archetypes define the visual world and media sequence. Routing presets store source controls, target controls and routing. Without a routed signal, musical motion returns to neutral."><i data-lucide="info"></i></button>
@@ -255,12 +255,12 @@
 
   <div id="audioInputPanel" class="audioInputPanel" aria-labelledby="audioInputTitle">
     <div class="imageTop"><div class="sectionTitle"><h2 id="audioInputTitle">AUDIO INPUT</h2><button class="infoTip" aria-label="About live input" data-tooltip="LIVE analyzes an external audio input without routing it to the speakers. Use an audio interface for line-level instruments."><i data-lucide="info"></i></button></div><button id="closeAudioInput" class="iconAction closeAction" type="button" aria-label="Close audio input" data-tooltip="Close"><i data-lucide="x"></i></button></div>
-    <div class="inputModeSwitch" aria-label="Audio source mode"><button id="fileModeBtn" class="active" type="button">FILE</button><button id="liveModeBtn" type="button">LIVE INPUT</button></div>
+    <div class="inputModeSwitch" aria-label="Audio source mode"><button id="fileModeBtn" class="active" type="button">FILE</button><button id="liveModeBtn" type="button">LIVE</button></div>
     <div class="audioInputGrid">
-      <div class="creatorField"><label>AUDIO INPUT DEVICE</label><select id="audioDevice"><option value="">No devices available</option></select><button id="startLiveInput" type="button">START / RECONNECT</button><span id="audioInputStatus">File playback mode.</span></div>
-      <div class="creatorField"><label>ANALYSIS TRIM</label><div class="trimRow"><input id="inputTrim" type="range" min="-24" max="24" step="0.5" value="0"><output id="inputTrimValue">0.0 dB</output></div><span>Analysis path only. File playback volume is unchanged.</span></div>
-      <div class="creatorField"><label>POST-TRIM LEVEL</label><div class="inputMeter"><div class="inputTargetZone"></div><div id="inputLevelFill" class="inputLevelFill"></div></div><div class="meterReadout"><span id="inputRms">RMS −96.0 dBFS</span><span id="inputPeak">PEAK −96.0 dBFS</span><b id="inputClip">CLIP</b></div><span>Target peak zone: −18 to −6 dBFS.</span></div>
-      <div class="creatorField"><label>NOISE FLOOR</label><div class="calibrationActions"><button id="calibrateNoise" type="button">CALIBRATE NOISE (3 s)</button><button id="clearCalibration" type="button">CLEAR</button></div><strong id="calibrationStatus">NOT CALIBRATED</strong><span id="calibrationHint">Keep the instrument silent during calibration.</span></div>
+      <div class="creatorField" data-audio-mode="live" hidden><label>AUDIO INPUT DEVICE</label><select id="audioDevice"><option value="">No devices available</option></select><button id="startLiveInput" type="button">START / RECONNECT</button><span id="audioInputStatus">File playback mode.</span></div>
+      <div class="creatorField"><label title="Adjusts only the level the analysis hears, not playback volume. Set it so peaks stay in the green zone.">ANALYSIS TRIM</label><div class="trimRow"><input id="inputTrim" type="range" min="-24" max="24" step="0.5" value="0"><output id="inputTrimValue">0.0 dB</output></div></div>
+      <div class="creatorField"><label title="Level after trim, as heard by the analysis.">POST-TRIM LEVEL</label><div class="inputMeter"><div class="inputTargetZone"></div><div id="inputLevelFill" class="inputLevelFill"></div></div><div class="meterReadout"><span id="inputRms">RMS −96.0 dBFS</span><span id="inputPeak">PEAK −96.0 dBFS</span><b id="inputClip">CLIP</b></div><span>Target peak zone: −18 to −6 dBFS.</span></div>
+      <div class="creatorField" data-audio-mode="live" hidden><label title="Measures background noise with the instrument silent and removes it, so visuals don't react to hum or hiss.">NOISE FLOOR</label><div class="calibrationActions"><button id="calibrateNoise" type="button">CALIBRATE NOISE (3 s)</button><button id="clearCalibration" type="button">CLEAR</button></div><strong id="calibrationStatus">NOT CALIBRATED</strong><span id="calibrationHint">Keep the instrument silent during calibration.</span></div>
     </div>
   </div>
 
@@ -268,7 +268,6 @@
   <div class="lookPanel" id="lookPanel">
     <div class="imageTop"><div class="sectionTitle"><button class="infoTip" type="button" aria-label="About archetype looks" data-tooltip="A look defines visual distortion, grading and particle vocabulary. Musical targets still control how strongly these react."><i data-lucide="info"></i></button></div></div>
     <div class="lookPresetBar"><label for="lookPreset">LOAD PRESET</label><select id="lookPreset"><option value="">Select a look…</option></select><button id="saveLookPreset" type="button" title="Save current look as project preset">SAVE AS PROJECT PRESET</button></div>
-    <div id="projectLookPresetList" class="projectLookPresetList"></div>
     <div id="lookRoutingWarning" class="lookWarning" hidden>No musical routing active. Connect a source to a target to make this look music-responsive.</div>
     <div id="lookFields" class="lookFields"></div>
   </div>

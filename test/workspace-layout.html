@@ -27,6 +27,20 @@ try{
  let doc=frame.contentDocument,win=frame.contentWindow;const $=id=>doc.getElementById(id);
  const change=(id,value,event='change')=>{const e=$(id);e.value=value;e.dispatchEvent(new win.Event(event,{bubbles:true}))};
 
+ const nativeFetch=win.fetch.bind(win);
+ win.alert=message=>{throw new Error(message)};
+ win.fetch=async(url,options={})=>{
+  const path=String(url),method=options.method||'GET',body=options.body?JSON.parse(options.body):{};if(!path.startsWith('/api/'))return nativeFetch(url,options);
+  let payload={};
+  if(path.startsWith('/api/changes'))payload={serverTime:new Date().toISOString(),projects:[],archetypes:[],lookPresets:[]};
+  else if(path==='/api/me')payload={email:user};
+  else if(path.endsWith('/look-presets')&&method==='POST')payload=await repo.createLookPreset(project.id,body.name,body.look);
+  else if(path.startsWith('/api/look-presets/')){const id=path.split('/')[3].split('?')[0];if(method==='DELETE')await repo.deleteLookPreset(id);else payload=await repo.updateLookPreset(id,body)}
+  else if(path.startsWith('/api/archetypes/')){const id=path.split('/')[3];payload=method==='PATCH'?await repo.updateArchetype(id,body):await repo.getArchetype(id)}
+  else if(path.startsWith('/api/projects/'))payload={project:await repo.getProject(project.id),archetypes:await repo.listArchetypes(project.id),lookPresets:await repo.listLookPresets(project.id)};
+  return new win.Response(JSON.stringify(payload),{status:200,headers:{'Content-Type':'application/json'}});
+ };
+ await win.EyesForBeatsSync.sync();
  const visible=node=>node.getBoundingClientRect().width>0&&win.getComputedStyle(node).display!=='none';
  const press=code=>doc.dispatchEvent(new win.KeyboardEvent('keydown',{code,key:code==='Escape'?'Escape':'',bubbles:true}));
  assert(doc.querySelectorAll('.workspaceHeader > .headerGroup').length===6,'six header groups');
@@ -36,7 +50,16 @@ try{
  $('aboutBtn').click();assert(!$('aboutPopover').hidden&&$('aboutPopover').textContent.includes('0.1.0'),'About version');press('Escape');assert($('aboutPopover').hidden,'close About');
 
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
+ const preview=$('previewBtn');
+ for(const enabled of [false,true]){preview.setAttribute('aria-pressed',String(enabled));await wait(20);assert(preview.querySelector(enabled?'.lucide-eye-off':'.lucide-eye')&&preview.getAttribute('aria-label')===(enabled?'Hide preview':'Show preview'),'preview action reflects state')}
  assert(!$('editInspector'),'no redundant EDIT button');
+ $('lookBtn').click();$('lookPresetTrigger').click();assert(!$('lookPresetMenu').hidden&&$('lookPresetMenu').textContent.includes('No project presets yet'),'look empty project state');
+ const first=$('lookPresetMenu').querySelector('button');assert(doc.activeElement===first,'keyboard focus first item');first.dispatchEvent(new win.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert(doc.activeElement!==first,'menu arrow navigation');doc.activeElement.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert($('lookPresetMenu').hidden&&doc.activeElement===$('lookPresetTrigger'),'Escape restores focus');
+ $('saveLookPreset').click();$('libraryActionInput').value='My look';$('confirmLibraryAction').click();await until(()=>$('lookPreset').options.length===9,'saved look preset');
+ $('lookPresetTrigger').click();doc.querySelector('#lookPresetMenu .presetMenuRow[data-value^="project:"] .presetMenuAction').click();$('libraryActionInput').value='Renamed look';$('confirmLibraryAction').click();await until(()=>$('lookPreset').textContent.includes('Renamed look'),'look renamed');
+ $('lookPresetTrigger').click();doc.querySelector('#lookPresetMenu .presetMenuRow[data-value^="project:"] .presetMenuLoad').click();assert($('libraryActionDialog').open,'look selection confirms replace');$('confirmLibraryAction').click();await wait(100);
+ $('lookPresetTrigger').click();doc.querySelector('#lookPresetMenu .presetMenuRow[data-value^="project:"] .presetMenuAction:last-child').click();assert($('libraryActionDialog').open,'look deletion confirmation');$('confirmLibraryAction').click();await until(()=>$('lookPreset').options.length===8,'look deleted');press('Escape');
+
  assert(visible($('inspectorStrip')),'closed inspector strip visible');
  let toolbarTop;
  for(const [id,key] of [['lookBtn','KeyE'],['routingTab','KeyR'],['imageMgrBtn','KeyI']]){
@@ -59,13 +82,14 @@ try{
  assert(!$('presetsTab')&&!$('matrixPanel')&&!$('openMatrix'),'old preset tab and mapping removed');
  const source=doc.querySelector('[data-target-source="pulse"]');
  change('presetSelect','0');assert(source.value==='energy'&&$('amt-energy').value==='0.31'&&$('g-pulse').value==='0.28','existing preset loads unchanged');
- $('presetDelete').click();source.value='kick';source.dispatchEvent(new win.Event('change',{bubbles:true}));
+ $('presetSelectTrigger').click();doc.querySelector('#presetSelectMenu .presetMenuRow .presetMenuAction:last-child').click();$('confirmLibraryAction').click();await wait(100);source.value='kick';source.dispatchEvent(new win.Event('change',{bubbles:true}));
  change('amt-kick','0.42','input');change('g-pulse','0.37','input');change('ga-pulse','0.63','input');
  $('presetSave').click();$('newPresetName').value='Routing recall';$('presetDialogForm').dispatchEvent(new win.Event('submit',{bubbles:true,cancelable:true}));
  source.value='';source.dispatchEvent(new win.Event('change',{bubbles:true}));change('amt-kick','1','input');change('g-pulse','1','input');
- change('presetSelect','0');assert(source.value==='kick'&&$('amt-kick').value==='0.42'&&$('g-pulse').value==='0.37'&&$('ga-pulse').value==='0.63','preset recalls controls and assignments');assert($('react').value==='0.85','preset recalls global reactivity');
+ $('presetSelectTrigger').click();doc.querySelector('#presetSelectMenu .presetMenuLoad').click();assert(source.value==='kick'&&$('amt-kick').value==='0.42'&&$('g-pulse').value==='0.37'&&$('ga-pulse').value==='0.63','preset recalls controls and assignments');assert($('react').value==='0.85','preset recalls global reactivity');
+ $('presetSelectTrigger').click();doc.querySelector('#presetSelectMenu .presetMenuAction').click();$('libraryActionInput').value='Renamed routing';$('confirmLibraryAction').click();await wait(100);assert($('presetSelect').textContent.includes('Renamed routing'),'routing renamed');
  source.value='snare';source.dispatchEvent(new win.Event('change',{bubbles:true}));$('presetUpdate').click();source.value='';source.dispatchEvent(new win.Event('change',{bubbles:true}));change('presetSelect','0');assert(source.value==='snare','updated preset recalls assignment');
- $('presetDelete').click();assert($('presetSelect').options.length===1,'routing preset deleted');
+ $('presetSelectTrigger').click();doc.querySelector('#presetSelectMenu .presetMenuRow .presetMenuAction:last-child').click();$('confirmLibraryAction').click();await wait(100);assert($('presetSelect').options.length===1,'routing preset deleted');
  press('Escape');press('KeyU');assert(!$('archetypeInspector').classList.contains('open'),'U no longer opens a tab');
  $('imageMgrBtn').click();await wait(100);
  const groups=()=>[...doc.querySelectorAll('[data-trigger-section]')].map(el=>el.dataset.triggerSection).sort().join(',');
@@ -86,9 +110,15 @@ try{
  press('Escape');assert($('projectSwitcher').hidden,'Escape closes project');
  press('KeyE');await wait(100);assert($('archetypeInspector').classList.contains('open'),'E opens inspector');
  doc.querySelector('.arch[data-a="1"]').click();await until(()=>$('inspectorName').textContent==='Second','inspector follows selection');
- $('audioInputBtn').click();await wait(100);assert(!$('archetypeInspector').classList.contains('open'),'audio closes inspector');
+ $('audioInputBtn').click();await wait(100);
+ const audioTrigger=$('audioInputBtn'),audioPanel=$('audioInputPanel');let anchor=audioTrigger.getBoundingClientRect(),popup=audioPanel.getBoundingClientRect();assert(Math.abs(popup.top-anchor.bottom-12)<1,'audio popup anchored below trigger');
+ audioTrigger.style.transform='translateX(-80px)';await until(()=>audioPanel.getBoundingClientRect().left<popup.left-70,'audio popup follows moved trigger');audioTrigger.style.transform='';
+ assert(!doc.querySelector('.audioLoad span')&&doc.querySelector('.audioLoad').dataset.tooltip==='Load file','compact load icon');
+ assert(!$('archetypeInspector').classList.contains('open'),'audio closes inspector');
  press('Escape');assert(!$('audioInputPanel').classList.contains('open'),'Escape closes audio');
  $('outputMenuBtn').click();assert(!$('outputMenu').hidden,'menu opens');
+ for(const entry of $('outputMenu').children){const icon=entry.querySelector('.lucide').getBoundingClientRect(),label=entry.querySelector('span').getBoundingClientRect();assert(label.left>icon.right&&Math.abs((icon.top+icon.bottom-label.top-label.bottom)/2)<1,'app menu icon and text aligned')}
+
  $('outputSettingsBtn').click();assert($('outputSettingsDialog').open&&$('outputMenu').hidden,'menu action');$('closeOutputSettings').click();
  press('KeyQ');assert(doc.body.classList.contains('performMode'),'Q performs');
  assert(!visible($('projectManageBtn'))&&!visible($('archetypeInspector')),'perform hides editing');

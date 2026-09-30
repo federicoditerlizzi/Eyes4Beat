@@ -1,3 +1,4 @@
+import { createPresetMenu } from './ui/preset-menu.js';
 import { createProjectUi } from './ui/project-ui.js';
 import { renderLookControls, updateLookRoutingHints, startingLook } from './ui/look-editor.js';
 import { createWorkspaceLayout } from './ui/workspace-layout.js';
@@ -109,19 +110,22 @@ function askLibraryAction({title,label='NAME',value='',message='',confirm='CONFI
 }
 const lookPanel=document.getElementById('lookPanel'),lookPreset=document.getElementById('lookPreset');
 function renderProjectLookPresets(){
- lookPreset.innerHTML='<option value="">Select a look…</option><option value="blank">Blank</option>';
- FACTORY_LOOKS.forEach(preset=>{const option=document.createElement('option');option.value='factory:'+preset.id;option.textContent=preset.name;lookPreset.appendChild(option)});
- const list=document.getElementById('projectLookPresetList');list.replaceChildren();
- projectLookPresets.forEach(preset=>{
-  const option=document.createElement('option');option.value='project:'+preset.id;option.textContent='Project · '+preset.name;lookPreset.appendChild(option);
-  const row=document.createElement('div');row.className='projectLookPresetRow';const label=document.createElement('span');label.textContent=preset.name;row.appendChild(label);
-  for(const [glyph,title,action] of [['pencil','Rename look preset',async()=>{const name=await askLibraryAction({title:'RENAME LOOK PRESET',value:preset.name,confirm:'RENAME'});if(name)await repository.updateLookPreset(preset.id,{name})}],
-    ['trash-2','Delete look preset',async()=>{if(await askLibraryAction({title:'DELETE LOOK PRESET',message:`Delete “${preset.name}” from this project?`,confirm:'DELETE',requireInput:false}))await repository.deleteLookPreset(preset.id)}]]){
-    const button=document.createElement('button');button.className='iconAction';button.innerHTML=icon(glyph);button.setAttribute('aria-label',title+' '+preset.name);button.dataset.tooltip=title;
-    button.onclick=async()=>{try{await action();projectLookPresets=await repository.listLookPresets(activeProject.id);renderProjectLookPresets()}catch(error){alert(error.message)}};row.appendChild(button)
-  }list.appendChild(row);
- });
+ lookPreset.replaceChildren();
+ const add=(value,name,group,managed=false)=>{const option=document.createElement('option');option.value=value;option.textContent=name;option.dataset.group=group;option.dataset.managed=String(managed);lookPreset.append(option)};
+ add('','Select a look…','');
+ FACTORY_LOOKS.forEach(preset=>add('factory:'+preset.id,preset.name,'Factory looks'));
+ add('blank','Blank','Blank');
+ projectLookPresets.forEach(preset=>add('project:'+preset.id,preset.name,'Project presets',true));
+ lookPreset.presetMenu?.refresh();
 }
+async function manageLookPreset(value,remove=false){
+ const preset=projectLookPresets.find(p=>'project:'+p.id===value);if(!preset)return;
+ const projectId=activeProject.id;
+ if(remove){if(!await askLibraryAction({title:'DELETE LOOK PRESET',message:`Delete “${preset.name}” from this project?`,confirm:'DELETE',requireInput:false}))return;await repository.deleteLookPreset(preset.id)}
+ else{const name=await askLibraryAction({title:'RENAME LOOK PRESET',value:preset.name,confirm:'RENAME'});if(!name)return;await repository.updateLookPreset(preset.id,{name})}
+ if(activeProject?.id===projectId){projectLookPresets=await repository.listLookPresets(projectId);renderProjectLookPresets()}
+}
+createPresetMenu(lookPreset,{label:'Look presets',onRename:value=>manageLookPreset(value),onDelete:value=>manageLookPreset(value,true)});
 function closeLookEditor(){lookPanel.classList.remove('open')}
 function updateLookRoutingWarning(){
  const map=routingMaps[target],empty=routeSources.every(source=>routeTargets.every(key=>!Number(map?.[source]?.[key])));
@@ -132,14 +136,14 @@ function renderLookEditor(){
  const root=document.getElementById('lookFields'),arch=archetypes[target];
  renderLookControls({root,getLook:()=>looks[target],onChange:look=>{looks[target]=look;saveLooks()},
   start:startingLook({...arch,look:looks[target]},projectLookPresets,localStorage,repository.cache.name),map:routingMaps[target],openRouting:()=>document.getElementById('routingTab').click()});
- lookPreset.value='';updateLookRoutingWarning();
+ lookPreset.value='';lookPreset.presetMenu.refresh();updateLookRoutingWarning();
 }
 document.getElementById('lookBtn').onclick=()=>{closeImageManager();closeRouting();closeArchetypeCreator();renderLookEditor();lookPanel.classList.add('open')};
 lookPreset.onchange=async()=>{
  const value=lookPreset.value;if(!value)return;
  const factory=FACTORY_LOOKS.find(preset=>value==='factory:'+preset.id),projectPreset=projectLookPresets.find(preset=>value==='project:'+preset.id);
- const label=value==='blank'?'Blank':factory?.name||projectPreset?.name;if(!label){lookPreset.value='';return}
- if(!await askLibraryAction({title:'REPLACE LOOK',message:`Replace ${archetypes[target].name}'s current look with ${label}? This cannot be undone.`,confirm:'REPLACE',requireInput:false})){lookPreset.value='';return}
+ const label=value==='blank'?'Blank':factory?.name||projectPreset?.name;if(!label){lookPreset.value='';lookPreset.presetMenu.refresh();return}
+ if(!await askLibraryAction({title:'REPLACE LOOK',message:`Replace ${archetypes[target].name}'s current look with ${label}? This cannot be undone.`,confirm:'REPLACE',requireInput:false})){lookPreset.value='';lookPreset.presetMenu.refresh();return}
  looks[target]=normalizeLook(value==='blank'?NEUTRAL_LOOK:factory?.look||projectPreset.look);saveLooks();renderLookEditor();
 };
 document.getElementById('saveLookPreset').onclick=async()=>{
@@ -267,12 +271,12 @@ function syncPresetActions(){
   document.getElementById('presetSelect').disabled=!archetypes.length;
   document.getElementById('presetSave').disabled=!archetypes.length;
   document.getElementById('presetUpdate').disabled=!hasSelection;
-  document.getElementById('presetDelete').disabled=!hasSelection;
+  document.getElementById('presetSelect').presetMenu?.refresh();
 }
 function renderPresetControls(selectedIndex=''){
   const select=document.getElementById('presetSelect'),items=musicPresets[target]||[];select.innerHTML='';
   const empty=document.createElement('option');empty.value='';empty.textContent=items.length?'SELECT ROUTING PRESET':'NO SAVED PRESET';select.appendChild(empty);
-  items.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.name;select.appendChild(o)});
+  items.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.name;o.dataset.group='Project presets';o.dataset.managed='true';select.appendChild(o)});
   if(selectedIndex!==''&&items[+selectedIndex])select.value=String(selectedIndex);
   syncPresetActions();
 }
@@ -302,7 +306,17 @@ document.getElementById('presetUpdate').onclick=()=>{
   const select=document.getElementById('presetSelect'),i=select.value;if(i==='')return;
   const name=musicPresets[target][+i].name;musicPresets[target][+i]=captureMusicPreset(name);saveMusicPresets();renderPresetControls(i);
 };
-document.getElementById('presetDelete').onclick=()=>{const select=document.getElementById('presetSelect'),i=select.value;if(i==='')return;musicPresets[target].splice(+i,1);saveMusicPresets();renderPresetControls()};
+async function manageRoutingPreset(value,remove=false){
+ const a=target,arch=archetypes[a],preset=musicPresets[a]?.[+value];if(!preset)return;
+ const result=await askLibraryAction(remove?{title:'DELETE ROUTING PRESET',message:`Delete “${preset.name}”?`,confirm:'DELETE',requireInput:false}:{title:'RENAME ROUTING PRESET',value:preset.name,confirm:'RENAME'});
+ if(!result)return;
+ const index=idToIndex.get(arch.id);if(index==null)return;
+ const items=musicPresets[index],position=items.indexOf(preset);if(position<0)return;
+ if(remove)items.splice(position,1);else preset.name=result;
+ queueArchetypeWrite(index,{musicPresets:items});if(target===index)renderPresetControls(remove?'':position);
+}
+createPresetMenu(document.getElementById('presetSelect'),{label:'Routing presets',onRename:value=>manageRoutingPreset(value),onDelete:value=>manageRoutingPreset(value,true)});
+
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
 function mediaUrl(source){return typeof source==='string'?source:source.url}

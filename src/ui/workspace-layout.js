@@ -18,9 +18,11 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  document.addEventListener('click',e=>{if(!brand.contains(e.target)&&!about.contains(e.target)){about.hidden=true;brand.setAttribute('aria-expanded','false')}});
  move(project,projectButton);
  const accountButton=el('accountBtn');
- const audioDetails=make('div','audioFileControls');
+ const audioDetails=make('div','audioFileControls');audioDetails.dataset.audioMode='file';
  move(audioDetails,document.querySelector('.audioLoad'),document.querySelector('.trackInfo'),'timeDisplay');
- move(el('audioInputPanel'),audioDetails);
+ el('audioInputPanel').querySelector('.audioInputGrid').prepend(audioDetails);
+ const load=document.querySelector('.audioLoad');load.classList.remove('headerIcon');load.dataset.tooltip='Load file';load.setAttribute('aria-label','Load file');
+ el('timeDisplay').hidden=true;
  const timeline=make('div','headerTimeline');timeline.id='headerTimeline';
  timeline.append(make('span','headerTime','0:00'));timeline.firstChild.id='headerElapsed';move(timeline,'seek');const duration=make('span','headerTime','0:00');duration.id='headerDuration';timeline.append(duration);
  const inputMeter=make('meter','headerInputMeter');inputMeter.id='headerInputMeter';inputMeter.min=-60;inputMeter.max=0;inputMeter.value=-60;inputMeter.hidden=true;inputMeter.setAttribute('aria-label','Live input level');
@@ -30,7 +32,10 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  move(live,'blackoutBtn','panicBtn','liveLockBtn',document.querySelector('.modeSwitch'));
  for(const [id,label] of [['blackoutBtn','BLACKOUT'],['panicBtn','PANIC'],['liveLockBtn','LIVE LOCK']]){el(id).append(make('span','',label));el(id).classList.add('liveAction')}
  el('outputBtn').innerHTML=icon('monitor-up')+'<span id="outputLabel">OPEN</span><span class="statusDot"></span>';
- el('previewBtn').innerHTML=icon('eye');el('outputSettingsBtn').innerHTML=icon('monitor-cog');
+ const previewButton=el('previewBtn');
+ function updatePreviewAction(){const enabled=previewButton.getAttribute('aria-pressed')==='true',label=enabled?'Hide preview':'Show preview';previewButton.innerHTML=icon(enabled?'eye-off':'eye');previewButton.setAttribute('aria-label',label);tip(previewButton,label,'V')}
+ updatePreviewAction();new MutationObserver(updatePreviewAction).observe(previewButton,{attributes:true,attributeFilter:['aria-pressed']});
+ el('outputSettingsBtn').innerHTML=icon('monitor-cog');
  move(output,'outputBtn','previewBtn');
  const more=button('outputMenuBtn','App menu','ellipsis','O'),menu=make('div','outputMenu');menu.hidden=true;menu.id='outputMenu';more.setAttribute('aria-expanded','false');app.append(more,menu,accountButton);
  for(const [id,label] of [['diagBtn','Diagnostics'],['outputSettingsBtn','Output settings'],['shortcutHelpBtn','Keyboard shortcuts']]){el(id).append(make('span','',label));move(menu,id)}
@@ -77,6 +82,18 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  el('diagBtn').onclick=()=>{if(getComputedStyle(el('diag')).display!=='none'){toggleDiagnostics();return}closeSides();toggleDiagnostics()};
 
  {const old=el('audioInputBtn').onclick;el('audioInputBtn').onclick=()=>{closeSides(el('audioInputPanel'));old?.()}}
+ // Follow the trigger's actual bounds, including future header reordering.
+ const audioPanel=el('audioInputPanel');let anchorFrame=0,anchorPosition='';
+ function positionAudioPanel(){
+  cancelAnimationFrame(anchorFrame);if(!audioPanel.classList.contains('open'))return;
+  const trigger=el('audioInputBtn').getBoundingClientRect(),width=audioPanel.getBoundingClientRect().width;
+  const left=Math.max(16,Math.min(innerWidth-width-16,trigger.left+trigger.width/2-width/2)),top=trigger.bottom+12;
+  const position=[left,top,Math.max(80,innerHeight-top-16)].join(',');
+  if(position!==anchorPosition){audioPanel.style.left=left+'px';audioPanel.style.top=top+'px';audioPanel.style.maxHeight=Math.max(80,innerHeight-top-16)+'px';anchorPosition=position}
+  anchorFrame=requestAnimationFrame(positionAudioPanel);
+ }
+ new MutationObserver(positionAudioPanel).observe(audioPanel,{attributes:true,attributeFilter:['class']});
+
  // Structural actions can also open a side panel (empty project / archetype creator).
  for(const panel of sidePanels)new MutationObserver(records=>{if(records.some(r=>!r.oldValue?.split(' ').includes('open'))&&panel.classList.contains('open'))closeSides(panel)}).observe(panel,{attributes:true,attributeFilter:['class'],attributeOldValue:true});
  const meters=make('div','performMeters');meters.setAttribute('aria-label','Active source meters');ui.append(meters);
@@ -86,7 +103,7 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  more.onclick=()=>{menu.hidden=!menu.hidden;more.setAttribute('aria-expanded',String(!menu.hidden))};
  menu.addEventListener('click',e=>{if(e.target.closest('button')){menu.hidden=true;more.setAttribute('aria-expanded','false')}});
  const keys={KeyE:'lookBtn',KeyR:'routingTab',KeyI:'imageMgrBtn',KeyJ:'projectManageBtn',KeyK:'accountBtn',KeyA:null,KeyN:'audioInputBtn',KeyO:'outputMenuBtn',KeyV:'previewBtn',KeyF:'fullscreen',KeyG:'outputBtn',KeyH:'diagBtn',KeyY:'outputSettingsBtn',Space:'play',KeyM:'mute'};
- const tips={projectManageBtn:['Projects','J'],audioInputBtn:['Audio input','N'],play:['Play / pause','Space'],mute:['Mute','M'],blackoutBtn:['Blackout','B'],panicBtn:['Panic','P'],liveLockBtn:['Live lock','L'],smooth:['Smooth transition','S'],cut:['Cut transition','C'],outputBtn:['Open / focus output','G'],previewBtn:['Preview','V'],fullscreen:['Fullscreen','F'],diagBtn:['Diagnostics','H'],outputSettingsBtn:['Output settings','Y'],shortcutHelpBtn:['Keyboard shortcuts','?'],accountBtn:['Account','K']};
+ const tips={projectManageBtn:['Projects','J'],audioInputBtn:['Audio input','N'],play:['Play / pause','Space'],mute:['Mute','M'],blackoutBtn:['Blackout','B'],panicBtn:['Panic','P'],liveLockBtn:['Live lock','L'],smooth:['Smooth transition','S'],cut:['Cut transition','C'],outputBtn:['Open / focus output','G'],fullscreen:['Fullscreen','F'],diagBtn:['Diagnostics','H'],outputSettingsBtn:['Output settings','Y'],shortcutHelpBtn:['Keyboard shortcuts','?'],accountBtn:['Account','K']};
  for(const [id,[label,key]] of Object.entries(tips))tip(el(id),label,key);
  document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){closeSides();menu.hidden=true;about.hidden=true;brand.setAttribute('aria-expanded','false');return}
