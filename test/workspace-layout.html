@@ -94,8 +94,8 @@ try{
  $('imageMgrBtn').click();await wait(100);
  const groups=()=>[...doc.querySelectorAll('[data-trigger-section]')].map(el=>el.dataset.triggerSection).sort().join(',');
  change('imageMode','manual');assert(groups()==='manual','manual transitions only');
- change('imageMode','auto');assert(groups()==='manual,timed','auto compatible transitions');
- change('imageMode','mapped');change('imageSource','kick');assert(groups()==='event,manual','event mapping transitions');
+ change('imageMode','auto');assert(doc.querySelector('[data-imgdur]').getAttribute('aria-label')==='DURATION seconds','auto duration label');assert(groups()==='manual,timed','auto compatible transitions');
+ change('imageMode','mapped');assert(doc.querySelector('[data-imgdur]').getAttribute('aria-label')==='MIN HOLD seconds','mapped hold label');assert(doc.querySelector('[data-imgdur]').title==='Time before the music can change this image again. The next trigger after it changes the image.','hold tooltip');change('imageTimeBase','beats');assert(doc.querySelector('[data-imgbeats]').getAttribute('aria-label')==='MIN HOLD beats','beat hold label');change('imageTimeBase','seconds');change('imageSource','kick');assert(groups()==='event,manual','event mapping transitions');
  change('imageSource','energy');assert(groups()==='manual,timed','continuous mapping transitions');
  const chooser=doc.querySelector('.transitionSelect');assert(!chooser.open,'effects dropdown starts collapsed');chooser.open=true;
  const checkbox=chooser.querySelector('input:not(:checked)');checkbox.checked=true;checkbox.dispatchEvent(new win.Event('change',{bubbles:true}));assert(chooser.querySelector('summary').textContent.includes(checkbox.parentElement.textContent),'effects selection summary');chooser.open=false;

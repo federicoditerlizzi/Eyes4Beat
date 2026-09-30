@@ -48,8 +48,7 @@ return s.pendingRequest?.idx??s.loadingTarget??(s.transitioning?s.next:s.current
 function createSequenceTransition(a,from,to,triggerClass){
  const {imageConfigs}=getRuntime();
  const cfg=imageConfigs[a],settings=cfg.triggers[triggerClass],s=seqStates[a],pick=pickTransitionFromPool(settings,s.poolStates[triggerClass]);s.poolStates[triggerClass]=pick.state;
- const tempo=sequenceTempo(a),configuredDwell=cfg.images[from]?.duration||10;
- const dwell=cfg.timeBase==='beats'?imageDwell(a,from,tempo).seconds:(cfg.mode==='mapped'&&triggerClass!=='manual'?Math.max(1,Math.min(8,configuredDwell)):Math.max(2,configuredDwell));
+ const tempo=sequenceTempo(a),dwell=imageDwell(a,from,tempo).seconds;
  const requestedDuration=cfg.timeBase==='beats'?beatsToSeconds(settings.durationBeats,tempo.bpm):settings.duration,duration=effectiveTransitionDuration(requestedDuration,dwell);
  const transitionId=transitionRunsAsCut(pick.id,duration)?'cut':pick.id,seed=Math.random()*1000;
  return {archetype:a,from,to,triggerClass,transitionId,transitionShaderId:transitionShaderId(transitionId),seed,param:resolveTransitionParam(transitionId,settings.wipeDirection,seed),easing:settings.easing,duration:transitionId==='cut'?0:duration};
@@ -108,7 +107,7 @@ function updateImageSequence(now,Eff,freezeAdvances=false){
    if(now>=s.nextAutoAt){s.nextAutoAt=Infinity;requestImageChange(a,chooseOrderedImage(a,1),'timed')}
  }else if(cfg.mode==='mapped'){
    const v=clamp(mappedSourceValue(cfg.source,Eff),0,1);
-   const minDwell=Math.max(1.0,Math.min(8,cfg.images[s.current].duration||3))*1000;
+   const minDwell=imageDwell(a,s.current).seconds*1000;
    if(mappedSourceIsEvent(cfg.source)){
      const th=cfg.threshold||.55;
      // Rising-edge trigger: each detected Beat/Kick/Snare event advances one image in the chosen order.
