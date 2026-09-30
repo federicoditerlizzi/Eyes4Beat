@@ -21,3 +21,5 @@ Inspector consistency checks:
 - Scroll each body: presets or sequence controls remain fixed above it.
 - Check section chevrons, info tooltips, warnings and centered icon hover backgrounds.
 - At 1280 px, no toolbar overflow; PERFORM still hides the inspector.
+
+Header checks: FILE seek/time/volume in the header; LIVE replaces timeline with input meter; About shows package version; six groups remain on one line at 1280 px and wide screens, with seek consuming spare width. PERFORM retains Audio, Live, View and brand only.

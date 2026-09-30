@@ -117,13 +117,14 @@
 .headerTools{flex-wrap:wrap}
 
 /* Workspace layout: shared controls, four header groups, one editing surface. */
-.top.workspaceHeader{display:flex;flex-wrap:wrap;gap:0;padding:8px;align-items:stretch}
+.top.workspaceHeader{display:flex;flex-wrap:nowrap;gap:0;padding:8px;align-items:stretch}
 .headerGroup{display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px solid var(--line);min-width:0}
-.headerGroup.groupProject{flex:1;min-width:140px}
-.headerGroup.groupAudio{flex:1;justify-content:center}
-.headerGroup.groupOutput{border:0}
-.workspaceHeader .headerIcon{width:auto;min-width:30px;height:38px;display:inline-flex;gap:6px;padding:6px;font-size:9px;white-space:nowrap}
-.workspaceHeader .projectDropdown{max-width:100%;font-size:12px}
+.headerGroup.groupProject{flex:0 0 auto;position:relative}
+.headerGroup.groupAudio{flex:1;justify-content:flex-start;min-width:0}
+.headerGroup.groupApp{border:0;position:relative}
+.workspaceHeader .headerIcon{--icon-width:30px;--icon-height:38px;flex:0 0 auto;font-size:9px;white-space:nowrap}
+.workspaceHeader :is(.projectDropdown,.liveAction,#audioInputBtn,#outputBtn,#performBtn){display:inline-flex;align-items:center;justify-content:center;width:auto;gap:5px;padding:6px}
+.workspaceHeader .projectDropdown{max-width:100%;font-size:11px}
 #projectName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px}
 .statusDot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#728090;flex-shrink:0}
 .connected .statusDot,.statusDot.connected{background:#61e8a9;box-shadow:0 0 8px #61e8a977}
@@ -173,7 +174,7 @@
 .compactMeter meter{display:block;width:72px;height:9px}
 .compactMeter[hidden]{display:none}
 .performMode .performMeters{display:flex;flex-wrap:wrap;max-width:calc(100vw - 40px)}
-.performMode .groupProject,.performMode .groupOutput,.performMode .inspector,.performMode .projectPanel,.performMode .creatorPanel,.performMode .diag,.performMode .archToolbar,.performMode .createArchFooter,.performMode .libraryFooter{display:none!important}
+.performMode #projectManageBtn,.performMode .groupOutput,.performMode .groupApp,.performMode .inspector,.performMode .projectPanel,.performMode .creatorPanel,.performMode .diag,.performMode .archToolbar,.performMode .createArchFooter,.performMode .libraryFooter{display:none!important}
 .performMode .arch{min-height:76px;min-width:150px;font-size:13px}
 .performMode .workspaceHeader .groupAudio{justify-content:flex-start}
 .performMode #performBtn{color:#ade8ff;background:#223a49}
@@ -224,7 +225,7 @@
 .accountMenu{width:min(310px,calc(100vw - 16px))}
 .accountMenu h3{font-size:11px;letter-spacing:.08em}
 .accountMenu p{font-size:11px;overflow-wrap:anywhere;color:var(--muted)}
-.workspaceHeader #accountBtn{border-radius:50%;background:#ffffff0a;width:34px;height:34px;align-self:center;margin-left:6px}
+.workspaceHeader #accountBtn{--icon-width:30px;--icon-height:38px}
 #syncDot[data-state=synced]{background:#61e8a9}
 #syncDot[data-state=pending]{background:#ffc35f}
 #syncDot[data-state=offline-ready]{background:#80bfff}
@@ -332,3 +333,17 @@
 .tabToolbar button:not(.iconAction):not(.infoTip){height:var(--control-height)}
 
 .footerActions .footerTab:hover,.footerActions .footerTab:focus-visible{background:var(--panel)}
+
+.headerGroup:not(.groupAudio){flex-shrink:0}
+.headerTimeline{display:flex;align-items:center;gap:5px;flex:1;min-width:40px}
+.headerTimeline .seek{flex:1;min-width:16px;width:100%}
+.headerTime{font-size:8px;white-space:nowrap;font-variant-numeric:tabular-nums;flex-shrink:0;color:var(--muted)}
+.groupAudio .volume{width:48px;flex:0 0 48px}
+.headerInputMeter{flex:1;min-width:40px;height:14px}
+.headerTimeline[hidden],.headerInputMeter[hidden]{display:none}
+#aboutBtn img{height:18px;width:24px;object-fit:contain}
+.aboutPopover{position:absolute;top:calc(100% + 12px);left:0;width:190px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#0c1119;z-index:70;font-size:11px}
+.aboutPopover p{color:var(--muted);margin-bottom:0}
+.groupApp .headerIcon::after{left:auto;right:0;transform:translateY(0)}
+@media(min-width:1281px){.headerGroup{padding:0 8px}.groupAudio .volume{width:64px;flex-basis:64px}}
+@media(max-width:1280px){.headerGroup{padding:0 5px;gap:3px}.workspaceHeader .projectDropdown{font-size:10px}#projectName{max-width:105px}.workspaceHeader .modeSwitch button{padding:6px}.workspaceHeader #performBtn{padding:6px}.tempoReadout{font-size:8px;gap:3px}}

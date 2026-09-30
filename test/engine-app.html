@@ -45,7 +45,7 @@ try{
  const transfer=new win.DataTransfer();transfer.items.add(new win.File([buffer],'tone.wav',{type:'audio/wav'}));$('file').files=transfer.files;$('file').dispatchEvent(new win.Event('change',{bubbles:true}));
  await until(()=>$('play').classList.contains('playing'),'audio play');await until(()=>state.finalG.luma>1,'routing');
  change('volume','.4','input');$('mute').click();await until(()=>$('mute').classList.contains('active'),'mute');$('mute').click();
- change('seek','200');$('play').click();await until(()=>!$('play').classList.contains('playing'),'pause');$('play').click();
+ assert($('seek').closest('.groupAudio')&&$('headerDuration').textContent==='1:00','header file transport');change('seek','200');$('play').click();await until(()=>!$('play').classList.contains('playing'),'pause');$('play').click();
  $('audioInputBtn').click();change('inputTrim','-6','input');await until(()=>$('inputTrimValue').textContent==='-6.0 dB','trim');
  $('calibrateNoise').click();await until(()=>$('calibrationStatus').textContent==='CALIBRATED','calibration');$('clearCalibration').click();await until(()=>$('calibrationStatus').textContent==='NOT CALIBRATED','clear calibration');
  for(const quality of ['off','low','high']){change('bloomQuality',quality);await until(()=>$('bloomDiagnostics').textContent.toLowerCase().includes(quality),'quality '+quality)}
@@ -56,7 +56,7 @@ try{
  win.EyesForBeatsSafety.setBlackout(true);await until(()=>state.blackout,'blackout');win.EyesForBeatsSafety.setBlackout(false);
  win.EyesForBeatsSafety.setPanic(true);await until(()=>state.panic&&state.finalG.luma===1,'panic');win.EyesForBeatsSafety.setPanic(false);
  await win.EyesForBeatsSync.setLiveLock(true);assert($('liveLockBtn').getAttribute('aria-pressed')==='true','live lock');await win.EyesForBeatsSync.setLiveLock(false);
- $('liveModeBtn').click();await until(()=>$('audioInputStatus').textContent.includes('Live input active'),'live fake device');
+ $('liveModeBtn').click();await until(()=>$('audioInputStatus').textContent.includes('Live input active'),'live fake device');assert($('headerTimeline').hidden&&!$('headerInputMeter').hidden,'live header meter replaces transport');
  $('fileModeBtn').click();await until(()=>$('fileModeBtn').classList.contains('active'),'return to file');
  assert($('gl').getContext('webgl2').getError()===0,'GL error');
  $('closeAudioInput').click();$('play').click();await until(()=>!state.transport.paused,'play before output');

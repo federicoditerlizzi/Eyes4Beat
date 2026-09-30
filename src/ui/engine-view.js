@@ -13,7 +13,7 @@ export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
  action('play',t.paused?'Play':'Pause');action('mute',t.muted?'Unmute':'Mute');
  el('play').classList.toggle('playing',!t.paused);el('mute').classList.toggle('active',t.muted);
  for(const id of ['play','seek','mute','volume'])el(id).disabled=t.mode!=='file'||!t.loaded;
- if(!seeking){el('seek').value=t.duration>0?String(Math.round(t.currentTime/t.duration*1000)):'0';el('timeDisplay').textContent=format(t.currentTime)+' / '+format(t.duration)}
+ if(!seeking){el('seek').value=t.duration>0?String(Math.round(t.currentTime/t.duration*1000)):'0';el('timeDisplay').textContent=format(t.currentTime)+' / '+format(t.duration);el('headerElapsed').textContent=format(t.currentTime);el('headerDuration').textContent=format(t.duration)}
  el('trackName').textContent=t.trackName;
  for(const [id,active] of [['fileModeBtn',t.mode==='file'],['liveModeBtn',t.mode==='live'],['audioInputBtn',t.mode==='live']])el(id).classList.toggle('active',active);
  el('audioDevice').disabled=t.mode!=='live';el('startLiveInput').disabled=t.mode!=='live';

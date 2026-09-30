@@ -29,9 +29,12 @@ try{
 
  const visible=node=>node.getBoundingClientRect().width>0&&win.getComputedStyle(node).display!=='none';
  const press=code=>doc.dispatchEvent(new win.KeyboardEvent('keydown',{code,key:code==='Escape'?'Escape':'',bubbles:true}));
- assert(doc.querySelectorAll('.workspaceHeader > .headerGroup').length===4,'four header groups');
+ assert(doc.querySelectorAll('.workspaceHeader > .headerGroup').length===6,'six header groups');
  assert(!doc.querySelector('.workspaceHeader #lookBtn,.workspaceHeader #imageMgrBtn,.workspaceHeader #routingTab'),'editing actions in header');
- assert($('accountBtn').closest('.workspaceHeader'),'account location');
+ assert($('accountBtn').closest('.groupApp'),'account location');
+ assert($('seek').closest('.groupAudio')&&$('volume').closest('.groupAudio'),'header transport controls');
+ $('aboutBtn').click();assert(!$('aboutPopover').hidden&&$('aboutPopover').textContent.includes('0.1.0'),'About version');press('Escape');assert($('aboutPopover').hidden,'close About');
+
  assert($('legacySection').closest('details')&&!$('legacySection').closest('details').open,'collapsed legacy export');
  assert(!$('editInspector'),'no redundant EDIT button');
  assert(visible($('inspectorStrip')),'closed inspector strip visible');
@@ -89,7 +92,7 @@ try{
  $('outputSettingsBtn').click();assert($('outputSettingsDialog').open&&$('outputMenu').hidden,'menu action');$('closeOutputSettings').click();
  press('KeyQ');assert(doc.body.classList.contains('performMode'),'Q performs');
  assert(!visible($('projectManageBtn'))&&!visible($('archetypeInspector')),'perform hides editing');
- assert(visible($('blackoutBtn'))&&visible($('play'))&&visible(doc.querySelector('.performMeters')),'perform live audio meters');
+ assert(visible($('blackoutBtn'))&&visible($('play'))&&visible($('aboutBtn'))&&visible($('fullscreen'))&&visible(doc.querySelector('.performMeters')),'perform live audio view and brand');
  assert(!visible($('inspectorStrip')),'perform hides edit entry points');
  for(const key of ['KeyE','KeyR','KeyI']){
   press(key);assert(!$('archetypeInspector').classList.contains('open'),'perform prevents editor shortcut');
@@ -97,6 +100,7 @@ try{
  }
  await wait(1300);assert(!$('shortcutToast').classList.contains('show'),'toast expires');
  press('KeyQ');assert(!doc.body.classList.contains('performMode'),'Q exits');
+ frame.width=1800;await wait(100);const wideSeek=$('seek').getBoundingClientRect().width;frame.width=1280;await wait(100);assert($('seek').getBoundingClientRect().width<wideSeek,'seek grows with remaining width');
  const top=doc.querySelector('.workspaceHeader');assert(top.scrollWidth<=top.clientWidth,'1280 header overflow');
  for(const group of top.children){const box=group.getBoundingClientRect();assert(box.right<=win.innerWidth&&box.left>=0,'group outside viewport')}
  assert(visible($('inspectorStrip')),'strip returns after perform');

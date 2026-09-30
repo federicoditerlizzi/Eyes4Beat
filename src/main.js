@@ -529,7 +529,7 @@ let seeking=false,clipHoldUntil=0;
 const playButton=document.getElementById('play'),seekControl=document.getElementById('seek'),volumeControl=document.getElementById('volume'),muteButton=document.getElementById('mute');
 const audioDevice=document.getElementById('audioDevice'),inputTrim=document.getElementById('inputTrim');
 function formatTime(seconds){if(!Number.isFinite(seconds)||seconds<0)return '0:00';return Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0')}
-function updateTimeDisplay(time=engineState?.transport.currentTime||0){document.getElementById('timeDisplay').textContent=formatTime(time)+' / '+formatTime(engineState?.transport.duration||0)}
+function updateTimeDisplay(time=engineState?.transport.currentTime||0){document.getElementById('timeDisplay').textContent=formatTime(time)+' / '+formatTime(engineState?.transport.duration||0);document.getElementById('headerElapsed').textContent=formatTime(time);document.getElementById('headerDuration').textContent=formatTime(engineState?.transport.duration||0)}
 document.getElementById('file').onchange=event=>{const file=event.target.files[0];if(file)fire('audioLoad',{blob:file,name:file.name})};
 playButton.onclick=()=>fire(engineState?.transport.paused?'audioPlay':'audioPause');
 seekControl.oninput=()=>{seeking=true;updateTimeDisplay((+seekControl.value/1000)*(engineState?.transport.duration||0))};
