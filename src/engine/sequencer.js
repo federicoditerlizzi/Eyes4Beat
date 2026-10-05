@@ -108,7 +108,7 @@ function updateImageSequence(now,Eff,freezeAdvances=false){
      const th=cfg.threshold||.55;
      // Rising-edge trigger: each detected Beat/Kick/Snare event advances one image in the chosen order.
      const event=getRuntime().sourceEvents?.[cfg.source];
-     if(getSource(cfg.source)?.group==='midi-pad'){
+     if(getSource(cfg.source)?.group==='midi-pad'||event?.origin==='midi'){
        if(event&&event.serial!==s.lastSourceEvent){s.lastSourceEvent=event.serial;if(event.intensity>=th&&event.timestamp*1000-s.lastSwitch>=minDwell&&now-event.timestamp*1000<500)requestImageChange(a,chooseOrderedImage(a,1),'event')}
      }else if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,chooseOrderedImage(a,1),'event');
      s.lastMappedSignal=v;

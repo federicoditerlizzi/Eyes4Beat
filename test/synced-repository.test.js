@@ -1,3 +1,4 @@
+import {normalizeMidiSlots} from '../src/midi/pads.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
@@ -84,9 +85,9 @@ test('project MIDI bindings survive a local-first push, echo and a second client
  const api=new FakeApi(),sync=repo(api),p=project(),slots=[{id:'midi_pad_snare',name:'SNARE',bindings:[{note:38,channel:10},{note:40,channel:10}]}];
  api.changeSets.push({projects:[p],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:01:00.000Z'});await sync.pull();
  let written;api.patchProject=async(id,data)=>(written={...p,...data,id,version:data.if_version+1});
- await sync.updateProject(p.id,{midiSlots:slots});await sync.pushDirty();assert.deepEqual((await sync.getProject(p.id)).midiSlots,slots);
- api.changeSets.push({projects:[written],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:02:00.000Z'});await sync.pull();assert.deepEqual((await sync.getProject(p.id)).midiSlots,slots);
- const otherApi=new FakeApi(),other=new SyncedLibraryRepository({api:otherApi,email:'midi-other@example.com'});otherApi.changeSets.push({projects:[written],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:02:00.000Z'});await other.pull();assert.deepEqual((await other.getProject(p.id)).midiSlots,slots);
+ await sync.updateProject(p.id,{midiSlots:slots});await sync.pushDirty();assert.deepEqual((await sync.getProject(p.id)).midiSlots,normalizeMidiSlots(slots));
+ api.changeSets.push({projects:[written],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:02:00.000Z'});await sync.pull();assert.deepEqual((await sync.getProject(p.id)).midiSlots,normalizeMidiSlots(slots));
+ const otherApi=new FakeApi(),other=new SyncedLibraryRepository({api:otherApi,email:'midi-other@example.com'});otherApi.changeSets.push({projects:[written],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:02:00.000Z'});await other.pull();assert.deepEqual((await other.getProject(p.id)).midiSlots,normalizeMidiSlots(slots));
  clearTimeout(sync.pushTimer);clearTimeout(other.pushTimer);await sync.cache.close();await other.cache.close();
 });
 
@@ -95,6 +96,6 @@ test('import preserves custom MIDI source metadata even when another project reg
  const api=new FakeApi(),sync=repo(api),id='midi_pad_custom_import',slots=[{id,name:'COWBELL',bindings:[{note:56,channel:10}]}];
  const entry=prepareImportedArchetype({id:'old',name:'Scene',look:{},routingMap:{[id]:{pulse:1}},imageConfig:{mode:'mapped',source:id},musicPresets:[{name:'Pads',routing:{[id]:{pulse:1}},amounts:{[id]:.8}}],media:[]},3,slots);
  const result=await sync.importBatch({projectName:'Imported MPC',archetypes:[entry],midiSlots:slots});
- assert.deepEqual(result.project.midiSlots,slots);assert.ok(api.created.origin.sourceDefinitions.some(s=>s.id===id));assert.equal(result.archetypes[0].routingMap[id].pulse,1);assert.equal(result.archetypes[0].musicPresets[0].amounts[id],.8);
+ assert.deepEqual(result.project.midiSlots,normalizeMidiSlots(slots));assert.ok(api.created.origin.sourceDefinitions.some(s=>s.id===id));assert.equal(result.archetypes[0].routingMap[id].pulse,1);assert.equal(result.archetypes[0].musicPresets[0].amounts[id],.8);
  clearTimeout(sync.pushTimer);await sync.cache.close();
 });

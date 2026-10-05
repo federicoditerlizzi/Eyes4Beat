@@ -26,9 +26,20 @@ let blackoutActive=false,panicActive=false,liveLock=false,panicReleaseStartedAt=
 let controls={enabled:{},solo:{},amounts:{},intensity:{},reactivity:{},targetEnabled:{},targetSolo:{},ctxPerf:0,globalReact:1};
 let FinalG={...NEUTRAL_TARGETS},S={...neutralVals},Raw={...neutralVals},Fast={...neutralVals},Context={...neutralVals};
 let BPM=0,BPMConfidence=0,beatAnchorSec=null,BeatPulse=0,KickFast=0,SnareFast=0,latestAnalysis=null;
-let audioTempo=null,tempoState={source:'none',bpm:0,confidence:0,phase:0,running:false,anchorSec:null};
+let audioBeat=0,audioTempo=null,tempoState={source:'none',bpm:0,confidence:0,phase:0,running:false,anchorSec:null};
 const pads=new MidiPads();
-const midi=new MidiInput({onEvent:message=>{const revision=pads.revision,learning=pads.learning;const event=pads.receive(message);if(revision!==pads.revision||learning!==pads.learning)publish(performance.now(),undefined,true);if(event&&!panicActive){pendingVisualEvents.push({...event,receivedAt:message.timestamp});if(pendingVisualEvents.length>64)pendingVisualEvents.shift()}}});
+const midi=new MidiInput({getAudioTempo:()=>audioTempo,onEvent:handleMidiMessage});
+function enqueueMidiEvent(event,timestamp){
+ if(panicActive)return;
+ pendingVisualEvents.push({...event,receivedAt:timestamp});if(pendingVisualEvents.length>64)pendingVisualEvents.shift();
+}
+function handleMidiMessage(message,beat){
+ updateTempo(performance.now());
+ if(beat&&tempoState.source==='midi')enqueueMidiEvent(beat,message.timestamp);
+ const revision=pads.revision,learning=pads.learning,event=pads.receive(message);
+ if(revision!==pads.revision||learning!==pads.learning)publish(performance.now(),undefined,true);
+ if(event)enqueueMidiEvent(event,message.timestamp);
+}
 let renderFps=60;
 const renderer=createRenderer(canvas,(a,i)=>IMAGE_SETS[a][i],message=>emit({type:'error',source:'renderer',message}));
 const trackedMediaLoad=(...args)=>renderer.trackedMediaLoad(...args),swapTextureSlots=role=>renderer.swapTextureSlots(role);
@@ -37,31 +48,31 @@ const inputController=input.controller;
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function getEffectiveState(){
  const out={};for(const source of sourceRegistry){const k=source.id,value=!isBuiltinAudioSource(source.id)?(externalValues[k]||0):k==='beat'?BeatPulse:k==='kick'?KickFast:k==='snare'?SnareFast:S[k]||0;
- if(isBuiltinAudioSource(k)&&!inputController.inputActive){out[k]=0;continue}
+ if(!inputSourceActive(k)){out[k]=0;continue}
  const amount=Number(controls.amounts[k]??1);out[k]=sourceActive(k)?(amount<0?1-value:value)*Math.abs(amount):0;
  }return out;
 }
+function inputSourceActive(id){return !isBuiltinAudioSource(id)||inputController.inputActive||(id==='beat'&&tempoState.source==='midi')}
 function sourceActive(k){
   const anySolo=sourceRegistry.some(source=>!!controls.solo[source.id]);
   return anySolo ? !!controls.solo[k] : controls.enabled[k]!==false;
 }
 function computeGlobalMapping(Eff,now){
   const map=routingMaps[target];
-  const live=!!inputController?.inputActive;
   const rawSrc={},activeSrc={};
-  for(const source of sourceRegistry){const k=source.id;activeSrc[k]=(!isBuiltinAudioSource(source.id)||live)&&sourceActive(k);rawSrc[k]=activeSrc[k]?clamp(Eff[k]||0,0,1.5):0}
+  for(const source of sourceRegistry){const k=source.id;activeSrc[k]=inputSourceActive(k)&&sourceActive(k);rawSrc[k]=activeSrc[k]?clamp(Eff[k]||0,0,1.5):0}
   const intensity={},reactivity={};
   routeTargets.forEach(k=>{intensity[k]=controls.intensity[k];reactivity[k]=controls.reactivity[k]});
   const activeTargets=resolveTargetActivity({enabled:controls.targetEnabled,solo:controls.targetSolo});
   FinalG=computeTargetState({map,sources:rawSrc,activeSources:activeSrc,activeTargets,intensity,reactivity,globalReactivity:controls.globalReact});
   return FinalG;
 }
-const sequencer=createSequencer(()=>({imageConfigs,IMAGE_SETS,BPM,BPMConfidence,BeatPulse,KickFast,SnareFast,target,beatAnchorSec,projectSwitching,deletingArchetype,panicActive,archetypeSelectionBusy,mediaGeneration,disposed,archetypes,sourceValues:getEffectiveState(),sourceEvents:Object.fromEntries(Object.entries(pads.hits).map(([id,hit])=>[id,{...hit,intensity:sourceActive(id)?hit.intensity*Math.abs(Number(controls.amounts[id]??1)):0}]))}),renderer);
+const sequencer=createSequencer(()=>({imageConfigs,IMAGE_SETS,BPM,BPMConfidence,BeatPulse,KickFast,SnareFast,target,beatAnchorSec,projectSwitching,deletingArchetype,panicActive,archetypeSelectionBusy,mediaGeneration,disposed,archetypes,sourceValues:getEffectiveState(),sourceEvents:Object.fromEntries(Object.entries({...pads.hits,...(tempoState.source==='midi'&&midi.clock.lastBeat?{beat:midi.clock.lastBeat}:{})}).map(([id,hit])=>[id,{...hit,intensity:sourceActive(id)?hit.intensity*Math.abs(Number(controls.amounts[id]??1)):0}]))}),renderer);
 const {seqStates,createSequenceState,sequenceTempo,imageDwell,loadArchetypeIntoRole,advanceSequenceTransition,requestImageChange,chooseOrderedImage,updateImageSequence}=sequencer;
 function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next:s.next,blend:s.blend,rawProgress:s.rawProgress,transitioning:s.transitioning,loading:s.loading}}
 
 const pendingVisualEvents=[];let lastFeatureAt=0;
-const effects=createEffects(pcanvas,event=>(!isBuiltinAudioSource(event.type)||inputController.inputActive)&&sourceActive(event.type)?event.intensity*Number(controls.amounts[event.type]||0):0);
+const effects=createEffects(pcanvas,event=>inputSourceActive(event.type)&&sourceActive(event.type)?event.intensity*Number(controls.amounts[event.type]??1):0);
 function resetVisualEffects(){pads.clear();pendingVisualEvents.length=0;for(const source of sourceRegistry)if(source.kind==='event')externalValues[source.id]=0;effects.reset()}
 function smoothstep(x){return x*x*(3-2*x)}
 function setPanic(value){
@@ -72,15 +83,18 @@ function setPanic(value){
 return panicActive;
 }
 function setBlackout(value){blackoutActive=!!value;blackoutOverlay.classList.toggle('active',blackoutActive);return blackoutActive}
-function discardAudioEvents(){for(let i=pendingVisualEvents.length-1;i>=0;i--)if(isBuiltinAudioSource(pendingVisualEvents[i].type))pendingVisualEvents.splice(i,1)}
-function resetInputState(resetLayers=false){audioTempo=null;discardAudioEvents();BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;if(resetLayers){Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}}
-function neutralizeInputState(){audioTempo=null;inputController.resetAnalysis(true);discardAudioEvents();BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}
+function discardAudioEvents(){for(let i=pendingVisualEvents.length-1;i>=0;i--)if(isBuiltinAudioSource(pendingVisualEvents[i].type)&&pendingVisualEvents[i].origin!=='midi')pendingVisualEvents.splice(i,1)}
+function resetInputState(resetLayers=false){
+ audioTempo=null;audioBeat=0;discardAudioEvents();KickFast=0;SnareFast=0;latestAnalysis=null;
+ if(resetLayers){Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}
+ updateTempo(performance.now());
+}
+function neutralizeInputState(){inputController.resetAnalysis(true);resetInputState(true)}
 function applyAnalysisFeatures(features){
  if(disposed)return;latestAnalysis=features;if(!inputController.inputActive)return neutralizeInputState();
- const now=performance.now();lastFeatureAt=now;
- if(!panicActive){for(const event of features.eventBatch||[]){if(eventSourceIds().includes(event.type)&&features.timestamp-event.timestamp<.5)pendingVisualEvents.push({...event,intensity:event.intensity??1,receivedAt:now})}if(pendingVisualEvents.length>64)pendingVisualEvents.splice(0,pendingVisualEvents.length-64)}
- Raw={...features.raw};audioTempo={...features.tempo,receivedAt:now};
- BeatPulse=features.beat;
+ const now=performance.now();lastFeatureAt=now;audioTempo={...features.tempo,receivedAt:now};audioBeat=features.beat;updateTempo(now);
+ if(!panicActive){for(const event of features.eventBatch||[]){if(eventSourceIds().includes(event.type)&&features.timestamp-event.timestamp<.5&&!(event.type==='beat'&&tempoState.source==='midi'))pendingVisualEvents.push({...event,intensity:event.intensity??1,receivedAt:now})}if(pendingVisualEvents.length>64)pendingVisualEvents.splice(0,pendingVisualEvents.length-64)}
+ Raw={...features.raw};
  KickFast=features.kick;SnareFast=features.snare;
  Fast={...features.fast};Context={...features.context};
  const mix=controls.ctxPerf,blend=(fast,context,shape)=>{const weight=Math.max(0,Math.min(1,mix*shape));return fast*(1-weight)+context*weight};
@@ -109,7 +123,11 @@ async function selectArchetype(a){
 function resize(){renderer.resize();effects.resize(innerWidth,innerHeight)}
 let t0=performance.now(),last=performance.now();
 function start(){raf=requestAnimationFrame(frame)}
-function updateTempo(now){tempoState=resolveInputTempo(audioTempo,midi.clock.snapshot(now),now);BPM=tempoState.bpm;BPMConfidence=tempoState.confidence;beatAnchorSec=tempoState.anchorSec}
+function updateTempo(now){
+ const clock=midi.clock.snapshot(now),previous=tempoState.source;tempoState=resolveInputTempo(audioTempo,clock,now);
+ BPM=tempoState.bpm;BPMConfidence=tempoState.confidence;beatAnchorSec=tempoState.anchorSec;BeatPulse=tempoState.source==='midi'?clock.beat:audioBeat;
+ if(previous!==tempoState.source)for(let i=pendingVisualEvents.length-1;i>=0;i--){const event=pendingVisualEvents[i];if(event.type==='beat'&&((event.origin==='midi')!==(tempoState.source==='midi')))pendingVisualEvents.splice(i,1)}
+}
 function frame(now){
  if(disposed)return;
  updateTempo(now);

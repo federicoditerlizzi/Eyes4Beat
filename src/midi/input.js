@@ -2,12 +2,12 @@ import {MidiClock,parseMidiMessage} from './clock.js';
 export const MIDI_DEVICE_KEY='eyes4beat_midi_input';
 // Only the active visual engine constructs this owner of MIDIAccess and ports.
 export class MidiInput {
-  constructor({navigator=globalThis.navigator,storage=globalThis.localStorage,onEvent=()=>{}}={}){
+  constructor({navigator=globalThis.navigator,storage=globalThis.localStorage,onEvent=()=>{},getAudioTempo=()=>null}={}){
     this.navigator=navigator;this.storage=storage;this.clock=new MidiClock();this.access=null;this.request=null;this.port=null;this.opening=null;this.disposed=false;this.generation=0;this.activity=[];this.serial=0;this.error='';this.busy=false;
     this.supported=typeof navigator?.requestMIDIAccess==='function';this.selection=null;
     try{const saved=JSON.parse(storage.getItem(MIDI_DEVICE_KEY)||'null');if(saved&&typeof saved.id==='string')this.selection=saved}catch{}
     this.onStateChange=()=>{void this.reconcile().catch(error=>{this.error=error.message})};
-    this.onMessage=event=>{const message=parseMidiMessage(event.data,event.timeStamp);if(!message)return;this.clock.receive(message);onEvent(message);
+    this.onMessage=event=>{const message=parseMidiMessage(event.data,event.timeStamp);if(!message)return;const beat=this.clock.receive(message,getAudioTempo());onEvent(message,beat);
       if(message.type!=='clock'){this.activity.unshift({...message,id:++this.serial});if(this.activity.length>12)this.activity.pop()}
     };
   }

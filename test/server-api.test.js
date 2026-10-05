@@ -1,3 +1,4 @@
+import {normalizeMidiSlots} from '../src/midi/pads.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
@@ -154,11 +155,11 @@ test('project MIDI slots sync, duplicate and reject invalid or duplicate note bi
  const {call,db}=fixture();
  const slots=[{id:'midi_pad_kick',name:'KICK',bindings:[{note:36,channel:10}]}];
  const p=(await call(alice,'POST','/api/projects',{name:'MPC',midiSlots:slots})).data;
- assert.deepEqual(p.midiSlots,slots);
+ assert.deepEqual(p.midiSlots,normalizeMidiSlots(slots));
  const next=[...slots,{id:'midi_pad_snare',name:'SNARE',bindings:[{note:38,channel:10},{note:40,channel:10}]}];
- const updated=await call(alice,'PATCH',`/api/projects/${p.id}`,{midiSlots:next,if_version:1});assert.equal(updated.status,200);assert.deepEqual(updated.data.midiSlots,next);
- const changes=await call(alice,'GET','/api/changes?since=2020-01-01T00:00:00.000Z');assert.deepEqual(changes.data.projects.find(x=>x.id===p.id).midiSlots,next);
- const duplicate=await call(alice,'POST',`/api/projects/${p.id}/duplicate`,{});assert.deepEqual(duplicate.data.midiSlots,next);
+ const updated=await call(alice,'PATCH',`/api/projects/${p.id}`,{midiSlots:next,if_version:1});assert.equal(updated.status,200);assert.deepEqual(updated.data.midiSlots,normalizeMidiSlots(next));
+ const changes=await call(alice,'GET','/api/changes?since=2020-01-01T00:00:00.000Z');assert.deepEqual(changes.data.projects.find(x=>x.id===p.id).midiSlots,normalizeMidiSlots(next));
+ const duplicate=await call(alice,'POST',`/api/projects/${p.id}/duplicate`,{});assert.deepEqual(duplicate.data.midiSlots,normalizeMidiSlots(next));
  const bad=structuredClone(next);bad[1].bindings.push({note:36,channel:10});assert.equal((await call(alice,'PATCH',`/api/projects/${p.id}`,{midiSlots:bad,if_version:2})).status,400);
- assert.deepEqual((await call(alice,'GET',`/api/projects/${p.id}`)).data.project.midiSlots,next);db.close();
+ assert.deepEqual((await call(alice,'GET',`/api/projects/${p.id}`)).data.project.midiSlots,normalizeMidiSlots(next));db.close();
 });

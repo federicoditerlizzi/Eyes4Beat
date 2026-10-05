@@ -1,4 +1,4 @@
-import {KICK_RELEASE} from '../event-envelope.js';
+import {KICK_RELEASE,BEAT_RELEASE} from '../event-envelope.js';
 export const FEATURE_KEYS = ['level', 'low', 'bright', 'motion', 'full'];
 const FAST = [.30, .26, .18, .30, .22];
 const CONTEXT = [.18, .15, .10, .15, .12];
@@ -30,6 +30,6 @@ export class MusicalLayers {
     const eventValues=features.eventValues;
     const kick=eventValues?eventValues[1]:Number(features.events.kick),snare=eventValues?eventValues[2]:Number(features.events.snare),beat=eventValues?eventValues[0]:Number(features.events.beat);
     this.kick = kick ? kick : this.kick * KICK_RELEASE ** hopScale;this.snare = snare ? snare : this.snare * .70 ** hopScale;
-    this.beat = beat ? 1 : this.beat * .82 ** hopScale;
+    this.beat = beat ? 1 : this.beat * BEAT_RELEASE ** hopScale;
   }
 }

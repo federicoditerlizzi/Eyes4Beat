@@ -1,0 +1,44 @@
+<!doctype html><meta charset="utf-8"><pre id="result">RUNNING</pre>
+<script type="module">
+import {LocalLibraryRepository} from '../src/library/local-repository.js';
+import {cacheUserKey} from '../src/library/sync-logic.js';
+import {NEUTRAL_LOOK} from '../src/looks.js';
+const wait=ms=>new Promise(r=>setTimeout(r,ms)),assert=(v,m)=>{if(!v)throw Error(m)};
+async function until(fn,label){for(let i=0;i<250;i++){if(fn())return;await wait(100)}throw Error(label)}
+let frame,timer;
+try{
+ assert(location.hostname==='127.0.0.1','Isolated localhost only');localStorage.removeItem('eyes4beat_midi_input');localStorage.setItem('eyes4beat_render_scale','.5');localStorage.setItem('eyes4beat_bloom_quality','off');
+ const user='midi-beat-'+Date.now()+'@example.invalid';localStorage.setItem('eyes4beat_last_sync_user',user);
+ const repo=new LocalLibraryRepository('eyes4beat-cache-'+cacheUserKey(user)),project=await repo.createProject('Clock test');
+ await repo.createArchetype(project.id,{name:'Beat scene',look:NEUTRAL_LOOK,routingMap:{beat:{pulse:1}},imageConfig:{mode:'manual',images:[]},media:[]});await repo.setActiveProject(project.id);
+ frame=document.createElement('iframe');frame.width=1280;frame.height=900;frame.src='/';document.body.append(frame);await until(()=>frame.contentWindow.EyesForBeatsEngine,'engine');
+ const win=frame.contentWindow,doc=frame.contentDocument,$=id=>doc.getElementById(id);let state,peakBeat=0,peakPulse=0;
+ win.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state'){state=e.state;peakBeat=Math.max(peakBeat,state.eff.beat||0);peakPulse=Math.max(peakPulse,state.finalG.pulse||0);globalThis.debugState={peakBeat,peakPulse,clock:state.midi?.clock,tempo:state.tempo,eff:state.eff,finalG:state.finalG}}});await until(()=>state?.projectId===project.id,'project');
+ const port={id:'mpc',name:'MPC',state:'connected',open:async()=>{},close:async()=>{}},access={inputs:new Map([['mpc',port]])};Object.defineProperty(win.navigator,'requestMIDIAccess',{value:async()=>access});
+ const change=(id,value,event='change')=>{const el=$(id);el.value=value;el.dispatchEvent(new win.Event(event,{bubbles:true}))};
+ change('midiDevice','__request__');await until(()=>state.midi.access,'access');change('midiDevice','mpc');await until(()=>state.midi.connected,'device');
+ $('noneModeBtn').click();await until(()=>state.transport.mode==='none','NONE');
+ const send=(data,timeStamp=win.performance.now())=>port.onmidimessage({data,timeStamp});
+ let start=win.performance.now()-500;send([250],start);for(let n=0;n<=24;n++)send([248],start+n*500/24);
+ timer=setInterval(()=>send([248]),500/24);await until(()=>peakBeat>.05&&peakPulse>.05,'clock beat routes with AUDIO NONE');clearInterval(timer);assert(state.tempo.source==='midi','MIDI priority');
+ send([252]);await until(()=>state.tempo.source==='none'&&state.eff.beat===0,'stopped clock does not drive beat');
+ change('midiDevice','');await until(()=>!state.midi.selected,'off');change('midiDevice','mpc');await until(()=>state.midi.connected,'reconnect');
+ start=win.performance.now()-500;for(let n=0;n<=24;n++)send([248],start+n*500/24);
+ await until(()=>state.midi.clock.phaseEstimated&&state.tempo.source==='midi','join running clock');assert($('midiClockStatus').textContent.includes('PHASE ESTIMATED'),'estimated status');
+ send([242,4,0]);send([248]);await until(()=>!state.midi.clock.phaseEstimated,'SPP alignment');
+ // File beat at 90 BPM; clock at 120 continues even while stopped.
+ const rate=48000,samples=rate*30,buffer=new ArrayBuffer(44+samples*2),v=new DataView(buffer),text=(offset,s)=>[...s].forEach((c,i)=>v.setUint8(offset+i,c.charCodeAt(0)));
+ text(0,'RIFF');v.setUint32(4,36+samples*2,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,samples*2,true);
+ for(let i=0;i<samples;i++){const t=i/rate,b=t%(2/3);v.setInt16(44+2*i,Math.sin(t*2*Math.PI*65)*Math.exp(-b/.04)*25000,true)}
+ const transfer=new win.DataTransfer();transfer.items.add(new win.File([buffer],'metronome.wav',{type:'audio/wav'}));$('file').files=transfer.files;$('file').dispatchEvent(new win.Event('change',{bubbles:true}));
+ send([250]);timer=setInterval(()=>send([248]),500/24);
+ await until(()=>state.analysis?.tempo.bpm>0&&state.tempo.source==='midi','audio tempo ready under MIDI');
+ send([252]);await until(()=>state.tempo.source==='audio'&&state.midi.clock.present,'stopped running clock falls back to file');
+ assert(state.beat===state.analysis.beat,'beat follows audio analysis');assert(state.bpm===state.analysis.tempo.bpm,'tempo follows audio analysis');
+ const row=doc.querySelector('[data-slot="midi_pad_kick"]');assert(row.querySelector('input[type=range]').value==='150','150ms default');
+ const decay=row.querySelector('input[type=range]');decay.value='300';decay.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>state.midiPads.slots[0].decayMs===300,'decay edit');
+ const curve=doc.querySelector('[data-slot="midi_pad_kick"] select');curve.value='soft';curve.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>state.midiPads.slots[0].velocityCurve==='soft','curve edit');
+ await wait(250);const saved=await repo.getProject(project.id);assert(saved.midiSlots[0].decayMs===300&&saved.midiSlots[0].velocityCurve==='soft','pad settings stored');await repo.close();
+ document.querySelector('#result').textContent='PASS clock-driven beat without audio, estimated join/SPP, stopped-clock audio beat fallback, decay and velocity UI persistence';
+}catch(e){document.querySelector('#result').textContent='FAIL '+e.stack+' '+JSON.stringify(globalThis.debugState)}finally{clearInterval(timer);frame?.remove()}
+</script>

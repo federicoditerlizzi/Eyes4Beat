@@ -27,6 +27,7 @@ global.gc();const retainedGrowth = process.memoryUsage().heapUsed - before;
 for (let i = 0; i < durations.length; i++) { const start = performance.now();engine.push(blocks[(132000 + i) % blocks.length], onHop);durations[i] = performance.now() - start; }
 let sum = 0, max = 0, spikes = 0;
 for (let i = 0; i < durations.length; i++) { sum += durations[i];max = Math.max(max, durations[i]);if (durations[i] > .5) spikes++; }
+durations.sort();const p99Ms=durations[Math.ceil(durations.length*.99)-1];
 // Sample collected allocations too: before/after GC alone only detects leaks.
 const inspector = new Session();inspector.connect();
 const inspect = (method, params = {}) => new Promise((resolve, reject) => inspector.post(method, params, (error, result) => error ? reject(error) : resolve(result)));
@@ -40,4 +41,4 @@ function countAllocations(node, inAnalysis = false) {
   for (const child of node.children) countAllocations(child, inAnalysis);
 }
 countAllocations(profile.head);
-console.log(JSON.stringify({ averageMs: sum / durations.length, maxMs: max, spikes, sampledAllocationBytes, peakGrowth, retainedGrowth, reused: feature === engine.features && spectrum === engine.features.spectrum && raw === engine.features.raw }));
+console.log(JSON.stringify({ averageMs: sum / durations.length, p99Ms, maxMs: max, spikes, sampledAllocationBytes, peakGrowth, retainedGrowth, reused: feature === engine.features && spectrum === engine.features.spectrum && raw === engine.features.raw }));

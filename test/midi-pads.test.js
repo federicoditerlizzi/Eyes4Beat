@@ -32,7 +32,7 @@ test('Defaults, slot limits, registry labels and independent audio sources',()=>
  slots[0].bindings=[{note:36,channel:1}];slots[1].bindings=[{note:36,channel:1}];assert.throws(()=>normalizeMidiSlots(slots));
 });
 test('Project MIDI slots survive local reload, duplicate, v3 package round-trip and imported mappings',async()=>{
- const repo=new LocalLibraryRepository('midi-test-'+crypto.randomUUID()),slots=defaultMidiSlots();slots[0].bindings=[{note:36,channel:10}];slots[1].bindings=[{note:38,channel:10},{note:40,channel:10}];
+ const repo=new LocalLibraryRepository('midi-test-'+crypto.randomUUID()),slots=defaultMidiSlots();slots[0].decayMs=300;slots[0].velocityCurve='hard';slots[0].bindings=[{note:36,channel:10}];slots[1].bindings=[{note:38,channel:10},{note:40,channel:10}];
  const project=await repo.createProject('MPC');await repo.updateProject(project.id,{midiSlots:slots});assert.deepEqual((await repo.getProject(project.id)).midiSlots,slots);
  const duplicate=await repo.duplicateProject(project.id);assert.deepEqual(duplicate.midiSlots,slots);
  const record={id:'scene',name:'Scene',origin:{type:'blank',sourceDefinitions:midiSourceDefinitions(slots)},look:normalizeLook({}),routingMap:{[slots[0].id]:{pulse:1}},imageConfig:{mode:'mapped',source:slots[0].id,images:[]},musicPresets:[],media:[]};
@@ -42,4 +42,17 @@ test('Project MIDI slots survive local reload, duplicate, v3 package round-trip 
  const result=await repo.importBatch({projectName:'Imported',midiSlots:pack.manifest.project.midiSlots,archetypes:[imported]});assert.deepEqual(result.project.midiSlots,slots);
  assert.equal((await repo.listArchetypes(result.project.id))[0].routingMap[slots[0].id].pulse,1);
  assert.deepEqual(mergeMidiSlots(defaultMidiSlots(),slots),slots);await repo.close();
+});
+
+test('pad decay defaults and clamps; velocity curves affect both events and routing envelopes',()=>{
+ const old={id:'midi_pad_test',name:'TEST',bindings:[{note:36,channel:1}]};
+ assert.equal(normalizeMidiSlots([old])[0].decayMs,150);assert.equal(normalizeMidiSlots([old])[0].velocityCurve,'linear');
+ assert.equal(normalizeMidiSlots([{...old,decayMs:1}])[0].decayMs,30);assert.equal(normalizeMidiSlots([{...old,decayMs:1000}])[0].decayMs,600);
+ assert.equal(normalizeMidiSlots([{...old,decayMs:'bad',velocityCurve:'bad'}])[0].decayMs,150);
+ const intensities={};for(const curve of ['linear','soft','hard']){
+  const pads=new MidiPads();pads.load('p',[{...old,decayMs:150,velocityCurve:curve}]);const event=pads.receive(hit(36,64));intensities[curve]=event.intensity;
+  assert.equal(pads.values(100)[old.id],event.intensity);assert.ok(Math.abs(pads.values(250)[old.id]-event.intensity/Math.E)<1e-12);
+  assert.equal(pads.receive(hit(36,127)).intensity,1);
+ }
+ assert.ok(intensities.soft>intensities.linear&&intensities.linear>intensities.hard);
 });

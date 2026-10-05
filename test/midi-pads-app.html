@@ -36,7 +36,8 @@ try{
  assert($('midiActivity').textContent.includes('velocity 101'),'note velocity');assert($('midiActivity').textContent.includes('CC 7 · 87'),'CC value');
  $('noneModeBtn').click();await until(()=>state.transport.mode==='none','NONE mode');
  assert([...doc.querySelectorAll('[data-audio-enabled]')].every(e=>e.hidden),'audio indicators hidden');
- assert(Object.values(state.eff).every(v=>typeof v!=='number'||v===0),'idle sources');
+ if(state.tempo.source==='midi')assert(state.bpm===state.tempo.bpm,'audio reset preserves MIDI BPM');
+ assert(Object.entries(state.eff).every(([key,v])=>key==='beat'||typeof v!=='number'||v===0),'idle sources');
  const learn=async(slot,note)=>{doc.querySelector('[data-slot="'+slot+'"] button').click();await until(()=>state.midiPads.learning===slot,'learn armed');send([153,note,100],win.performance.now());await until(()=>!state.midiPads.learning,'learn done')};
  await learn('midi_pad_kick',36);await learn('midi_pad_snare',38);await learn('midi_pad_snare',40);
  assert(state.midiPads.slots[1].bindings.length===2,'two SNARE notes');
@@ -52,9 +53,10 @@ try{
  const outputPort={id:'mpc-output',name:'Output MPC',manufacturer:'Akai',state:'connected',open:async()=>{},close:async()=>{}},outputAccess={inputs:new Map([['mpc-output',outputPort]])};
  Object.defineProperty(outputWindow.navigator,'requestMIDIAccess',{value:async()=>outputAccess,configurable:true});outputWindow.document.querySelector('#outputStart').click();await until(()=>!state.transport.locked,'unlocked');
  await until(()=>$('midiDevice').querySelector('option[value="__request__"]'),'output fresh MIDI options');change('__request__');await until(()=>state.midi.devices.some(d=>d.id==='mpc-output'),'output MIDI access');change('mpc-output');await until(()=>state.midi.connected,'output MIDI device');
+ const clockEpoch=outputWindow.performance.now()-500;for(let tick=0;tick<=24;tick++)outputPort.onmidimessage({data:[248],timeStamp:clockEpoch+tick*500/24});await until(()=>state.tempo.source==='midi'&&state.midi.clock.phaseEstimated,'output joins running clock without Start');
  doc.querySelector('[data-slot="midi_pad_hat"] button').click();await until(()=>state.midiPads.learning==='midi_pad_hat','remote Learn');outputPort.onmidimessage({data:[153,42,88],timeStamp:outputWindow.performance.now()});await until(()=>state.midiPads.slots[2].bindings.length===1,'output-owned Learn');assert(!win.testMidi.port.onmidimessage,'controller does not receive MIDI notes');
  change('');await until(()=>!state.midi.selected,'output MIDI off');outputWindow.close();await until(()=>!$('useLocalOutput').hidden,'disconnected');$('useLocalOutput').click();await until(()=>!doc.body.classList.contains('remoteControl'),'local takeover');await wait(300);
- frame.src='/';await wait(500);await until(()=>frame.contentWindow.EyesForBeatsEngine,'reloaded engine');let reloaded;frame.contentWindow.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state')reloaded=e.state});await until(()=>reloaded?.midiPads?.projectId===project.id,'reloaded pads');assert(reloaded.midiPads.slots[1].bindings.length===2,'reload preserves SNARE bindings');
+ const loaded=new Promise(resolve=>frame.onload=resolve);frame.src='/';await loaded;await until(()=>frame.contentWindow.EyesForBeatsEngine,'reloaded engine');let reloaded;frame.contentWindow.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state')reloaded=e.state});await until(()=>reloaded?.midiPads?.projectId===project.id,'reloaded pads');assert(reloaded.midiPads.slots[1].bindings.length===2,'reload preserves SNARE bindings');
  result.textContent='PASS MIDI Learn, multiple bindings, move confirmation, live routing without audio, persistence, clock and hotplug';
 }catch(e){result.textContent='FAIL '+e.stack+' '+frame?.contentDocument?.getElementById('midiStatus')?.textContent+' '+frame?.contentDocument?.getElementById('midiDevice')?.innerHTML}finally{outputWindow?.close();frame?.remove()}
 </script>

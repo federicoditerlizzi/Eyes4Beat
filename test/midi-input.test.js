@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MidiInput,MIDI_DEVICE_KEY} from '../src/midi/input.js';
-function fixture(saved=null){
+function fixture(saved=null,options={}){
  const values=new Map([[MIDI_DEVICE_KEY,JSON.stringify(saved)]]),storage={getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)};
  const port={id:'mpc',name:'MPC',manufacturer:'Akai',state:'connected',opens:0,closes:0,async open(){this.opens++},async close(){this.closes++}};
  const access={inputs:new Map([[port.id,port]])};let requests=0;
- const midi=new MidiInput({storage,navigator:{requestMIDIAccess:async options=>{assert.equal(options.sysex,false);requests++;return access}}});
+ const midi=new MidiInput({...options,storage,navigator:{requestMIDIAccess:async options=>{assert.equal(options.sysex,false);requests++;return access}}});
  return {midi,port,access,values,requests:()=>requests};
 }
 test('MIDI is opt-in; selected device persists, monitor uses timestamps and teardown closes the port',async()=>{
@@ -41,4 +41,11 @@ test('turning OFF or disposing during a pending open never attaches a stale hand
   if(action==='off')await midi.select('');else await midi.dispose();release();await selection;
   assert.equal(midi.snapshot(0).connected,false);assert.ok(!port.onmidimessage);assert.ok(port.closes>0);await midi.dispose();
  }
+});
+
+test('MIDI input forwards timestamped beat events and uses the supplied audio phase on join',async()=>{
+ const beats=[],{midi,port}=fixture(null,{getAudioTempo:()=>({bpm:120,phase:.25,receivedAt:1000}),onEvent:(message,beat)=>{if(beat)beats.push(beat)}});
+ await midi.select('mpc');for(let i=0;i<=42;i++)port.onmidimessage({data:[248],timeStamp:1000+i*500/24});
+ assert.equal(midi.snapshot(1875).clock.phaseEstimated,true);assert.deepEqual(beats.map(b=>Math.round((b.timestamp*1000-1000)*24/500)),[18,42]);
+ port.onmidimessage({data:[252],timeStamp:1876});for(let i=43;i<=90;i++)port.onmidimessage({data:[248],timeStamp:1000+i*500/24});assert.equal(beats.length,2);await midi.dispose();
 });

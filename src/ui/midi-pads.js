@@ -20,7 +20,12 @@ export function createMidiPadsUi(send){
     const bindings=document.createElement('div');bindings.className='midiBindings';
     if(!slot.bindings.length)bindings.textContent=learning?'Play a pad…':'No notes learned';
     for(const binding of slot.bindings){const item=document.createElement('span');item.append(document.createTextNode(noteLabel(binding)),button('','Remove '+noteLabel(binding),()=>change(latest.slots.map(s=>s.id===slot.id?{...s,bindings:s.bindings.filter(b=>b.note!==binding.note||b.channel!==binding.channel)}:s)),'x'));bindings.append(item)}
-    row.append(bindings);root.append(row);
+    const settings=document.createElement('div');settings.className='midiPadSettings';
+    const decayLabel=document.createElement('label');decayLabel.textContent='DECAY';
+    const decay=document.createElement('input');decay.type='range';decay.min=30;decay.max=600;decay.step=10;decay.value=slot.decayMs;decay.setAttribute('aria-label','Pad decay');decay.title='Pad accent decay in milliseconds';
+    const value=document.createElement('output');value.textContent=slot.decayMs+' ms';decay.oninput=()=>{value.textContent=decay.value+' ms'};decay.onchange=()=>change(latest.slots.map(s=>s.id===slot.id?{...s,decayMs:Number(decay.value)}:s));decayLabel.append(decay,value);
+    const curveLabel=document.createElement('label');curveLabel.textContent='VELOCITY';const curve=document.createElement('select');curve.setAttribute('aria-label','Velocity sensitivity');curve.title='Soft lifts quiet hits; hard emphasizes stronger hits';for(const name of ['linear','soft','hard'])curve.add(new Option(name.toUpperCase(),name));curve.value=slot.velocityCurve;curve.onchange=()=>change(latest.slots.map(s=>s.id===slot.id?{...s,velocityCurve:curve.value}:s));curveLabel.append(curve);settings.append(decayLabel,curveLabel);
+    row.append(bindings,settings);root.append(row);
    }
    if(pads.pending){const p=pads.pending,box=document.createElement('div');box.className='inspectorBanner';const from=pads.slots.find(s=>s.id===p.fromId),to=pads.slots.find(s=>s.id===p.slotId);box.textContent=noteLabel(p.binding)+' is bound to '+from?.name+'. Move to '+to?.name+'?';for(const [label,accept] of [['MOVE',true],['CANCEL',false]])box.append(button(label,label==='MOVE'?'Confirm moving this binding':'Keep the existing binding',()=>send('confirmMidiBinding',{projectId:latest.projectId,token:p.token,accept})));root.append(box)}
    const add=button('ADD SLOT','Add a named MIDI pad slot',()=>change([...latest.slots,{id:'midi_pad_'+crypto.randomUUID(),name:'PAD '+(latest.slots.length+1),bindings:[]}]));add.disabled=pads.slots.length>=MAX_MIDI_SLOTS;if(add.disabled)add.title=add.dataset.tooltip='Maximum 16 MIDI slots';root.append(add);

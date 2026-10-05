@@ -129,7 +129,7 @@ export function createWorkspaceLayout({getSelection,getProject,showToast}){
  initIcons(inspector);
  return {update(state){
   for(const shortcut of strip.children)shortcut.disabled=!state.targetId;
-  el('inspectorName').textContent=getSelection();el('projectName').textContent=getProject();el('headerBpm').textContent=state.bpm>0?Math.round(state.bpm):'—';el('beatDot').style.opacity=String(.2+.8*(state.tempo?.source==='midi'?(state.tempo.running?Math.exp(-state.tempo.phase*8):0):state.beat));
+  el('inspectorName').textContent=getSelection();el('projectName').textContent=getProject();el('headerBpm').textContent=state.bpm>0?Math.round(state.bpm):'—';el('beatDot').style.opacity=String(.2+.8*state.beat);
   el('audioSourceLabel').textContent='INPUT';timeline.hidden=state.transport.mode!=='file';inputMeter.hidden=state.transport.mode!=='live';inputMeter.value=state.analysis?.meter?.peakDb??-60;inputMeter.title='Input peak '+inputMeter.value.toFixed(1)+' dBFS';
   el('outputLabel').textContent=el('outputBtn').classList.contains('connected')?'CONNECTED':document.body.classList.contains('remoteControl')?'REOPEN':'OPEN';
   for(const [id,[label,key]] of Object.entries(tips))tip(el(id),label,key);

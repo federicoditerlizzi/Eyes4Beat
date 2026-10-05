@@ -27,7 +27,7 @@ try{
  assert($('midiActivity').textContent.includes('velocity 101'),'note velocity');assert($('midiActivity').textContent.includes('CC 7 · 87'),'CC value');
  $('noneModeBtn').click();await until(()=>state.transport.mode==='none','NONE mode');
  assert([...doc.querySelectorAll('[data-audio-enabled]')].every(e=>e.hidden),'audio indicators hidden');
- assert(Object.values(state.eff).every(v=>typeof v!=='number'||v===0),'idle sources');
+ assert(Object.entries(state.eff).every(([key,v])=>key==='beat'||typeof v!=='number'||v===0),'idle sources');
  win.testMidi.port.state='disconnected';win.testMidi.access.onstatechange();await until(()=>!state.midi.connected,'unplug');
  win.testMidi.port.state='connected';win.testMidi.access.onstatechange();await until(()=>state.midi.connected,'replug');
  change('');await until(()=>!state.midi.selected,'OFF');assert(!win.testMidi.port.onmidimessage,'closed handler');
