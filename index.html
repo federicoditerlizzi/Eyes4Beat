@@ -43,7 +43,7 @@
         <span>PERF</span><input id="ctxPerf" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="Performance to context balance"><span>CTX</span><b id="ctxPerfVal">.72</b>
       </div>
       <div class="safetyControls" aria-label="Live safety controls"><button id="blackoutBtn" class="iconAction headerIcon safetyBtn blackoutBtn" type="button" aria-label="Blackout" data-tooltip="Blackout (B)" aria-pressed="false"><i data-lucide="monitor-off"></i></button><button id="panicBtn" class="iconAction headerIcon safetyBtn panicBtn" type="button" aria-label="Panic" data-tooltip="Panic safe state (P)" aria-pressed="false"><i data-lucide="octagon-alert"></i></button></div>
-      <button id="audioInputBtn" class="iconAction headerIcon audioInputBtn" type="button" aria-label="Audio input" data-tooltip="Audio input"><i data-lucide="audio-lines"></i></button>
+      <button id="audioInputBtn" class="iconAction headerIcon audioInputBtn" type="button" aria-label="Input" data-tooltip="Input"><i data-lucide="audio-lines"></i></button>
       <button id="imageMgrBtn" class="iconAction headerIcon" data-tooltip="Image manager" aria-label="Image manager"><i data-lucide="images"></i></button>
       <button id="lookBtn" class="iconAction headerIcon" data-tooltip="Edit archetype look (E)" aria-label="Edit archetype look"><i data-lucide="palette"></i></button>
       <button id="outputSettingsBtn" class="iconAction headerIcon" data-tooltip="Output settings" aria-label="Output settings"><i data-lucide="monitor-cog"></i></button>
@@ -112,16 +112,6 @@
 
     <div class="pRow pHead"><span>PARAM</span><span>ON</span><span>AMOUNT</span><span>SOLO</span><span>VAL</span></div>
 
-    <div class="pRow" data-p="energy"><span>Energy</span><input class="onCheck" type="checkbox" data-on="energy" checked aria-label="Enable Energy"><input type="range" id="amt-energy" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="energy">S</button><span id="show-energy">1.00</span></div>
-    <div class="pRow" data-p="density"><span>Density</span><input class="onCheck" type="checkbox" data-on="density" checked aria-label="Enable Density"><input type="range" id="amt-density" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="density">S</button><span id="show-density">1.00</span></div>
-    <div class="pRow" data-p="drive"><span>Drive</span><input class="onCheck" type="checkbox" data-on="drive" checked aria-label="Enable Drive"><input type="range" id="amt-drive" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="drive">S</button><span id="show-drive">1.00</span></div>
-    <div class="pRow" data-p="boombap"><span>BoomBap</span><input class="onCheck" type="checkbox" data-on="boombap" checked aria-label="Enable BoomBap"><input type="range" id="amt-boombap" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="boombap">S</button><span id="show-boombap">1.00</span></div>
-    <div class="pRow" data-p="tension"><span>Tension</span><input class="onCheck" type="checkbox" data-on="tension" checked aria-label="Enable Tension"><input type="range" id="amt-tension" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="tension">S</button><span id="show-tension">1.00</span></div>
-    <div class="pRow" data-p="bright"><span>Bright</span><input class="onCheck" type="checkbox" data-on="bright" checked aria-label="Enable Bright"><input type="range" id="amt-bright" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="bright">S</button><span id="show-bright">1.00</span></div>
-    <div class="pRow" data-p="open"><span>Open</span><input class="onCheck" type="checkbox" data-on="open" checked aria-label="Enable Open"><input type="range" id="amt-open" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-solo="open">S</button><span id="show-open">1.00</span></div>
-    <div class="pRow" data-p="beat"><span>Beat</span><input class="onCheck" type="checkbox" data-on="beat" checked aria-label="Enable Beat"><input type="range" id="amt-beat" min="0" max="2" step="0.01" value="0.55"><button class="soloBtn" data-solo="beat">S</button><span id="show-beat">0.55</span></div>
-    <div class="pRow" data-p="kick"><span>Kick</span><input class="onCheck" type="checkbox" data-on="kick" checked aria-label="Enable Kick"><input type="range" id="amt-kick" min="0" max="2" step="0.01" value="1.00"><button class="soloBtn" data-solo="kick">S</button><span id="show-kick">1.00</span></div>
-    <div class="pRow" data-p="snare"><span>Snare</span><input class="onCheck" type="checkbox" data-on="snare" checked aria-label="Enable Snare"><input type="range" id="amt-snare" min="0" max="2" step="0.01" value="1.00"><button class="soloBtn" data-solo="snare">S</button><span id="show-snare">1.00</span></div>
       </div>
     </details>
 
@@ -254,14 +244,23 @@
   <div id="shortcutToast" class="shortcutToast" role="status" aria-live="polite"></div>
 
   <div id="audioInputPanel" class="audioInputPanel" aria-labelledby="audioInputTitle">
-    <div class="imageTop"><div class="sectionTitle"><h2 id="audioInputTitle">AUDIO INPUT</h2><button class="infoTip" aria-label="About live input" data-tooltip="LIVE analyzes an external audio input without routing it to the speakers. Use an audio interface for line-level instruments."><i data-lucide="info"></i></button></div><button id="closeAudioInput" class="iconAction closeAction" type="button" aria-label="Close audio input" data-tooltip="Close"><i data-lucide="x"></i></button></div>
-    <div class="inputModeSwitch" aria-label="Audio source mode"><button id="fileModeBtn" class="active" type="button">FILE</button><button id="liveModeBtn" type="button">LIVE</button></div>
+    <div class="imageTop"><div class="sectionTitle"><h2 id="audioInputTitle">INPUT</h2><button class="infoTip" aria-label="About live input" data-tooltip="LIVE analyzes an external audio input without routing it to the speakers. Use an audio interface for line-level instruments."><i data-lucide="info"></i></button></div><button id="closeAudioInput" class="iconAction closeAction" type="button" aria-label="Close input" data-tooltip="Close"><i data-lucide="x"></i></button></div>
+    <h3 class="inputSectionLabel">AUDIO</h3>
+    <div class="inputModeSwitch" aria-label="Audio source mode"><button id="noneModeBtn" type="button">NONE</button><button id="fileModeBtn" class="active" type="button">FILE</button><button id="liveModeBtn" type="button">LIVE</button></div>
     <div class="audioInputGrid">
       <div class="creatorField" data-audio-mode="live" hidden><label>AUDIO INPUT DEVICE</label><select id="audioDevice"><option value="">No devices available</option></select><button id="startLiveInput" type="button">START / RECONNECT</button><span id="audioInputStatus">File playback mode.</span></div>
-      <div class="creatorField"><label title="Adjusts only the level the analysis hears, not playback volume. Set it so peaks stay in the green zone.">ANALYSIS TRIM</label><div class="trimRow"><input id="inputTrim" type="range" min="-24" max="24" step="0.5" value="0"><output id="inputTrimValue">0.0 dB</output></div></div>
-      <div class="creatorField"><label title="Level after trim, as heard by the analysis.">POST-TRIM LEVEL</label><div class="inputMeter"><div class="inputTargetZone"></div><div id="inputLevelFill" class="inputLevelFill"></div></div><div class="meterReadout"><span id="inputRms">RMS −96.0 dBFS</span><span id="inputPeak">PEAK −96.0 dBFS</span><b id="inputClip">CLIP</b></div><span>Target peak zone: −18 to −6 dBFS.</span></div>
+      <div class="creatorField" data-audio-enabled><label title="Adjusts only the level the analysis hears, not playback volume. Set it so peaks stay in the green zone.">ANALYSIS TRIM</label><div class="trimRow"><input id="inputTrim" type="range" min="-24" max="24" step="0.5" value="0"><output id="inputTrimValue">0.0 dB</output></div></div>
+      <div class="creatorField" data-audio-enabled><label title="Level after trim, as heard by the analysis.">POST-TRIM LEVEL</label><div class="inputMeter"><div class="inputTargetZone"></div><div id="inputLevelFill" class="inputLevelFill"></div></div><div class="meterReadout"><span id="inputRms">RMS −96.0 dBFS</span><span id="inputPeak">PEAK −96.0 dBFS</span><b id="inputClip">CLIP</b></div><span>Target peak zone: −18 to −6 dBFS.</span></div>
       <div class="creatorField" data-audio-mode="live" hidden><label title="Measures background noise with the instrument silent and removes it, so visuals don't react to hum or hiss.">NOISE FLOOR</label><div class="calibrationActions"><button id="calibrateNoise" type="button">CALIBRATE NOISE (3 s)</button><button id="clearCalibration" type="button">CLEAR</button></div><strong id="calibrationStatus">NOT CALIBRATED</strong><span id="calibrationHint">Keep the instrument silent during calibration.</span></div>
     </div>
+    <section class="midiInputSection" aria-labelledby="midiInputTitle">
+      <h3 id="midiInputTitle" class="inputSectionLabel">MIDI</h3>
+      <div class="creatorField"><label for="midiDevice">INPUT DEVICE</label><select id="midiDevice" title="Select a MIDI input on the rendering device"><option value="">OFF</option><option value="__request__">Choose MIDI input…</option></select></div>
+      <p id="midiStatus" role="status">MIDI off.</p>
+      <p id="midiClockStatus" hidden></p>
+      <div id="midiPads" class="midiPads"></div>
+      <div id="midiActivity" class="midiActivity" hidden><span>Waiting for notes or CC…</span></div>
+    </section>
   </div>
 
 
@@ -282,8 +281,8 @@
       <div class="ctlBox"><label>SEQUENCE MODE</label><select id="imageMode"><option value="auto">AUTO TIMER</option><option value="manual">MANUAL</option><option value="mapped">MAPPED LEVEL</option></select></div>
       <div class="ctlBox"><label>TIME BASE</label><select id="imageTimeBase"><option value="seconds">SECONDS</option><option value="beats">BEATS</option></select></div>
       <div class="ctlBox"><label>SEQUENCE ORDER</label><select id="imageOrderMode"><option value="sequential">SEQUENTIAL</option><option value="ping-pong">PING-PONG</option><option value="random-no-repeat">RANDOM · NO REPEAT</option><option value="shuffle">SHUFFLE</option></select></div>
-      <div class="ctlBox"><label title="Continuous sources map levels to positions; Beat, Kick and Snare advance on events.">MAPPED SOURCE <i data-lucide="info" class="inlineInfo"></i></label><select id="imageSource"><option value="energy">Energy</option><option value="density">Density</option><option value="drive">Drive</option><option value="boombap">BoomBap</option><option value="tension">Tension</option><option value="bright">Brightness</option><option value="open">Openness</option><option value="beat">Beat</option><option value="kick">Kick</option><option value="snare">Snare</option></select></div>
-      <div class="ctlBox"><label title="Used only with Beat, Kick and Snare.">EVENT THRESHOLD <i data-lucide="info" class="inlineInfo"></i></label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"></div>
+      <div class="ctlBox"><label title="Continuous sources map levels to positions; event sources advance on triggers.">MAPPED SOURCE <i data-lucide="info" class="inlineInfo"></i></label><select id="imageSource"></select></div>
+      <div class="ctlBox"><label title="Used with the selected event source.">EVENT THRESHOLD <i data-lucide="info" class="inlineInfo"></i></label><input id="imageThreshold" type="number" min="0.05" max="0.95" step="0.05" value="0.55"></div>
     </div>
     <div id="beatTimeStatus" class="beatTimeStatus" hidden></div>
     <div id="triggerTransitionControls" class="triggerTransitionControls"></div>
@@ -296,19 +295,8 @@
 
   <div class="diag" id="diag">
     <div id="outputDiagnostics">Local engine</div>
-    <div class="sectionTitle"><h3>MUSICAL CONTEXT STATE</h3><button class="infoTip tipLeft" aria-label="About musical context" data-tooltip="Main meters show contextual musical state. BoomBap measures groove strength. Beat, Kick and Snare remain isolated routable signals."><i data-lucide="info"></i></button></div>
-    <div class="row"><span>ENERGY</span><div class="meter"><div id="fE" class="fill"></div></div><span id="vE">0.00</span></div>
-    <div class="row"><span>DENSITY</span><div class="meter"><div id="fD" class="fill"></div></div><span id="vD">0.00</span></div>
-    <div class="row"><span>DRIVE</span><div class="meter"><div id="fR" class="fill"></div></div><span id="vR">0.00</span></div>
-    <div class="row"><span>BOOMBAP</span><div class="meter"><div id="fK" class="fill"></div></div><span id="vK">0.00</span></div>
-    <div class="row"><span>BEAT</span><div class="meter"><div id="fBeat" class="fill"></div></div><span id="vBeat">0.00</span></div>
-    <div class="row"><span>KICK</span><div class="meter"><div id="fKick" class="fill"></div></div><span id="vKick">0.00</span></div>
-    <div class="row"><span>SNARE</span><div class="meter"><div id="fSnare" class="fill"></div></div><span id="vSnare">0.00</span></div>
+    <div class="sectionTitle"><h3>MUSICAL CONTEXT STATE</h3><button class="infoTip tipLeft" aria-label="About musical context" data-tooltip="Normalized source values. Events carry decaying intensity; BPM is tempo state."><i data-lucide="info"></i></button></div>
     <div class="row"><span>BPM</span><div class="meter"><div id="fBpmConf" class="fill"></div></div><span id="vBPM">--</span></div>
-    <div class="row"><span>TENSION</span><div class="meter"><div id="fT" class="fill"></div></div><span id="vT">0.00</span></div>
-    <div class="row"><span>BRIGHT</span><div class="meter"><div id="fB" class="fill"></div></div><span id="vB">0.00</span></div>
-    <div class="row"><span>OPENNESS</span><div class="meter"><div id="fO" class="fill"></div></div><span id="vO">0.00</span></div>
-    <div class="row"><span>ZOOM</span><div class="meter"><div id="fZoom" class="fill"></div></div><span id="vZoom">1.00</span></div>
     <div class="inputDiag"><b>AUDIO INPUT</b><span id="inputDiagnostics">Mode FILE · waiting for source</span><em id="inputWarning"></em><em id="analysisLoadWarning"></em></div>
     <div class="inputDiag"><b>RENDERER</b><span id="bloomDiagnostics"></span></div>
     <div class="inputDiag"><b>ANALYSIS</b><span id="analysisDiagnostics">Waiting for AudioWorklet features</span></div>

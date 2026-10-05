@@ -1,3 +1,5 @@
+import {withSourceDefinitions} from './source-registry.js';
+import { migrateSourceControls, migrateSourceRecord } from './source-migration.js';
 // Legacy ids are deterministic across clients until the next ordinary record write.
 function canonical(value){
  if(Array.isArray(value))return value.map(canonical);
@@ -12,13 +14,14 @@ export function normalizeMusicPresets(value){
    let hash=2166136261;for(const char of JSON.stringify(canonical(preset))){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}
    item.id=`legacy-${(hash>>>0).toString(16)}-${index}`;while(used.has(item.id))item.id+='-dup';
   }
-  used.add(item.id);return item;
+  used.add(item.id);return migrateSourceControls(item);
  });
 }
-export function normalizeRoutingRecord(record){
+export function normalizeRoutingRecord(record){return withSourceDefinitions(record?.origin?.sourceDefinitions,()=>normalizeRecord(record))}
+function normalizeRecord(record){
  if(!record)return record;
  const musicPresets=normalizeMusicPresets(record.musicPresets);
- return {...record,musicPresets,activeRoutingPresetId:musicPresets.some(p=>p.id===record.activeRoutingPresetId)?record.activeRoutingPresetId:null,routingControls:record.routingControls||null};
+ return {...migrateSourceRecord(record),musicPresets,activeRoutingPresetId:musicPresets.some(p=>p.id===record.activeRoutingPresetId)?record.activeRoutingPresetId:null,routingControls:migrateSourceControls(record.routingControls)||null};
 }
 const fields=['enabled','solo','amounts','intensity','reactivity','targetEnabled','targetSolo','ctxPerf','globalReact','routing'];
 export function routingSignature(value){return JSON.stringify(canonical(Object.fromEntries(fields.map(key=>[key,value?.[key]]))))}

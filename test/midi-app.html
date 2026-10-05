@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><pre id="result">RUNNING</pre>
+<script type="module">
+const result=document.querySelector('#result'),wait=ms=>new Promise(r=>setTimeout(r,ms));
+const assert=(v,m)=>{if(!v)throw Error(m)};
+async function until(fn,msg){for(let i=0;i<150;i++){if(fn())return;await wait(100)}throw Error(msg)}
+let frame;
+try{
+ assert(location.hostname==='127.0.0.1','Isolated localhost only');
+ localStorage.removeItem('eyes4beat_midi_input');
+ const setup=`<script>
+ const port={id:'mpc',name:'MPC Test',manufacturer:'Akai',state:'connected',open:async()=>{},close:async()=>{}};
+ const access={inputs:new Map([['mpc',port]]),onstatechange:null};
+ Object.defineProperty(navigator,'requestMIDIAccess',{value:async()=>access});
+ window.testMidi={port,access};
+ <\/script>`;
+ const html=await (await fetch('/')).text();frame=document.createElement('iframe');frame.width=1280;frame.height=900;
+ frame.srcdoc=html.replace('<head>','<head><base href="/">'+setup);document.body.append(frame);
+ await until(()=>frame.contentWindow.EyesForBeatsEngine,'engine');
+ const win=frame.contentWindow,doc=frame.contentDocument,$=id=>doc.getElementById(id);let state;
+ win.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state')state=e.state});await until(()=>state?.midi,'MIDI snapshot');
+ const change=value=>{$('midiDevice').value=value;$('midiDevice').dispatchEvent(new win.Event('change',{bubbles:true}))};
+ change('__request__');await until(()=>state.midi.access,'MIDI permission');change('mpc');await until(()=>state.midi.connected,'selected input');
+ const send=(data,timeStamp)=>win.testMidi.port.onmidimessage({data,timeStamp});
+ const now=win.performance.now();send([250],now-1000);for(let n=0;n<=48;n++)send([248],now-1000+n*1000/48);
+ send([144,60,101],now);send([176,7,87],now);send([192,4],now);
+ await until(()=>state.tempo.source==='midi','MIDI tempo');assert(Math.abs(state.bpm-120)<.1,'clock BPM');
+ assert($('midiActivity').textContent.includes('velocity 101'),'note velocity');assert($('midiActivity').textContent.includes('CC 7 · 87'),'CC value');
+ $('noneModeBtn').click();await until(()=>state.transport.mode==='none','NONE mode');
+ assert([...doc.querySelectorAll('[data-audio-enabled]')].every(e=>e.hidden),'audio indicators hidden');
+ assert(Object.values(state.eff).every(v=>typeof v!=='number'||v===0),'idle sources');
+ win.testMidi.port.state='disconnected';win.testMidi.access.onstatechange();await until(()=>!state.midi.connected,'unplug');
+ win.testMidi.port.state='connected';win.testMidi.access.onstatechange();await until(()=>state.midi.connected,'replug');
+ change('');await until(()=>!state.midi.selected,'OFF');assert(!win.testMidi.port.onmidimessage,'closed handler');
+ result.textContent='PASS MIDI popup, clock timestamps, note/CC monitor, AUDIO NONE, unplug/replug and OFF';
+}catch(e){result.textContent='FAIL '+e.stack}finally{frame?.remove()}
+</script>

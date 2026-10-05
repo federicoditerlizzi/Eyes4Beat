@@ -5,13 +5,13 @@ import {buildProjectRuntime} from '../src/library/runtime.js';
 import {prepareImportedArchetype} from '../src/library/package-mapping.js';
 
 test('legacy preset ids migrate deterministically, retain ids through edits and avoid duplicates',()=>{
- const old=[{name:'A',amounts:{energy:.5}},{name:'A',amounts:{energy:.5}}];
+ const old=[{name:'A',amounts:{level:.5}},{name:'A',amounts:{level:.5}}];
  const a=normalizeMusicPresets(old);assert.deepEqual(a,normalizeMusicPresets(structuredClone(old)));assert.notEqual(a[0].id,a[1].id);
  a[0].name='Renamed';assert.equal(normalizeMusicPresets(a)[0].id,a[0].id);
  assert.equal(new Set(normalizeMusicPresets([a[0],a[0]]).map(p=>p.id)).size,2);
 });
 test('active id survives runtime reload and archetype order changes; missing active id clears',()=>{
- const preset={id:'preset-a',name:'A',routing:{energy:{pulse:1}}};
+ const preset={id:'preset-a',name:'A',routing:{level:{pulse:1}}};
  const a={id:'a',projectId:'p',name:'A',media:[],musicPresets:[preset],activeRoutingPresetId:preset.id,routingMap:preset.routing};
  const b={...a,id:'b',activeRoutingPresetId:null};
  for(const order of [['a','b'],['b','a']]){
@@ -21,10 +21,10 @@ test('active id survives runtime reload and archetype order changes; missing act
  assert.equal(normalizeRoutingRecord({...a,musicPresets:[]}).activeRoutingPresetId,null);
 });
 test('modified derives only from stored preset data after reload, independent of metadata and key order',()=>{
- const preset={id:'a',name:'A',amounts:{energy:.5,kick:1},routing:{energy:{pulse:1}}};
- const current=structuredClone(preset);delete current.id;delete current.name;current.amounts={kick:1,energy:.5};
+ const preset={id:'a',name:'A',amounts:{level:.5,kick:1},routing:{level:{pulse:1}}};
+ const current=structuredClone(preset);delete current.id;delete current.name;current.amounts={kick:1,level:.5};
  assert.equal(routingPresetModified(current,structuredClone(preset)),false);
- current.amounts.energy=.7;assert.equal(routingPresetModified(current,structuredClone(preset)),true);
+ current.amounts.level=.7;assert.equal(routingPresetModified(current,structuredClone(preset)),true);
  assert.equal(routingPresetModified(current,{...preset,amounts:current.amounts}),false);
  assert.equal(routingPresetModified(current,null),false);
 });

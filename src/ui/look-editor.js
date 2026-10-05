@@ -71,8 +71,8 @@ export function renderLookControls({root,getLook,onChange,start,storage=localSto
     const segments=create('div','lookSegments');segments.setAttribute('role','group');segments.setAttribute('aria-label',aria);
     // A hidden select keeps the existing editor input contract for integrations.
     const input=create('select','');input.hidden=true;input.setAttribute('aria-label',aria);
-    for(const choice of choices){const option=document.createElement('option');option.value=choice;option.textContent=choice;input.append(option);
-     const b=create('button','',choice.replaceAll('-',' '));b.type='button';b.dataset.value=choice;b.title=label+': '+choice;b.setAttribute('aria-pressed',String(value===choice));b.onclick=()=>{input.value=choice;input.dispatchEvent(new Event('input',{bubbles:true}))};segments.append(b)}
+    for(const choice of choices){const option=document.createElement('option');option.value=choice;option.textContent=key==='trigger'?(sourceLabels[choice]||choice):choice;input.append(option);
+     const b=create('button','',key==='trigger'?(sourceLabels[choice]||choice):choice.replaceAll('-',' '));b.type='button';b.dataset.value=choice;b.title=label+': '+choice;b.setAttribute('aria-pressed',String(value===choice));b.onclick=()=>{input.value=choice;input.dispatchEvent(new Event('input',{bubbles:true}))};segments.append(b)}
     input.value=value;input.oninput=()=>{apply(input.value);for(const b of segments.children)b.setAttribute('aria-pressed',String(b.dataset.value===input.value))};
     row.append(segments,input);
    }else{

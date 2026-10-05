@@ -3,8 +3,10 @@ export class EngineSession{
  constructor(createLocal){this.createLocal=createLocal;this.listeners=new Set();this.saved=new Map();this.pendingSafety=new Map();this.pendingAudio={};this.pendingSelection=null;this.project=null;this.audioFile=null;this.state=null;this.switching=false;this.pending=[];this.generation=0;this.bind(createLocal())}
  bind(transport){this.transport=transport;const generation=++this.generation;this.unsubscribe=transport.subscribe(event=>{
   if(generation!==this.generation)return;
+  if(event.type==='sources')this.saved.set('setSources',{sources:structuredClone(event.sources)});
   if(event.type==='state'){
    this.state=structuredClone(event.state);
+   if(event.state.midiPads?.projectId&&this.project?.project?.id===event.state.midiPads.projectId)this.project.project.midiSlots=structuredClone(event.state.midiPads.slots);
    if(!this.switching){
    for(const control of ['blackout','panic','liveLock']){
     if(this.pendingSafety.get(control)===this.state[control])this.pendingSafety.delete(control);
@@ -30,7 +32,7 @@ export class EngineSession{
   else if(type==='audioMute')this.pendingAudio.muted=p.value;
   else if(type==='setTrim')this.pendingAudio.trim=p.value;
   else if(type==='setInput'){this.pendingAudio.mode=p.mode;if(p.device)this.pendingAudio.device=p.device} 
-  else if(['setControls','setTransition','setQuality','setRenderScale','setDiagnostics'].includes(type))this.saved.set(type,structuredClone(p));
+  else if(['setMidiInput','setSources','setControls','setTransition','setQuality','setRenderScale','setDiagnostics'].includes(type))this.saved.set(type,structuredClone(p));
   else if(type==='setSafety'){this.pendingSafety.set(p.control,p.value);this.saved.set('safety:'+p.control,structuredClone(p))}
  }
  send(type,payload={}){
@@ -40,11 +42,12 @@ export class EngineSession{
  }
  subscribe(listener){this.listeners.add(listener);return()=>this.listeners.delete(listener)}
  async replay(transport,state){
+  if(this.saved.has('setSources'))await transport.send('setSources',this.saved.get('setSources'));
   if(this.project){const p=structuredClone(this.project);p.preferredId=this.pendingSelection||state?.targetId||p.preferredId;p.imagePositions=state?.images||[];await transport.send('loadProject',p)}
-  for(const [type,payload] of this.saved)if(!type.startsWith('safety:'))await transport.send(type,payload);
+  for(const [type,payload] of this.saved)if(type!=='setSources'&&!type.startsWith('safety:'))await transport.send(type,payload);
   for(const control of ['blackout','panic','liveLock'])await transport.send('setSafety',{control,value:this.saved.get('safety:'+control)?.value??state?.[control]??false});
   const baseAudio=state?.transport?.locked?this.resumeAudio:state?.transport;const audio=baseAudio?{...baseAudio,...this.pendingAudio}:null;
-  if(audio&&(this.audioFile||audio.mode==='live'))await transport.send('audioRestore',{...this.audioFile,mode:audio.mode,device:audio.device,currentTime:audio.currentTime,paused:audio.paused,volume:audio.volume,muted:audio.muted,trim:audio.trim});
+  if(audio&&(this.audioFile||audio.mode==='live'||audio.mode==='none'))await transport.send('audioRestore',{...this.audioFile,mode:audio.mode,device:audio.device,currentTime:audio.currentTime,paused:audio.paused,volume:audio.volume,muted:audio.muted,trim:audio.trim});
   await transport.send('enumerateInputs');
  }
  async switchTo(createTransport,{adopt=false,fallback=true}={}){

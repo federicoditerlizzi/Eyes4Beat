@@ -127,9 +127,38 @@ test('project deletion atomically tombstones its archetypes and look presets', a
 
 test('routing preset ids and active selection persist through API updates and project reads',async()=>{
  const {call}=fixture(),p=await createProject(call);
- const created=await call(alice,'POST',`/api/projects/${p.id}/archetypes`,{...archetypeData(),musicPresets:[{name:'Old',amounts:{energy:.5}}]});
+ const created=await call(alice,'POST',`/api/projects/${p.id}/archetypes`,{...archetypeData(),musicPresets:[{name:'Old',amounts:{level:.5}}]});
  assert.equal(created.status,201);const a=created.data,presetId=a.musicPresets[0].id;assert.ok(presetId);
- const selected=await call(alice,'PATCH',`/api/archetypes/${a.id}`,{if_version:a.version,activeRoutingPresetId:presetId,routingControls:{amounts:{energy:.7}}});assert.equal(selected.status,200);
+ const selected=await call(alice,'PATCH',`/api/archetypes/${a.id}`,{if_version:a.version,activeRoutingPresetId:presetId,routingControls:{amounts:{level:.7}}});assert.equal(selected.status,200);
  const renamed=await call(alice,'PATCH',`/api/archetypes/${a.id}`,{if_version:selected.data.version,name:'Renamed'});assert.equal(renamed.data.activeRoutingPresetId,presetId);
- const snapshot=await call(alice,'GET',`/api/projects/${p.id}`);assert.equal(snapshot.data.archetypes[0].musicPresets[0].id,presetId);assert.equal(snapshot.data.archetypes[0].routingControls.amounts.energy,.7);
+ const snapshot=await call(alice,'GET',`/api/projects/${p.id}`);assert.equal(snapshot.data.archetypes[0].musicPresets[0].id,presetId);assert.equal(snapshot.data.archetypes[0].routingControls.amounts.level,.7);
+});
+
+test('extension sources persist through server normalization using record-scoped metadata',async()=>{
+ const {call,db}=fixture();try{
+ const p=await createProject(call),data=archetypeData();
+ data.origin.sourceDefinitions=[{id:'pad',label:'Pad',kind:'event',group:'midi'}];
+ data.routingMap={pad:{pulse:.7},unknown:{glow:1},energy:{dist:.5}};
+ data.musicPresets=[{name:'Pad',amounts:{pad:.6,open:.3},routing:{pad:{pulse:.7}}}];
+ data.imageConfig={mode:'mapped',source:'pad'};data.look={particles:{burst:{trigger:'pad'}}};
+ const created=await call(alice,'POST',`/api/projects/${p.id}/archetypes`,data);assert.equal(created.status,201);
+ assert.equal(created.data.routingMap.pad.pulse,.7);assert.equal(created.data.routingMap.level.dist,.5);assert.equal(created.data.routingMap.unknown,undefined);
+ assert.equal(created.data.imageConfig.source,'pad');assert.equal(created.data.look.particles.burst.trigger,'pad');
+ const read=await call(alice,'GET',`/api/projects/${p.id}`),record=read.data.archetypes[0];
+ assert.equal(record.musicPresets[0].amounts.pad,.6);assert.equal(record.musicPresets[0].amounts.full,-.3);
+ const other=await call(alice,'POST',`/api/projects/${p.id}/archetypes`,{...archetypeData(),routingMap:{pad:{pulse:1}}});assert.equal(other.data.routingMap.pad,undefined,'metadata does not leak across records');
+ }finally{db.close()}
+});
+
+test('project MIDI slots sync, duplicate and reject invalid or duplicate note bindings',async()=>{
+ const {call,db}=fixture();
+ const slots=[{id:'midi_pad_kick',name:'KICK',bindings:[{note:36,channel:10}]}];
+ const p=(await call(alice,'POST','/api/projects',{name:'MPC',midiSlots:slots})).data;
+ assert.deepEqual(p.midiSlots,slots);
+ const next=[...slots,{id:'midi_pad_snare',name:'SNARE',bindings:[{note:38,channel:10},{note:40,channel:10}]}];
+ const updated=await call(alice,'PATCH',`/api/projects/${p.id}`,{midiSlots:next,if_version:1});assert.equal(updated.status,200);assert.deepEqual(updated.data.midiSlots,next);
+ const changes=await call(alice,'GET','/api/changes?since=2020-01-01T00:00:00.000Z');assert.deepEqual(changes.data.projects.find(x=>x.id===p.id).midiSlots,next);
+ const duplicate=await call(alice,'POST',`/api/projects/${p.id}/duplicate`,{});assert.deepEqual(duplicate.data.midiSlots,next);
+ const bad=structuredClone(next);bad[1].bindings.push({note:36,channel:10});assert.equal((await call(alice,'PATCH',`/api/projects/${p.id}`,{midiSlots:bad,if_version:2})).status,400);
+ assert.deepEqual((await call(alice,'GET',`/api/projects/${p.id}`)).data.project.midiSlots,next);db.close();
 });

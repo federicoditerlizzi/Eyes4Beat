@@ -1,3 +1,4 @@
+import { renderMidiState } from './midi-view.js';
 import { updateBloomRelevance } from './control-relevance.js';
 // UI reads full engine snapshots; no AudioNodes, textures or runtime state are shared.
 export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
@@ -17,10 +18,14 @@ export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
  for(const id of ['play','seek','mute','volume'])el(id).disabled=t.mode!=='file'||!t.loaded;
  if(!seeking){el('seek').value=t.duration>0?String(Math.round(t.currentTime/t.duration*1000)):'0';el('timeDisplay').textContent=format(t.currentTime)+' / '+format(t.duration);el('headerElapsed').textContent=format(t.currentTime);el('headerDuration').textContent=format(t.duration)}
  el('trackName').textContent=t.trackName;
- for(const id of ['mute','volume'])el(id).hidden=t.mode==='live';
+ for(const id of ['play','mute','volume'])el(id).hidden=t.mode!=='file';
+ for(const node of document.querySelectorAll('[data-audio-enabled]'))node.hidden=t.mode==='none';
+ for(const id of ['inputDiagnostics','analysisDiagnostics'])el(id).closest('.inputDiag').hidden=t.mode==='none';
+ renderMidiState(state.midi);
  for(const section of document.querySelectorAll('[data-audio-mode]'))section.hidden=section.dataset.audioMode!==t.mode;
+ el('noneModeBtn').setAttribute('aria-pressed',String(t.mode==='none'));
  el('fileModeBtn').setAttribute('aria-pressed',String(t.mode==='file'));el('liveModeBtn').setAttribute('aria-pressed',String(t.mode==='live'));
- for(const [id,active] of [['fileModeBtn',t.mode==='file'],['liveModeBtn',t.mode==='live'],['audioInputBtn',t.mode==='live']])el(id).classList.toggle('active',active);
+ for(const [id,active] of [['noneModeBtn',t.mode==='none'],['fileModeBtn',t.mode==='file'],['liveModeBtn',t.mode==='live'],['audioInputBtn',t.mode==='live']])el(id).classList.toggle('active',active);
  el('audioDevice').disabled=t.mode!=='live';el('startLiveInput').disabled=t.mode!=='live';
  const signature=JSON.stringify(t.devices);
  if(el('audioDevice').dataset.devices!==signature){el('audioDevice').dataset.devices=signature;el('audioDevice').replaceChildren();
@@ -46,15 +51,13 @@ export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
   el('analysisLoadWarning').textContent=features.overloaded?'Analysis CPU above 40% of the audio budget'+(features.mode===2?' · minimum resolution active':' · reducing resolution if sustained'):features.mode?'Analysis running at reduced resolution to protect audio':'';
   if(features.bands){
    const bands=Object.entries(features.bands).map(([name,value])=>{const [low,high]=features.bandRanges[name];return `${name} ${low}–${Math.round(high)} Hz ${value.toFixed(1)}`}).join(' · '),ranges=Object.entries(features.normalization).map(([name,value])=>`${name} ${value.low.toFixed(2)}…${value.high.toFixed(2)}`).join(' · ');
-   el('analysisDiagnostics').textContent=`${t.sampleRate} Hz · worklet ${features.processingMs.toFixed(3)} ms/quantum · ${(features.processingMs/(128/t.sampleRate*1000)*100).toFixed(1)}% audio budget (${features.clock} clock) · mode ${['2048 FFT / 512 hop','2048 FFT / 1024 hop','1024 FFT / 1024 hop'][features.mode]} · ${bands} dBFS · onset ${features.onset.toFixed(3)} · BPM ${state.bpm?state.bpm.toFixed(1):'—'} · confidence ${state.bpmConfidence.toFixed(2)} · phase ${features.tempo.phase.toFixed(2)} · kick ${features.events.kick?'HIT':'—'} · snare ${features.events.snare?'HIT':'—'} · gate ${features.gate?'CLOSED':'OPEN'} · norm ${ranges}`;
+   el('analysisDiagnostics').textContent=`${t.sampleRate} Hz · worklet ${features.processingMs.toFixed(3)} ms/quantum · ${(features.processingMs/(128/t.sampleRate*1000)*100).toFixed(1)}% audio budget (${features.clock} clock) · mode ${['2048 FFT / 512 hop','2048 FFT / 1024 hop','1024 FFT / 1024 hop'][features.mode]} · ${bands} dBFS · onset ${features.onset.toFixed(3)} · BPM ${state.bpm?state.bpm.toFixed(1):'—'} · confidence ${state.bpmConfidence.toFixed(2)} · phase ${(state.tempo?.phase??features.tempo.phase).toFixed(2)} · kick ${features.events.kick?'HIT':'—'} · snare ${features.events.snare?'HIT':'—'} · gate ${features.gate?'CLOSED':'OPEN'} · norm ${ranges}`;
    el('analysisDiagnostics').title=el('analysisDiagnostics').textContent;
   }
  }
  el('bloomDiagnostics').textContent=state.renderer+' · '+state.fps.toFixed(0)+' FPS';
  for(const [key,value] of Object.entries(state.finalG))el('gf-'+key).textContent=value.toFixed(2);
- for(const [letter,key] of [['E','energy'],['D','density'],['R','drive'],['K','boombap'],['T','tension'],['B','bright'],['O','open']]){el('v'+letter).textContent=state.eff[key].toFixed(2);el('f'+letter).style.width=(state.eff[key]*100)+'%'}
- for(const [label,value] of [['Beat',state.beat],['Kick',state.kick],['Snare',state.snare]]){el('v'+label).textContent=value.toFixed(2);el('f'+label).style.width=Math.min(1,value)*100+'%'}
+ for(const row of document.querySelectorAll('[data-diagnostic-source]')){const value=state.eff[row.dataset.diagnosticSource]||0;row.lastElementChild.textContent=value.toFixed(2);row.querySelector('.fill').style.width=Math.max(0,Math.min(1,value))*100+'%'}
  el('vBPM').textContent=state.bpm>0?Math.round(state.bpm):'--';el('fBpmConf').style.width=state.bpmConfidence*100+'%';
- el('vZoom').textContent=state.finalG.zoom.toFixed(2);el('fZoom').style.width=Math.max(0,Math.min(1,(state.finalG.zoom-.9)/.28))*100+'%';
  return clipHoldUntil;
 }

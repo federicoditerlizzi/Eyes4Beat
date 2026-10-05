@@ -8,6 +8,7 @@ export class SqliteD1 {
     this.sqlite.exec(readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8'));
     this.sqlite.exec(readFileSync(new URL('../../migrations/0002_media_uploaders.sql', import.meta.url), 'utf8'));
     this.sqlite.exec(readFileSync(new URL('../../migrations/0003_routing_preset_selection.sql', import.meta.url), 'utf8'));
+    this.sqlite.exec(readFileSync(new URL('../../migrations/0004_midi_slots.sql', import.meta.url), 'utf8'));
   }
   prepare(sql) {
     const db = this.sqlite;

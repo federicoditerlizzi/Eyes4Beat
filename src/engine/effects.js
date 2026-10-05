@@ -8,7 +8,7 @@ const motionStates=new Map();
 let uniforms=null;
 function resetVisualEffects(){motionStates.clear();particles=[];uniforms=null;if(ctx)ctx.clearRect(0,0,pcanvas.width,pcanvas.height)}
 function motionFor(id){if(!motionStates.has(id))motionStates.set(id,{rotation:createRotationState(),pulse:createWaveState()});return motionStates.get(id)}
-function updateVisualEffects({time,dt,lookA,lookB,current,target,FinalG,panicActive,palette,BPM,latestAnalysis,lastFeatureAt,events}){
+function updateVisualEffects({time,dt,lookA,lookB,current,target,FinalG,panicActive,palette,BPM,tempo,latestAnalysis,lastFeatureAt,events}){
  const beats=events.filter(event=>event.type==='beat'&&eventIntensity(event)>0).length;
  for(const index of new Set([current,target])){
    const look=index===target?lookB:lookA,state=motionFor(index);
@@ -24,7 +24,7 @@ function updateVisualEffects({time,dt,lookA,lookB,current,target,FinalG,panicAct
  }
  stepParticles(particles,{wanted:Math.floor(150*lookB.particles.density*FinalG.parts),dt,time,width:pcanvas.width,height:pcanvas.height,look:lookB,amount:FinalG.parts,palette,panic:panicActive});
  const a=motionFor(current),b=motionFor(target);
- uniforms={breath:breathPhase(time,BPM,latestAnalysis?.tempo.phase||0,(performance.now()-lastFeatureAt)/1000),
+ uniforms={breath:tempo?breathPhase(time,BPM,tempo.phase,0):breathPhase(time,BPM,latestAnalysis?.tempo.phase||0,(performance.now()-lastFeatureAt)/1000),
    rotationA:a.rotation,rotationB:b.rotation,wavesA:a.pulse.waves,wavesB:b.pulse.waves};
 }
 function updateParticles(time,dt,look,FinalG){

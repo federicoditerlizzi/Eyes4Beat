@@ -1,3 +1,5 @@
+import {normalizeMidiSlots} from '../midi/pads.js';
+import { validSourceDefinition } from '../source-registry.js';
 // The wire accepts only data. No callbacks, DOM objects, handles or shared references.
 export const PROTOCOL_VERSION=1;
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
@@ -9,11 +11,17 @@ const values=v=>object(v)&&Object.values(v).every(number);
 const controls=v=>object(v)&&['enabled','solo','targetEnabled','targetSolo'].every(k=>flags(v[k]))&&['amounts','intensity','reactivity'].every(k=>values(v[k]))&&range(v.ctxPerf,0,1)&&number(v.globalReact);
 const media=v=>object(v)&&id(v.mediaId)&&typeof v.mime==='string';
 const record=v=>object(v)&&id(v.id)&&id(v.projectId)&&Array.isArray(v.media)&&v.media.every(media);
-const project=v=>v===null||(object(v)&&id(v.id)&&Array.isArray(v.archetypeOrder)&&v.archetypeOrder.every(id));
+const project=v=>v===null||(object(v)&&id(v.id)&&Array.isArray(v.archetypeOrder)&&v.archetypeOrder.every(id)&&(v.midiSlots===undefined||slots(v.midiSlots)));
 const patch=v=>object(v)&&Object.keys(v).every(k=>['look','routingMap','imageConfig','musicPresets','activeRoutingPresetId','routingControls','name','origin'].includes(k))&&
  (v.name===undefined||id(v.name))&&['look','routingMap','imageConfig','origin'].every(k=>v[k]===undefined||object(v[k]))&&
  (v.musicPresets===undefined||Array.isArray(v.musicPresets))&&(v.activeRoutingPresetId==null||id(v.activeRoutingPresetId))&&(v.routingControls==null||controls(v.routingControls));
+const slots=value=>{try{normalizeMidiSlots(value);return Array.isArray(value)}catch{return false}};
 export const COMMANDS={
+ setMidiSlots:p=>id(p.projectId)&&slots(p.slots),
+ learnMidiSlot:p=>id(p.projectId)&&(p.slotId===null||id(p.slotId)),
+ confirmMidiBinding:p=>id(p.projectId)&&Number.isSafeInteger(p.token)&&typeof p.accept==='boolean',
+ setSources:p=>Array.isArray(p.sources)&&p.sources.every(validSourceDefinition)&&new Set(p.sources.map(s=>s.id)).size===p.sources.length,
+ setSourceValues:p=>object(p.values)&&Object.values(p.values).every(v=>range(v,0,1)),
  loadProject:p=>project(p.project)&&Array.isArray(p.records)&&p.records.every(record)&&id(p.cacheName)&&(p.preferredId==null||id(p.preferredId))&&(p.imagePositions===undefined||Array.isArray(p.imagePositions)&&p.imagePositions.every(v=>id(v.id)&&Number.isInteger(v.index)&&v.index>=0)),
  updateArchetype:p=>id(p.id)&&patch(p.patch),
  selectArchetype:p=>id(p.id),
@@ -22,12 +30,13 @@ export const COMMANDS={
  setControls:p=>controls(p.controls),setTransition:p=>['smooth','cut'].includes(p.mode),
  audioLoad:p=>p.blob instanceof Blob&&typeof p.name==='string',audioPlay:()=>true,audioPause:()=>true,
  audioSeek:p=>range(p.fraction,0,1),audioVolume:p=>range(p.value,0,1),audioMute:p=>typeof p.value==='boolean',
- setInput:p=>['file','live'].includes(p.mode)&&(p.device===undefined||typeof p.device==='string')&&(p.trim===undefined||range(p.trim,-60,24)),
+ setInput:p=>['none','file','live'].includes(p.mode)&&(p.device===undefined||typeof p.device==='string')&&(p.trim===undefined||range(p.trim,-60,24)),
+ enumerateMidi:()=>true,setMidiInput:p=>typeof p.device==='string',
  setTrim:p=>range(p.value,-60,24),enumerateInputs:()=>true,calibrate:()=>true,clearCalibration:()=>true,
  setSafety:p=>['blackout','panic','liveLock'].includes(p.control)&&typeof p.value==='boolean',
  setRenderScale:p=>range(p.value,.5,1),
  setQuality:p=>['off','low','high'].includes(p.value),setDiagnostics:p=>typeof p.enabled==='boolean',
- audioRestore:p=>['file','live'].includes(p.mode)&&(p.blob===undefined||p.blob instanceof Blob)&&number(p.currentTime)&&p.currentTime>=0&&typeof p.paused==='boolean'&&range(p.volume,0,1)&&typeof p.muted==='boolean',
+ audioRestore:p=>['none','file','live'].includes(p.mode)&&(p.blob===undefined||p.blob instanceof Blob)&&number(p.currentTime)&&p.currentTime>=0&&typeof p.paused==='boolean'&&range(p.volume,0,1)&&typeof p.muted==='boolean',
 };
 export function assertData(value,seen=new Set()){
  if(value===null||['string','boolean','undefined'].includes(typeof value))return;

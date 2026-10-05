@@ -385,3 +385,10 @@
 
 .isDimmed{opacity:.45}
 .lookField[hidden],.headerGroup>[hidden]{display:none}
+
+/* Shared INPUT popup: independent audio and MIDI sections. */
+.inputSectionLabel{font-size:11px;letter-spacing:.12em;color:var(--muted);margin:14px 0 8px}
+.midiInputSection{border-top:1px solid var(--line);margin-top:16px;padding-top:2px}
+.midiInputSection p{font-size:11px;color:var(--muted);line-height:1.5;margin:8px 0}
+.midiActivity{max-height:150px;overflow:auto;padding:8px 10px;background:rgba(255,255,255,.035);border-radius:8px;font-size:11px;line-height:1.7;font-variant-numeric:tabular-nums}
+.midiPads{display:grid;gap:8px;margin:12px 0}.midiPad{padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:8px}.midiPadHeader{display:flex;align-items:center;gap:8px}.midiPadHeader input{min-width:0;flex:1}.midiPadFlash{width:9px;height:9px;flex:none;border-radius:50%;background:#62dfa0;box-shadow:0 0 8px #62dfa0;opacity:.15}.midiBindings{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:10px;color:var(--muted)}.midiBindings>span{display:inline-flex;align-items:center;gap:3px}.midiBindings .iconAction{width:22px;height:22px}.midiBindings .iconAction svg{width:12px;height:12px}.midiPads .inspectorBanner button{margin-left:8px}

@@ -62,7 +62,7 @@ export function hostEnginePort(initialPort,createEngine,options={}){
  let closed=false,port=null,requestId=0,sequence=0,lastRemoteSeq=0,inFlight=false,latest=null;
  const requests=new Map(),saved=new Map();let project=null,audioFile=null;
  const post=data=>{if(!closed&&port)port.postMessage(data)};
- function emit(event){if(event.type==='state'){latest=structuredClone(event);if(inFlight)return;inFlight=true}post({type:'event',event})}
+ function emit(event){if(event.type==='sources')saved.set('setSources',{sources:structuredClone(event.sources)});if(event.type==='state'){if(event.state.midiPads?.projectId&&project?.project?.id===event.state.midiPads.projectId)project.project.midiSlots=structuredClone(event.state.midiPads.slots);latest=structuredClone(event);if(inFlight)return;inFlight=true}post({type:'event',event})}
  const engine=createEngine({...options,emit,requestMedia:(id,cacheName)=>new Promise(resolve=>{
   if(!port){resolve(null);return}const key=++requestId,timer=setTimeout(()=>{requests.delete(key);resolve(null)},10000);
   requests.set(key,{resolve,timer});post({type:'media-request',requestId:key,id,cacheName});
@@ -71,7 +71,7 @@ export function hostEnginePort(initialPort,createEngine,options={}){
   if(type==='loadProject')project=structuredClone(p);
   else if(type==='updateArchetype'){const r=project?.records.find(r=>r.id===p.id);if(r)Object.assign(r,structuredClone(p.patch))}
   else if(type==='audioLoad'||type==='audioRestore'){if(p.blob)audioFile={blob:p.blob,name:p.name}}
-  else if(['setControls','setTransition','setQuality','setRenderScale','setDiagnostics'].includes(type))saved.set(type,structuredClone(p));
+  else if(['setMidiInput','setSources','setControls','setTransition','setQuality','setRenderScale','setDiagnostics'].includes(type))saved.set(type,structuredClone(p));
  }
  async function send(type,payload){const message=command(++sequence,type,payload);await engine.receive(message);remember(type,payload)}
  function detach(){port?.close();port=null;inFlight=false;for(const item of requests.values()){clearTimeout(item.timer);item.resolve(null)}requests.clear()}

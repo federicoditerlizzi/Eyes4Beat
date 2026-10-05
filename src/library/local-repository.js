@@ -1,3 +1,4 @@
+import {normalizeMidiSlots,mergeMidiSlots} from '../midi/pads.js';
 import { normalizeRoutingRecord } from '../routing-presets.js';
 import { sha256 } from '../package-format.js';
 import { LibraryRepository } from './repository.js';
@@ -71,14 +72,15 @@ export class LocalLibraryRepository extends LibraryRepository {
   }
   put(store, value) { return this.serializeWrite(() => this.write(store, (transaction, finish) => { transaction.objectStore(store).put(value);finish(value.id || value.key); })); }
 
-  async listProjects() { return (await this.getAll('projects')).filter(project => !project.deletedAt).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
-  getProject(projectId) { return this.get('projects', projectId); }
+  async listProjects() { return (await this.getAll('projects')).map(p=>({...p,midiSlots:normalizeMidiSlots(p.midiSlots)})).filter(project => !project.deletedAt).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
+  async getProject(projectId) { const p=await this.get('projects',projectId);return p?{...p,midiSlots:normalizeMidiSlots(p.midiSlots)}:p; }
   async createProject(name) {
-    const date = now(), project = { id: id(), name: String(name).trim(), ownerId: null, visibility: 'private', archetypeOrder: [], createdAt: date, updatedAt: date, version: 1, deletedAt: null };
+    const date = now(), project = { id: id(), name: String(name).trim(), ownerId: null, visibility: 'private', archetypeOrder: [], midiSlots:normalizeMidiSlots(), createdAt: date, updatedAt: date, version: 1, deletedAt: null };
     if (!project.name) throw new Error('Project name is required');
     await this.put('projects', project); return project;
   }
   async updateProject(projectId, changes) {
+    if(changes.midiSlots!==undefined)changes={...changes,midiSlots:normalizeMidiSlots(changes.midiSlots)};
     return this.serializeWrite(() => this.write(['projects'], (transaction, finish, abort) => {
       const store = transaction.objectStore('projects');
       store.get(projectId).onsuccess = event => {
@@ -112,6 +114,7 @@ export class LocalLibraryRepository extends LibraryRepository {
     const source = await this.getProject(projectId);
     if (!source || source.deletedAt) throw new Error('Project not found');
     const duplicate = await this.createProject(name || `${source.name} copy`);
+    await this.updateProject(duplicate.id,{midiSlots:normalizeMidiSlots(source.midiSlots)});
     const presetIds = new Map();
     for (const preset of await this.listLookPresets(projectId)) {
       const created = await this.createLookPreset(duplicate.id, preset.name, preset.look);
@@ -203,7 +206,7 @@ export class LocalLibraryRepository extends LibraryRepository {
   }
   getMedia(mediaId) { return this.get('media', mediaId); }
 
-  async importBatch({ projectId = null, projectName = '', archetypes: entries, lookPresets = [] }) {
+  async importBatch({ projectId = null, projectName = '', archetypes: entries, lookPresets = [], midiSlots }) {
     const date = now(), destinationId = projectId || id(), mediaRecords = new Map();
     const archetypeRecords = [];
     for (const source of entries) {
@@ -226,9 +229,10 @@ export class LocalLibraryRepository extends LibraryRepository {
         const existing = event.target.result;
         if (projectId && (!existing || existing.deletedAt)) return abort(new Error('Project not found'));
         if (!projectId && existing) return abort(new Error('Project already exists'));
-        const project = existing ? { ...existing, archetypeOrder: [...existing.archetypeOrder, ...archetypeRecords.map(item => item.id)],
+        let combinedSlots;try{combinedSlots=existing?mergeMidiSlots(existing.midiSlots,midiSlots):normalizeMidiSlots(midiSlots)}catch(error){return abort(error)}
+        const project = existing ? { ...existing, midiSlots:combinedSlots, archetypeOrder: [...existing.archetypeOrder, ...archetypeRecords.map(item => item.id)],
           version: existing.version + 1, updatedAt: date } : { id: destinationId, name: String(projectName).trim(), ownerId: null,
-          visibility: 'private', archetypeOrder: archetypeRecords.map(item => item.id), createdAt: date, updatedAt: date, version: 1, deletedAt: null };
+          visibility: 'private', midiSlots:combinedSlots, archetypeOrder: archetypeRecords.map(item => item.id), createdAt: date, updatedAt: date, version: 1, deletedAt: null };
         for (const item of mediaRecords.values()) media.get(item.id).onsuccess = mediaEvent => { if (!mediaEvent.target.result) media.put(item); };
         for (const item of presetRecords) transaction.objectStore('lookPresets').put(item);
         for (const item of archetypeRecords) transaction.objectStore('archetypes').put(item);

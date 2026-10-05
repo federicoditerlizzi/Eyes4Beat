@@ -43,11 +43,36 @@ test('tempo tracker follows a 90 to 120 BPM change', () => {
 });
 
 test('adaptive normalization is level invariant and full scale is not pinned', () => {
-  const averageActive = gain => { const result = run(kickTrain(48000, 120, 14, gain), 48000);const active = result.frames.slice(-400).filter(frame => !frame.gate);return active.reduce((sum, frame) => sum + frame.raw.energy, 0) / active.length; };
+  const averageActive = gain => { const result = run(kickTrain(48000, 120, 14, gain), 48000);const active = result.frames.slice(-400).filter(frame => !frame.gate);return active.reduce((sum, frame) => sum + frame.raw.level, 0) / active.length; };
   const quiet = averageActive(.1), loud = averageActive(.5), full = averageActive(1);assert.ok(Math.abs(quiet - loud) < .18);assert.ok(full < .9);
 });
 
 test('silence and calibrated noise floor produce zero states and no events', () => {
-  const silent = run(new Float32Array(48000 * 3), 48000);assert.deepEqual(silent.last.raw, { energy: 0, density: 0, drive: 0, boombap: 0, bright: 0, tension: 0, open: 0 });
+  const silent = run(new Float32Array(48000 * 3), 48000);assert.deepEqual(silent.last.raw, {level:0,low:0,bright:0,motion:0,full:0});
   const engine = new AnalysisEngine({ sampleRate: 48000 });engine.setCalibration({ rms: .01, bands: {} });const noise = new Float32Array(48000 * 2).fill(.005);let frame;for (let i = 0; i < noise.length; i += 128) frame = engine.push(noise.subarray(i, i + 128)) || frame;assert.equal(frame.gate, true);assert.equal(engine.kickTimes.length + engine.snareTimes.length, 0);
+});
+
+test('independent spectral sources separate bass and high frequencies and remain normalized',()=>{
+ const tone=(hz)=>Float32Array.from({length:48000*3},(_,i)=>.3*Math.sin(2*Math.PI*hz*i/48000));
+ const bass=run(tone(80),48000).last.raw,hat=run(tone(8000),48000).last.raw;
+ assert.ok(bass.low>.8&&hat.low<.1,JSON.stringify({bass,hat}));assert.ok(hat.bright>bass.bright+.5);
+ for(const value of Object.values({...bass,...hat}))assert.ok(value>=0&&value<=1);
+ assert.ok(Object.values(bass).every(v=>v<.99));
+});
+test('motion responds to a transient and settles on a steady tone',()=>{
+ const signal=new Float32Array(48000*4);for(let i=48000;i<signal.length;i++)signal[i]=.4*Math.sin(2*Math.PI*440*i/48000);
+ const {frames}=run(signal,48000),attack=frames.filter(f=>f.timestamp>1&&f.timestamp<1.2).map(f=>f.raw.motion),steady=frames.filter(f=>f.timestamp>3).map(f=>f.raw.motion);
+ assert.ok(Math.max(...attack)>.1);assert.ok(steady.reduce((a,b)=>a+b)/steady.length<Math.max(...attack)*.2);
+});
+test('fullness distinguishes noise from a sine and has continuous intermediate values',()=>{
+ let seed=42;const signal=new Float32Array(48000*5);for(let i=0;i<signal.length;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;const blend=i/signal.length;signal[i]=.3*((1-blend)*Math.sin(2*Math.PI*440*i/48000)+blend*(seed/2**31-1))}
+ const {frames}=run(signal,48000),values=frames.map(f=>f.raw.full);
+ assert.ok(values.at(-1)>values[40]+.4);assert.ok(new Set(values.map(v=>v.toFixed(3))).size>100);
+ assert.ok(values.every(v=>v>=0&&v<=1));assert.ok(values.slice(1).every((v,i)=>Math.abs(v-values[i])<.1));
+});
+test('kick and snare publish intensity proportional to hit strength',()=>{
+ const maxima=(signal,key)=>Math.max(...run(signal,48000).frames.map(f=>f.events[key]));
+ for(const [key,signal] of [['kick',kickTrain(48000,120,4)],['snare',snareTrain(48000,4)]]){
+  const soft=maxima(Float32Array.from(signal,v=>v*.2),key),loud=maxima(signal,key);assert.ok(soft>0&&loud>soft&&loud<=1,`${key}: ${soft}, ${loud}`);
+ }
 });

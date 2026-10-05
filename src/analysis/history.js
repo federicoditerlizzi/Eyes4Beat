@@ -1,8 +1,10 @@
 // Fixed storage with exact rolling order statistics; no per-update copies/sorts.
 export class SortedHistory {
-  constructor(capacity) { this.values = new Float64Array(capacity);this.sorted = new Float64Array(capacity);this.count = 0;this.head = 0;this.selections = new Uint32Array(capacity); }
-  push(value) {
-    const sorted = this.sorted;let count = this.count;
+  constructor(capacity) { this.input=new Float64Array(1);this.values = new Float64Array(capacity);this.sorted = new Float64Array(capacity);this.count = 0;this.head = 0;this.selections = new Uint32Array(capacity); }
+  // Numeric callers use input/append so V8 need not box a double at a call boundary.
+  push(value) { this.input[0]=value;this.append(); }
+  append() {
+    const value=this.input[0], sorted = this.sorted;let count = this.count;
     if (count === this.values.length) {
       const old = this.values[this.head];let lo = 0, hi = count;
       while (lo < hi) { const mid = (lo + hi) >>> 1;if (sorted[mid] < old) lo = mid + 1;else hi = mid; }

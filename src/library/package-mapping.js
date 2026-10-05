@@ -1,3 +1,5 @@
+import {withSourceDefinitions} from '../source-registry.js';
+import {midiSourceDefinitions} from '../midi/pads.js';
 import { normalizeRoutingRecord } from '../routing-presets.js';
 import { BLOOM_DEFAULTS } from '../bloom.js';
 import { blankMap } from '../config.js';
@@ -16,13 +18,17 @@ export function mapImportedMedia(archetype) {
   return { media, imageConfig: { ...structuredClone(archetype.imageConfig || {}), images: mappedImages } };
 }
 
-export function prepareImportedArchetype(archetype, formatVersion) {
+export function prepareImportedArchetype(archetype, formatVersion, midiSlots) {
+ const definitions=[...(archetype.origin?.sourceDefinitions||[]),...(midiSlots?midiSourceDefinitions(midiSlots):[])];
+ return withSourceDefinitions(definitions,()=>prepare(archetype,formatVersion,definitions));
+}
+function prepare(archetype,formatVersion,definitions){
   const mapped = mapImportedMedia(archetype);
   const factoryIndex = Number.isInteger(archetype.profile) ? archetype.profile : 0;
   const fallback = defaultImageConfig(mapped.media.length);
   const imageConfig = normalizeImageConfigStore({ configs: [mapped.imageConfig] }, [fallback]).configs[0];
   const routingMap = normalizeRoutingMap(archetype.routingMap, blankMap());
-  return { name: archetype.name, origin: { type: 'import', presetId: archetype.legacyId || archetype.id || null,
+  return { name: archetype.name, origin: { sourceDefinitions:definitions, type: 'import', presetId: archetype.legacyId || archetype.id || null,
     sourceId: archetype.id || archetype.legacyId || null, startingRoutingMap: structuredClone(routingMap) },
     look: normalizeLook({ ...(formatVersion === 1 ? lookForProfile(factoryIndex) : (archetype.look || lookForProfile(factoryIndex))),
       bloom: archetype.look?.bloom || BLOOM_DEFAULTS }),

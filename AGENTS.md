@@ -87,32 +87,30 @@ Keep live shortcuts available while the Image Manager is open, but not when focu
 
 BLACKOUT and PANIC are latched live-safety controls. BLACKOUT is a DOM overlay independent of WebGL; PANIC uses the pure `src/show-safety.js` calculation to override routed targets without mutating configuration. While PANIC is active, archetype transitions resolve immediately and `updateImageSequence()` only finishes an already-running media transition. B/P shortcuts follow the same typing, dialog, repeat and output-mode guards as the other controller shortcuts. The active engine applies safety; both control commands and output-local B/P shortcuts reach that same instance.
 
-## Musical feature model
+## Musical feature model and source registry
 
-Continuous sources exposed to the UI and routing matrix:
+`src/source-registry.js` is the single source catalog. Sources have `{ id, label, kind: 'continuous' | 'event', group }`; `registerSource`, `unregisterSource`, `getSources` and `subscribeSources` support input modules at runtime. `routeSources` in config is only a live derived compatibility view, never an independent list. Routing rows/selectors, presets, image mapped sources, particle burst triggers and diagnostics use the registry; burst options accept event sources only. BPM remains separate tempo state.
 
-- `energy`: RMS-derived loudness.
-- `density`: broadband/mid-band spectral occupancy.
-- `drive`: transient flux plus low-frequency presence with memory.
-- `boombap`: groove confidence derived from BPM confidence, percussive activity, and drive; it is not BPM itself.
-- `tension`: brightness, transient flux, and mid-vs-low balance.
-- `bright`: high-frequency emphasis relative to low frequencies.
-- `open`: inverse-ish combination of density/tension with some brightness.
+Built-in audio sources, normalized to 0–1:
 
-Rhythmic/event sources:
+- `level`: adaptive normalized RMS loudness.
+- `low`: smoothed low-band power ratio in dB (`sub + bass` relative to total), normalized over a fixed physical range; no transient contribution.
+- `bright`: smoothed spectral centroid on a logarithmic frequency scale.
+- `motion`: smoothed positive spectral flux, normalized independently of spectral balance.
+- `full`: smoothed normalized spectral entropy, continuous rather than a count of active bands.
+- `beat`, `kick`, `snare`: event intensities with decaying routing envelopes. Beat starts at 1; kick/snare use detector envelope relative to adaptive threshold. Event batches retain each event's intensity and timestamp.
 
-- `KickFast`: short envelope from low-band transient/presence.
-- `SnareFast`: short envelope from mid/high transient/presence.
-- `BeatPulse`: exponential pulse driven by the estimated beat clock.
-- `BPM` and `BPMConfidence`: lightweight autocorrelation over a 12-second onset history, searching 65–155 BPM and recalculating about once per second.
+The control integration surface is `window.EyesForBeatsSources`: `register(metadata)`, `unregister(id)`, `list()` and `publish({id: value})` (values 0–1). `setSources` and `setSourceValues` cross the engine protocol; registry metadata is replayed before project loading and retained in output recovery. Engine-origin registry changes publish the full catalog to control; command echoes are suppressed to preserve rapid edits. Non-audio sources do not require audio playback to route. Modules must register before loading their saved data. Unregistering removes selectors and clears their assignments to None. Archetype writes include extension metadata in `origin.sourceDefinitions`, allowing synchronous, record-scoped server validation without leaking a device registry between users.
 
-Treat these as perceptual heuristics, not production-grade source separation or beat tracking.
+`src/source-migration.js` migrates records, routing controls/presets and package imports v1/v2/v3: energy→level, drive→low, tension→motion, density→full, open→full with inverted weights/amounts; boombap and unregistered ids are dropped (mapped image/burst ids become None). Canonical nonzero routing weights win collisions; otherwise retain the strongest legacy weight. Existing projects may need retuning for the simpler source definitions. Keep source keys stable and source labels registry-driven.
+
+The analysis hot path uses typed numeric storage for intensities and five features, with two reserved slots retained in each transferable feature block. Sorted histories also expose typed `input`/`append()` to avoid boxing numeric arguments at DSP call boundaries. Avoid boxed event getter reads inside the AudioWorklet; offline/public views remain readable objects. Detectors and FFT algorithms are unchanged. Treat these measurements as perceptual heuristics, not source separation.
 
 ## Control and modulation model
 
 - Source On/Off, Amount, and Solo live in `modState` plus the `amt-*` inputs.
 - Every target has On/Solo (`targetState`), intensity (`globalCtl`) and musical reactivity (`globalAuto`). On/Solo gates the target independently of the source controls; intensity and reactivity multiply the routed signal rather than adding autonomous animation. Any target Solo isolates the soloed targets, as in the source panel.
-- Per-archetype routing maps assign at most one of 10 sources to each target. The ROUTING tab places source selectors directly in TARGETS rows; reassignment preserves the existing signed routing weight (new connections start at 1); a source may drive multiple targets. Legacy maps, imports and resets keep the strongest absolute weight for each target (ties use routeSources order), preserving its sign. Weights range from -1.5 to +1.5. Existing maps/presets without rotation, spiral or tile shuffle receive the new default connections without changing their old weights; those three intensity sliders default to zero.
+- Per-archetype routing maps assign at most one registered source to each target. The ROUTING tab places source selectors directly in TARGETS rows; reassignment preserves the existing signed routing weight (new connections start at 1); a source may drive multiple targets. Legacy maps, imports and resets keep the strongest absolute weight for each target (ties use routeSources order), preserving its sign. Weights range from -1.5 to +1.5. Existing maps/presets without rotation, spiral or tile shuffle receive the new default connections without changing their old weights; those three intensity sliders default to zero.
 - Routing uses raw normalized source values plus a square-root response curve so quieter signals remain visible. Beat, kick, and snare are event-like values. Negative weights invert unipolar effects and move bipolar targets below neutral.
 - Resulting `FinalG` targets are `pulse`, `dist`, `luma`, `sat`, `glow`, `parts`, `zoom`, `rotate`, `spiral` and `tiles`. Their neutral state is pulse/distortion/glow/particles/rotation/spiral/tile shuffle = 0 and luminance/saturation/zoom = 1. Rotation and spiral transform image UVs; tile shuffle permutes a fixed 12×8 grid in the fragment shader, with no extra textures or CPU-side media work.
 - If the selected input is inactive, all sources are disabled, routing is zero, or target intensity/reactivity is zero, the corresponding musical effect is neutral. FILE is active only during playback; LIVE is active only while its stream track is live. Image timers and media transitions remain independent.
@@ -244,3 +242,16 @@ Inspector structure is shared by `src/ui/inspector-layout.js`: every tab has a n
 Routing presets have stable `id` fields (legacy ids are migrated deterministically by `src/routing-presets.js`). Archetypes store `activeRoutingPresetId` and `routingControls`; D1 migration `0003_routing_preset_selection.sql` adds these columns. Packages keep their existing version and accept these optional fields. The modified indicator compares current controls/routing with the selected preset's data, without a captured baseline. Do not identify presets by their array position except to resolve numbered shortcuts to an id.
 
 Sync only emits library-change notifications for records whose newer versions were applied, not equal-version write echoes. The controller patches changed records and the active engine in place; structural/media changes rebuild runtime slots while retaining inspector state. Keep active preset ids, panel state and scroll position intact during refreshes.
+
+## MIDI foundation and AUDIO NONE
+
+The active engine alone owns `src/midi/input.js`: Web MIDI permission, remembered input (`eyes4beat_midi_input` in renderer-device localStorage), hot-plug and port teardown. UI uses `enumerateMidi` / `setMidiInput` protocol commands and the full `midi` snapshot; never open MIDI in the control window while an output is active. `src/midi/clock.js` parses event `timeStamp` values, 24-PPQN clock, Start/Stop/Continue, note velocity, CC and program changes. Project MIDI pad slots register named event sources from Note On; CC/program changes remain monitoring only. MIDI transport does not control file playback.
+
+The engine publishes one `tempo` state: fresh MIDI clock takes priority, falling back to the independently retained audio estimate after one second without clock. Start resets MIDI phase, Stop freezes it, Continue resumes it. INPUT has AUDIO NONE/FILE/LIVE and a separate MIDI selector. NONE stops live tracks, pauses playback, suspends the AudioContext and zeros audio sources; it retains the loaded file, trim and calibration values. Returning to FILE/LIVE resumes the shared graph. MIDI remains available with AUDIO NONE. Unsupported browsers show the Chrome/Edge requirement. See `docs/midi-foundation.md` for verification.
+
+
+## Project MIDI pad slots
+
+Projects own `midiSlots` (maximum 16, default KICK/SNARE/HAT/PERC). `src/midi/pads.js` validates stable IDs and unique note/channel bindings, owns engine-side one-shot Learn and token-confirmed moves, and registers `midi-pad` event sources. `src/event-envelope.js` shares the audio kick release constant with MIDI. Use MIDI event timestamps for decay, burst events and mapped-image hold decisions; never forward Note On from the control window. UI flashes are deliberately longer than the routing envelope.
+
+`setMidiSlots`, `learnMidiSlot` and `confirmMidiBinding` are serialized commands scoped by project ID. Full snapshots contain slots, pending Learn/conflict state and activity. Output recovery retains learned bindings even without control; UI adoption persists them using the project repository. Register project sources before normalizing its records. Record-scoped source metadata preserves presets/mappings during inactive-project reads and imports. D1 `0004_midi_slots.sql` adds project JSON storage. Packages stay v3 with an optional `project.midiSlots`; legacy packages get defaults. Device IDs never enter project/package data. See `docs/midi-pads.md` for import-merge behavior and the MPC checklist.

@@ -1,3 +1,4 @@
+import { getSource } from '../source-registry.js';
 import { transitionShaderId, resolveTransitionParam } from '../transitions.js';
 import { applyTransitionEasing, beatsToSeconds, classifyImageTrigger, effectiveBeatDwell, effectiveTransitionDuration, nextSequenceIndex, pickTransitionFromPool, quantizeToBeatGrid, resolvePendingImageRequest, resolveSequencerTempo, transitionRunsAsCut } from '../image-sequencer.js';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -5,7 +6,7 @@ export function createSequencer(getRuntime,renderer){
  const seqStates=[];
  const trackedMediaLoad=(...args)=>renderer.trackedMediaLoad(...args),swapTextureSlots=role=>renderer.swapTextureSlots(role);
 function createSequenceState(){
-return {current:0,next:1,blend:0,rawProgress:0,transitioning:false,loading:false,loadingTarget:null,pendingRequest:null,poolStates:{timed:{},event:{},manual:{}},orderState:{},shownHistory:[0],shownHistoryCursor:0,nextAutoAt:null,lastReliableBpm:0,scheduledTempo:null,transStart:0,durationMs:0,transitionId:'crossfade',transitionShaderId:transitionShaderId('crossfade'),seed:0,param:[0,0,0,0],easing:'linear',lastSwitch:performance.now(),lastMappedSignal:0}}
+return {current:0,next:1,blend:0,rawProgress:0,transitioning:false,loading:false,loadingTarget:null,pendingRequest:null,poolStates:{timed:{},event:{},manual:{}},orderState:{},shownHistory:[0],shownHistoryCursor:0,nextAutoAt:null,lastReliableBpm:0,scheduledTempo:null,transStart:0,durationMs:0,transitionId:'crossfade',transitionShaderId:transitionShaderId('crossfade'),seed:0,param:[0,0,0,0],easing:'linear',lastSwitch:performance.now(),lastMappedSignal:0,lastSourceEvent:0}}
 function orderedImages(a,enabledOnly=false){
  const {imageConfigs, IMAGE_SETS}=getRuntime();
  return imageConfigs[a].images.map((im,i)=>({i,order:im.order,enabled:im.enabled&&!IMAGE_SETS[a]?.[i]?.missing})).filter(x=>!enabledOnly||x.enabled).sort((x,y)=>x.order-y.order||x.i-y.i).map(x=>x.i);
@@ -35,14 +36,9 @@ function imageDwell(a,index,tempo=sequenceTempo(a)){
  return {seconds:Math.max(2,image.duration||10),tempo};
 }
 function mappedSourceValue(name,Eff){
- const {BeatPulse, KickFast, SnareFast}=getRuntime();
- if(name==='energy')return Eff.energy;if(name==='density')return Eff.density;if(name==='drive')return Eff.drive;
- if(name==='boombap')return Eff.boombap;if(name==='tension')return Eff.tension;if(name==='bright')return Eff.bright;if(name==='open')return Eff.open;
- if(name==='beat')return BeatPulse;if(name==='kick')return KickFast;if(name==='snare')return SnareFast;
- return Eff.energy;
+ const runtime=getRuntime();return runtime.sourceValues?.[name]??Eff[name]??({beat:runtime.BeatPulse,kick:runtime.KickFast,snare:runtime.SnareFast}[name]||0);
 }
-function mappedSourceIsEvent(name){
-return name==='beat'||name==='kick'||name==='snare'}
+function mappedSourceIsEvent(name){return getSource(name)?.kind==='event'}
 function navigationBase(s){
 return s.pendingRequest?.idx??s.loadingTarget??(s.transitioning?s.next:s.current)}
 function createSequenceTransition(a,from,to,triggerClass){
@@ -105,13 +101,16 @@ function updateImageSequence(now,Eff,freezeAdvances=false){
      s.nextAutoAt=(cfg.timeBase==='beats'?quantizeToBeatGrid(earliest,beatAnchorSec??s.lastSwitch/1000,60/dwell.tempo.bpm):earliest)*1000;
    }
    if(now>=s.nextAutoAt){s.nextAutoAt=Infinity;requestImageChange(a,chooseOrderedImage(a,1),'timed')}
- }else if(cfg.mode==='mapped'){
+ }else if(cfg.mode==='mapped'&&getSource(cfg.source)){
    const v=clamp(mappedSourceValue(cfg.source,Eff),0,1);
    const minDwell=imageDwell(a,s.current).seconds*1000;
    if(mappedSourceIsEvent(cfg.source)){
      const th=cfg.threshold||.55;
      // Rising-edge trigger: each detected Beat/Kick/Snare event advances one image in the chosen order.
-     if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,chooseOrderedImage(a,1),'event');
+     const event=getRuntime().sourceEvents?.[cfg.source];
+     if(getSource(cfg.source)?.group==='midi-pad'){
+       if(event&&event.serial!==s.lastSourceEvent){s.lastSourceEvent=event.serial;if(event.intensity>=th&&event.timestamp*1000-s.lastSwitch>=minDwell&&now-event.timestamp*1000<500)requestImageChange(a,chooseOrderedImage(a,1),'event')}
+     }else if(v>=th && s.lastMappedSignal<th && now-s.lastSwitch>=minDwell)requestImageChange(a,chooseOrderedImage(a,1),'event');
      s.lastMappedSignal=v;
    }else{
      // Continuous musical state: low values use early images, high values later images.

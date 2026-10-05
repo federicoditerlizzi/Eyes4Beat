@@ -1,3 +1,5 @@
+import {normalizeMidiSlots,mergeMidiSlots,midiSourceDefinitions} from '../midi/pads.js';
+import { extensionDefinitions } from '../source-registry.js';
 import { normalizeRoutingRecord } from '../routing-presets.js';
 import { LibraryRepository } from './repository.js';
 import { LocalLibraryRepository } from './local-repository.js';
@@ -8,7 +10,7 @@ export const LAST_SYNC_USER_KEY = 'eyes4beat_last_sync_user';
 const epoch = new Date(0).toISOString();
 const copy = value => structuredClone(value);
 const cacheName = email => `eyes4beat-cache-${cacheUserKey(email || 'offline')}`;
-const normalizeProject = value => ({ ...value, ownerEmail: value.owner_email ?? value.ownerEmail ?? null, updatedAt: value.updated_at ?? value.updatedAt, createdAt: value.created_at ?? value.createdAt, deletedAt: value.deleted_at ?? value.deletedAt ?? null });
+const normalizeProject = value => ({ ...value, midiSlots:normalizeMidiSlots(value.midiSlots), ownerEmail: value.owner_email ?? value.ownerEmail ?? null, updatedAt: value.updated_at ?? value.updatedAt, createdAt: value.created_at ?? value.createdAt, deletedAt: value.deleted_at ?? value.deletedAt ?? null });
 const normalizeArchetype = value => normalizeRoutingRecord({ ...value, updatedAt: value.updated_at ?? value.updatedAt, createdAt: value.created_at ?? value.createdAt, deletedAt: value.deleted_at ?? value.deletedAt ?? null });
 const normalizePreset = value => ({...value,updatedAt:value.updated_at??value.updatedAt,createdAt:value.created_at??value.createdAt,deletedAt:value.deleted_at??value.deletedAt??null});
 
@@ -119,7 +121,7 @@ export class SyncedLibraryRepository extends LibraryRepository {
   async putMedia(blob, mime) { return this.cache.putMedia(blob, mime); }
   updateProject(id, changes) { return this.localEdit('projects', id, changes); }
   updateArchetype(id, changes) { return this.localEdit('archetypes', id, changes); }
-  updateLookPreset(id, changes) { return this.localEdit('lookPresets', id, changes); }
+  updateLookPreset(id, changes) { return this.localEdit('lookPresets', id, changes.look ? {...changes,sourceDefinitions:extensionDefinitions()} : changes); }
   async hydrateProject(id, onProgress = () => {}) {
     const records = await this.cache.listArchetypes(id), refs = [...new Set(records.flatMap(item => item.media.map(media => media.mediaId)))];let done = 0;
     for (const mediaId of refs) if (!await this.cache.getMedia(mediaId)) { try { const blob = await this.api.getMedia(mediaId);await this.cache.replaceRecord('media', { id: mediaId, blob, mime: blob.type, size: blob.size, createdAt: new Date().toISOString() }); } catch {}onProgress(++done, refs.length); }
@@ -128,19 +130,23 @@ export class SyncedLibraryRepository extends LibraryRepository {
   async projectReadyOffline(id) { for (const item of await this.cache.listArchetypes(id)) for (const ref of item.media) if (!await this.cache.getMedia(ref.mediaId)) return false;return true; }
   async ensureMedia(refs) { let done = 0;for (const ref of refs) { if (!await this.api.headMedia(ref.mediaId)) { const saved = await this.cache.getMedia(ref.mediaId);if (!saved?.blob) throw new Error(`Missing local media: ${ref.name}`);await this.api.putMedia(ref.mediaId, saved.blob); }this.onState({ ...this.state, mediaProgress: { done: ++done, total: refs.length } }); } }
   async refreshProject(id) { const snapshot = await this.api.project(id);await this.cache.replaceRecord('projects', normalizeProject(snapshot.project));for (const item of snapshot.archetypes) await this.cache.replaceRecord('archetypes', normalizeArchetype(item));for (const item of snapshot.lookPresets) await this.cache.replaceRecord('lookPresets', normalizePreset(item));return normalizeProject(snapshot.project); }
-  async createProject(name, options = {}) { this.requireNetwork();const item = normalizeProject(await this.api.createProject({ id: options.id, name, visibility: options.visibility }));await this.cache.replaceRecord('projects', item);this.afterSuccessfulWrite();return item; }
+  async createProject(name, options = {}) { this.requireNetwork();const item = normalizeProject(await this.api.createProject({ id: options.id, name, visibility: options.visibility, midiSlots:options.midiSlots }));await this.cache.replaceRecord('projects', item);this.afterSuccessfulWrite();return item; }
   async deleteProject(id) { this.requireNetwork();const current = await this.cache.getProject(id);await this.api.deleteProject(id, current.version);await this.cache.removeProjectCache(id);this.afterSuccessfulWrite();return current; }
   async duplicateProject(id, name) { this.requireNetwork();const source = await this.cache.getProject(id);const created = normalizeProject(await this.api.duplicateProject(id, name || `${source.name} copy`));await this.refreshProject(created.id);this.afterSuccessfulWrite();return created; }
   async reorderArchetypes(id, ids) { this.requireNetwork();const current = await this.cache.getProject(id);const item = normalizeProject(await this.api.patchProject(id, { archetypeOrder: ids, if_version: current.version }));await this.cache.replaceRecord('projects', item);this.afterSuccessfulWrite();return item; }
   async setProjectVisibility(id, visibility) { this.requireNetwork();const current = await this.cache.getProject(id);const item = normalizeProject(await this.api.patchProject(id, { visibility, if_version: current.version }));await this.cache.replaceRecord('projects', item);this.afterSuccessfulWrite();return item; }
-  async createArchetype(projectId, data) { this.requireNetwork();await this.ensureMedia(data.media || []);const item = normalizeArchetype(await this.api.createArchetype(projectId, data));await this.cache.replaceRecord('archetypes', item);await this.refreshProject(projectId);this.afterSuccessfulWrite();return item; }
+  async createArchetype(projectId, data) { data={...data,origin:{...data.origin,sourceDefinitions:[...new Map([...extensionDefinitions(),...midiSourceDefinitions((await this.cache.getProject(projectId))?.midiSlots),...(data.origin?.sourceDefinitions||[])].map(s=>[s.id,s])).values()]}};this.requireNetwork();await this.ensureMedia(data.media || []);const item = normalizeArchetype(await this.api.createArchetype(projectId, data));await this.cache.replaceRecord('archetypes', item);await this.refreshProject(projectId);this.afterSuccessfulWrite();return item; }
   async deleteArchetype(id) { this.requireNetwork();const item = await this.cache.getArchetype(id);await this.api.deleteArchetype(id, item.version);await this.cache.removeRecord('archetypes', id);await this.refreshProject(item.projectId);this.afterSuccessfulWrite();return item; }
   async duplicateArchetype(id) { this.requireNetwork();const item = normalizeArchetype(await this.api.duplicateArchetype(id));await this.cache.replaceRecord('archetypes', item);await this.refreshProject(item.projectId);this.afterSuccessfulWrite();return item; }
-  async createLookPreset(projectId, name, look, options = {}) { this.requireNetwork();const item = normalizePreset(await this.api.createLookPreset(projectId, { id: options.id, name, look }));await this.cache.replaceRecord('lookPresets', item);this.afterSuccessfulWrite();return item; }
+  async createLookPreset(projectId, name, look, options = {}) { this.requireNetwork();const item = normalizePreset(await this.api.createLookPreset(projectId, { id: options.id, name, look, sourceDefinitions:options.sourceDefinitions||extensionDefinitions() }));await this.cache.replaceRecord('lookPresets', item);this.afterSuccessfulWrite();return item; }
   async deleteLookPreset(id) { this.requireNetwork();const item = await this.cache.get('lookPresets', id);await this.api.deleteLookPreset(id, item.version);await this.cache.removeRecord('lookPresets', id);this.afterSuccessfulWrite();return item; }
-  async importBatch({ projectId = null, projectName, archetypes, lookPresets = [] }) {
-    this.requireNetwork();let project = projectId ? await this.cache.getProject(projectId) : await this.createProject(projectName);const createdArchetypes = [], createdPresets = [];
-    try { for (const entry of archetypes) { for (const media of entry.media) { const saved = await this.cache.putMedia(media.blob, media.mime);media.mediaId = saved.id;media.size = saved.size; }createdArchetypes.push(await this.createArchetype(project.id, entry)); }for (const item of lookPresets) createdPresets.push(await this.createLookPreset(project.id, item.name, item.look)); }
+  async importBatch({ projectId = null, projectName, archetypes, lookPresets = [], midiSlots }) {
+    this.requireNetwork();const existing=projectId?await this.cache.getProject(projectId):null;
+    const merged=existing?mergeMidiSlots(existing.midiSlots,midiSlots):normalizeMidiSlots(midiSlots);
+    let project=existing||await this.createProject(projectName,{midiSlots:merged});const createdArchetypes = [], createdPresets = [];
+    try { for (const entry of archetypes) { for (const media of entry.media) { const saved = await this.cache.putMedia(media.blob, media.mime);media.mediaId = saved.id;media.size = saved.size; }createdArchetypes.push(await this.createArchetype(project.id, entry)); }for (const item of lookPresets) createdPresets.push(await this.createLookPreset(project.id, item.name, item.look,{sourceDefinitions:midiSourceDefinitions(merged)}));
+    if(existing&&midiSlots!==undefined){project=normalizeProject(await this.api.patchProject(project.id,{midiSlots:merged,if_version:(await this.cache.getProject(project.id)).version}));await this.cache.replaceRecord('projects',project)}
+    }
     catch (error) {
       if (!projectId) try { await this.deleteProject(project.id); } catch {}
       else { for (const item of createdArchetypes.reverse()) try { await this.deleteArchetype(item.id); } catch {}for (const item of createdPresets.reverse()) try { await this.deleteLookPreset(item.id); } catch {} }
@@ -151,7 +157,7 @@ export class SyncedLibraryRepository extends LibraryRepository {
   async migrateLocalProjects(source) {
     this.requireNetwork();const migrated = [];
     for (const localProject of await source.listProjects()) {
-      const project = await this.createProject(localProject.name, { id: localProject.id, visibility: localProject.visibility });
+      const project = await this.createProject(localProject.name, { id: localProject.id, visibility: localProject.visibility, midiSlots:localProject.midiSlots });
       try {
         for (const preset of await source.listLookPresets(localProject.id)) await this.createLookPreset(project.id, preset.name, preset.look, { id: preset.id });
         const records = new Map((await source.listArchetypes(localProject.id)).map(item => [item.id, item]));

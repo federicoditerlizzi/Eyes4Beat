@@ -95,6 +95,12 @@ export class AudioInputController {
     this.liveStream = null;this.liveTrack = null;this.liveSource = null;
   }
 
+  async activateNone() {
+    this.inputGeneration++;this.audio.pause();this.disconnectCurrentInput();this.stopLiveTracks();
+    this.mode='none';this.deviceId='none';this.deviceLabel='Audio disabled';this.setCalibrationCapture(false);this.resetAnalysis(true);
+    if(this.context?.state==='running')await this.context.suspend();
+  }
+
   async activateFile() {
     await this.ensureContext();if(this.destroyed)return;this.inputGeneration++;this.disconnectCurrentInput();this.stopLiveTracks();
     if (!this.mediaSource) this.mediaSource = this.context.createMediaElementSource(this.audio);
@@ -124,7 +130,7 @@ export class AudioInputController {
   }
 
   get inputActive() {
-    if (!this.analysisNode) return false;
+    if (!this.analysisNode || this.mode==='none') return false;
     if (this.mode === 'file') return !this.audio.paused && !this.audio.ended;
     return this.liveTrack?.readyState === 'live' && this.liveTrack.enabled;
   }

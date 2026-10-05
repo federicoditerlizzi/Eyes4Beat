@@ -125,3 +125,34 @@ test('unacknowledged commands reject with an explicit uncertain-delivery error o
  server.postMessage({type:'ready',protocol:1});await remote.ready;
  const sent=remote.send('audioPause');await tick();const rejected=assert.rejects(sent,/acknowledgement missing/);remote.disconnect();await rejected;
 });
+
+test('registry metadata is replayed before projects and survives control reconnection',async()=>{
+ const sources=[{id:'pad',label:'Pad',kind:'event',group:'midi'}],log=[];
+ const session=new EngineSession(()=>fakeTransport('local',log));
+ await session.send('setSources',{sources});await session.send('loadProject',{project:{id:'p',archetypeOrder:[]},records:[],cacheName:'cache'});
+ await session.switchTo(()=>fakeTransport('remote',log));
+ assert.deepEqual(log.filter(item=>item.name==='remote').slice(0,2).map(item=>item.type),['setSources','loadProject']);
+ const [client,server]=ports();let emit;
+ const host=hostEnginePort(server,options=>{emit=options.emit;return {receive:async()=>{},dispose:async()=>{}}});
+ const remote=new RemoteTransport(client);await remote.send('setSources',{sources});await remote.send('loadProject',{project:{id:'p',archetypeOrder:[]},records:[],cacheName:'cache'});
+ emit(snapshot(1,2,{targetId:null,transport:{paused:true}}));await tick();remote.detach();
+ const [nextClient,nextServer]=ports(),next=new RemoteTransport(nextClient);host.attach(nextServer);await next.ready;
+ assert.deepEqual(new Map(next.recovery.saved).get('setSources'),{sources});await next.dispose();
+});
+
+test('MIDI selection and audio NONE survive engine handover',async()=>{
+ const log=[];let local;const session=new EngineSession(()=>local=fakeTransport('local',log));
+ await session.send('setMidiInput',{device:'mpc'});
+ local.emit({transport:{mode:'none',paused:true,volume:1,muted:false,trim:0,currentTime:0}});
+ await session.switchTo(()=>fakeTransport('remote',log));
+ assert.deepEqual(log.find(e=>e.name==='remote'&&e.type==='setMidiInput').payload,{device:'mpc'});
+ assert.equal(log.find(e=>e.name==='remote'&&e.type==='audioRestore').payload.mode,'none');
+});
+
+test('engine-learned bindings are authoritative in output recovery and local replay',async()=>{
+ const [client,server]=ports();let emit;const host=hostEnginePort(server,options=>{emit=options.emit;return {receive:async()=>{},dispose:async()=>{}}});const remote=new RemoteTransport(client);
+ await remote.send('loadProject',{project:{id:'p',archetypeOrder:[],midiSlots:[]},records:[],cacheName:'cache'});
+ const slots=[{id:'midi_pad_kick',name:'KICK',bindings:[{note:36,channel:10}]}];emit(snapshot(1,1,{midiPads:{projectId:'p',slots},transport:{mode:'none',paused:true,volume:1,muted:false,currentTime:0}}));await tick();remote.detach();
+ const [nextClient,nextServer]=ports(),next=new RemoteTransport(nextClient);host.attach(nextServer);await next.ready;assert.deepEqual(next.recovery.project.project.midiSlots,slots);
+ const log=[],session=new EngineSession(()=>fakeTransport('local',log));await session.switchTo(()=>next,{adopt:true});await session.useLocal();assert.deepEqual(log.findLast(e=>e.type==='loadProject').payload.project.midiSlots,slots);await session.transport.dispose();
+});

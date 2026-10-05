@@ -7,7 +7,7 @@ export class AdaptiveTrigger {
   push(value, time) { this.input[0] = value;this.input[1] = time;this.update();return this.result; }
   update() {
     const value = this.input[0], time = this.input[1];
-    this.history.push(value);
+    this.history.input[0]=value;this.history.append();
     const sorted = this.history.sorted, count = this.history.count, middle = Math.floor(count / 2), median = sorted[middle];
     // Merge the two already sorted halves by distance from the median.
     let left = middle - 1, right = middle, deviation = 0;

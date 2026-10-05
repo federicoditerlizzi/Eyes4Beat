@@ -15,8 +15,8 @@ class FakeApi {
   async patchArchetype(id, data) { this.patches.push({ id, data });if (this.conflict) { const error = new Error('conflict');error.status = 409;error.current = this.conflict;throw error; }return { ...this.remote, id, ...data, version: data.if_version + 1, if_version: undefined, updated_by: 'a@example.com' }; }
   async headMedia(id) { return this.media.has(id); }
   async putMedia(id, blob) { if (this.failUpload) throw new Error('upload failed');this.media.set(id, blob); }
-  async createProject(data) { this.currentProject = { ...project(data.id), name: data.name };return this.currentProject; }
-  async createArchetype(projectId, data) { this.created = data;this.createdItems.push({ ...data, projectId, version: 1 });return { ...data, projectId, version: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; }
+  async createProject(data) { this.currentProject = { ...project(data.id), name: data.name, midiSlots:data.midiSlots };return this.currentProject; }
+  async createArchetype(projectId, data) { data={...data,id:data.id||crypto.randomUUID()};this.created = data;this.createdItems.push({ ...data, projectId, version: 1 });return { ...data, projectId, version: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; }
   async createLookPreset(_projectId, data) { return { ...data, version: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; }
   async project(id) { return { project: { ...(this.currentProject?.id === id ? this.currentProject : project(id)), archetypeOrder: this.createdItems.filter(item => item.projectId === id).map(item => item.id) }, archetypes: this.createdItems.filter(item => item.projectId === id), lookPresets: [] }; }
 }
@@ -78,4 +78,23 @@ test('own write echo at the acknowledged version emits no library change; newer 
  api.changeSets.push({archetypes:[{...acknowledged,version:acknowledged.version+1,name:'Remote'}],serverTime:new Date().toISOString()});await sync.pull();
  assert.equal(changes.length,1);assert.deepEqual(changes[0].records,[{store:'archetypes',id:item.id,projectId:p.id,removed:false}]);
  assert.equal((await sync.getArchetype(item.id)).activeRoutingPresetId,'stable');await sync.cache.close();
+});
+
+test('project MIDI bindings survive a local-first push, echo and a second client pull',async()=>{
+ const api=new FakeApi(),sync=repo(api),p=project(),slots=[{id:'midi_pad_snare',name:'SNARE',bindings:[{note:38,channel:10},{note:40,channel:10}]}];
+ api.changeSets.push({projects:[p],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:01:00.000Z'});await sync.pull();
+ let written;api.patchProject=async(id,data)=>(written={...p,...data,id,version:data.if_version+1});
+ await sync.updateProject(p.id,{midiSlots:slots});await sync.pushDirty();assert.deepEqual((await sync.getProject(p.id)).midiSlots,slots);
+ api.changeSets.push({projects:[written],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:02:00.000Z'});await sync.pull();assert.deepEqual((await sync.getProject(p.id)).midiSlots,slots);
+ const otherApi=new FakeApi(),other=new SyncedLibraryRepository({api:otherApi,email:'midi-other@example.com'});otherApi.changeSets.push({projects:[written],archetypes:[],lookPresets:[],serverTime:'2026-01-01T00:02:00.000Z'});await other.pull();assert.deepEqual((await other.getProject(p.id)).midiSlots,slots);
+ clearTimeout(sync.pushTimer);clearTimeout(other.pushTimer);await sync.cache.close();await other.cache.close();
+});
+
+test('import preserves custom MIDI source metadata even when another project registry is active',async()=>{
+ const {prepareImportedArchetype}=await import('../src/library/package-mapping.js');
+ const api=new FakeApi(),sync=repo(api),id='midi_pad_custom_import',slots=[{id,name:'COWBELL',bindings:[{note:56,channel:10}]}];
+ const entry=prepareImportedArchetype({id:'old',name:'Scene',look:{},routingMap:{[id]:{pulse:1}},imageConfig:{mode:'mapped',source:id},musicPresets:[{name:'Pads',routing:{[id]:{pulse:1}},amounts:{[id]:.8}}],media:[]},3,slots);
+ const result=await sync.importBatch({projectName:'Imported MPC',archetypes:[entry],midiSlots:slots});
+ assert.deepEqual(result.project.midiSlots,slots);assert.ok(api.created.origin.sourceDefinitions.some(s=>s.id===id));assert.equal(result.archetypes[0].routingMap[id].pulse,1);assert.equal(result.archetypes[0].musicPresets[0].amounts[id],.8);
+ clearTimeout(sync.pushTimer);await sync.cache.close();
 });

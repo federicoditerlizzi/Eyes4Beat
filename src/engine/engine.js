@@ -1,3 +1,7 @@
+import {MidiPads,syncMidiSources,midiSourceDefinitions} from '../midi/pads.js';
+import { MidiInput } from '../midi/input.js';
+import { resolveInputTempo } from '../midi/clock.js';
+import { sourceRegistry, getSources, getSource, replaceSources, subscribeSources, isBuiltinAudioSource } from '../source-registry.js';
 import { createEffects } from './effects.js';
 import { createRenderer } from './renderer.js';
 import { createEngineAudio } from './audio.js';
@@ -13,7 +17,8 @@ import { createSequencer } from './sequencer.js';
 export function createVisualEngine({canvas,particleCanvas,blackoutOverlay,audioLocked=false,requestMedia=async()=>null,onRendered=()=>{},emit}){
 const pcanvas=particleCanvas,ctx=pcanvas.getContext('2d');
 let disposed=false,raf=0,mediaGeneration=0;
-const neutralVals={energy:0,density:0,drive:0,boombap:0,tension:0,bright:0,open:.60};
+const neutralVals=Object.fromEntries(routeSources.map(id=>[id,0]));
+const externalValues={};let replacingSources=false;
 let activeProject=null,archetypes=[],IMAGE_SETS=[],looks=[],routingMaps=[],imageConfigs=[],idToIndex=new Map();
 let current=0,target=0,archMix=0,transitioning=false,mode='smooth',transitionStart=0;
 let projectSwitching=false,deletingArchetype=false,archetypeSelectionBusy=false,queuedArchetype=null;
@@ -21,6 +26,9 @@ let blackoutActive=false,panicActive=false,liveLock=false,panicReleaseStartedAt=
 let controls={enabled:{},solo:{},amounts:{},intensity:{},reactivity:{},targetEnabled:{},targetSolo:{},ctxPerf:0,globalReact:1};
 let FinalG={...NEUTRAL_TARGETS},S={...neutralVals},Raw={...neutralVals},Fast={...neutralVals},Context={...neutralVals};
 let BPM=0,BPMConfidence=0,beatAnchorSec=null,BeatPulse=0,KickFast=0,SnareFast=0,latestAnalysis=null;
+let audioTempo=null,tempoState={source:'none',bpm:0,confidence:0,phase:0,running:false,anchorSec:null};
+const pads=new MidiPads();
+const midi=new MidiInput({onEvent:message=>{const revision=pads.revision,learning=pads.learning;const event=pads.receive(message);if(revision!==pads.revision||learning!==pads.learning)publish(performance.now(),undefined,true);if(event&&!panicActive){pendingVisualEvents.push({...event,receivedAt:message.timestamp});if(pendingVisualEvents.length>64)pendingVisualEvents.shift()}}});
 let renderFps=60;
 const renderer=createRenderer(canvas,(a,i)=>IMAGE_SETS[a][i],message=>emit({type:'error',source:'renderer',message}));
 const trackedMediaLoad=(...args)=>renderer.trackedMediaLoad(...args),swapTextureSlots=role=>renderer.swapTextureSlots(role);
@@ -28,45 +36,33 @@ const input=createEngineAudio({locked:audioLocked,onFeatures:applyAnalysisFeatur
 const inputController=input.controller;
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function getEffectiveState(){
-  const anySolo = Object.values(controls.solo).some(Boolean);
-  const out = {};
-  ['energy','density','drive','boombap','tension','bright','open'].forEach(k=>{
-    const active = anySolo ? controls.solo[k] : controls.enabled[k];
-    const amt = Number(controls.amounts[k]||0);
-    const m = active ? amt : 0;
-    out[k] = neutralVals[k] + (S[k]-neutralVals[k]) * m;
-  });
-  return out;
+ const out={};for(const source of sourceRegistry){const k=source.id,value=!isBuiltinAudioSource(source.id)?(externalValues[k]||0):k==='beat'?BeatPulse:k==='kick'?KickFast:k==='snare'?SnareFast:S[k]||0;
+ if(isBuiltinAudioSource(k)&&!inputController.inputActive){out[k]=0;continue}
+ const amount=Number(controls.amounts[k]??1);out[k]=sourceActive(k)?(amount<0?1-value:value)*Math.abs(amount):0;
+ }return out;
 }
 function sourceActive(k){
-  const anySolo=Object.values(controls.solo).some(Boolean);
-  return anySolo ? controls.solo[k] : controls.enabled[k];
+  const anySolo=sourceRegistry.some(source=>!!controls.solo[source.id]);
+  return anySolo ? !!controls.solo[k] : controls.enabled[k]!==false;
 }
 function computeGlobalMapping(Eff,now){
   const map=routingMaps[target];
   const live=!!inputController?.inputActive;
-  const amount=k=>Number(controls.amounts[k]||0);
-  const continuous={energy:Eff.energy,density:Eff.density,drive:Eff.drive,boombap:Eff.boombap,tension:Eff.tension,bright:Eff.bright,open:Eff.open};
   const rawSrc={},activeSrc={};
-  routeSources.forEach(k=>{
-    activeSrc[k]=live&&sourceActive(k);
-    if(!activeSrc[k]){rawSrc[k]=0;return}
-    let v;if(k==='beat')v=BeatPulse*amount(k);else if(k==='kick')v=KickFast*amount(k);else if(k==='snare')v=SnareFast*amount(k);else v=continuous[k];
-    rawSrc[k]=clamp(v,0,1.5);
-  });
+  for(const source of sourceRegistry){const k=source.id;activeSrc[k]=(!isBuiltinAudioSource(source.id)||live)&&sourceActive(k);rawSrc[k]=activeSrc[k]?clamp(Eff[k]||0,0,1.5):0}
   const intensity={},reactivity={};
   routeTargets.forEach(k=>{intensity[k]=controls.intensity[k];reactivity[k]=controls.reactivity[k]});
   const activeTargets=resolveTargetActivity({enabled:controls.targetEnabled,solo:controls.targetSolo});
   FinalG=computeTargetState({map,sources:rawSrc,activeSources:activeSrc,activeTargets,intensity,reactivity,globalReactivity:controls.globalReact});
   return FinalG;
 }
-const sequencer=createSequencer(()=>({imageConfigs,IMAGE_SETS,BPM,BPMConfidence,BeatPulse,KickFast,SnareFast,target,beatAnchorSec,projectSwitching,deletingArchetype,panicActive,archetypeSelectionBusy,mediaGeneration,disposed,archetypes}),renderer);
+const sequencer=createSequencer(()=>({imageConfigs,IMAGE_SETS,BPM,BPMConfidence,BeatPulse,KickFast,SnareFast,target,beatAnchorSec,projectSwitching,deletingArchetype,panicActive,archetypeSelectionBusy,mediaGeneration,disposed,archetypes,sourceValues:getEffectiveState(),sourceEvents:Object.fromEntries(Object.entries(pads.hits).map(([id,hit])=>[id,{...hit,intensity:sourceActive(id)?hit.intensity*Math.abs(Number(controls.amounts[id]??1)):0}]))}),renderer);
 const {seqStates,createSequenceState,sequenceTempo,imageDwell,loadArchetypeIntoRole,advanceSequenceTransition,requestImageChange,chooseOrderedImage,updateImageSequence}=sequencer;
 function sequenceSnapshot(a){const s=seqStates[a];return {current:s.current,next:s.next,blend:s.blend,rawProgress:s.rawProgress,transitioning:s.transitioning,loading:s.loading}}
 
 const pendingVisualEvents=[];let lastFeatureAt=0;
-const effects=createEffects(pcanvas,event=>inputController.inputActive&&sourceActive(event.type)?event.intensity*Number(controls.amounts[event.type]||0):0);
-function resetVisualEffects(){pendingVisualEvents.length=0;effects.reset()}
+const effects=createEffects(pcanvas,event=>(!isBuiltinAudioSource(event.type)||inputController.inputActive)&&sourceActive(event.type)?event.intensity*Number(controls.amounts[event.type]||0):0);
+function resetVisualEffects(){pads.clear();pendingVisualEvents.length=0;for(const source of sourceRegistry)if(source.kind==='event')externalValues[source.id]=0;effects.reset()}
 function smoothstep(x){return x*x*(3-2*x)}
 function setPanic(value){
  const next=!!value;if(next===panicActive)return panicActive;
@@ -76,18 +72,19 @@ function setPanic(value){
 return panicActive;
 }
 function setBlackout(value){blackoutActive=!!value;blackoutOverlay.classList.toggle('active',blackoutActive);return blackoutActive}
-function resetInputState(resetLayers=false){pendingVisualEvents.length=0;BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;if(resetLayers){Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}}
-function neutralizeInputState(){inputController.resetAnalysis(true);pendingVisualEvents.length=0;BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}
+function discardAudioEvents(){for(let i=pendingVisualEvents.length-1;i>=0;i--)if(isBuiltinAudioSource(pendingVisualEvents[i].type))pendingVisualEvents.splice(i,1)}
+function resetInputState(resetLayers=false){audioTempo=null;discardAudioEvents();BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;if(resetLayers){Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}}
+function neutralizeInputState(){audioTempo=null;inputController.resetAnalysis(true);discardAudioEvents();BPM=0;BPMConfidence=0;beatAnchorSec=null;BeatPulse=0;KickFast=0;SnareFast=0;latestAnalysis=null;Raw={...neutralVals};Fast={...neutralVals};Context={...neutralVals};S={...neutralVals}}
 function applyAnalysisFeatures(features){
  if(disposed)return;latestAnalysis=features;if(!inputController.inputActive)return neutralizeInputState();
  const now=performance.now();lastFeatureAt=now;
  if(!panicActive){for(const event of features.eventBatch||[]){if(eventSourceIds().includes(event.type)&&features.timestamp-event.timestamp<.5)pendingVisualEvents.push({...event,intensity:event.intensity??1,receivedAt:now})}if(pendingVisualEvents.length>64)pendingVisualEvents.splice(0,pendingVisualEvents.length-64)}
- Raw={...features.raw};BPM=features.tempo.bpm;BPMConfidence=features.tempo.confidence;beatAnchorSec=BPM>0?features.timestamp-features.tempo.phase*60/BPM:null;
- BeatPulse=features.events.beat?Math.max(.35,BPMConfidence):features.beat;
- KickFast=features.events.kick?1:features.kick;SnareFast=features.events.snare?1:features.snare;
+ Raw={...features.raw};audioTempo={...features.tempo,receivedAt:now};
+ BeatPulse=features.beat;
+ KickFast=features.kick;SnareFast=features.snare;
  Fast={...features.fast};Context={...features.context};
  const mix=controls.ctxPerf,blend=(fast,context,shape)=>{const weight=Math.max(0,Math.min(1,mix*shape));return fast*(1-weight)+context*weight};
- S.energy=blend(Fast.energy,Context.energy,.95);S.density=blend(Fast.density,Context.density,1);S.drive=blend(Fast.drive,Context.drive,.92);S.boombap=Fast.boombap*.8+Context.boombap*.2;S.bright=blend(Fast.bright,Context.bright,1);S.tension=blend(Fast.tension,Context.tension,1.08);S.open=blend(Fast.open,Context.open,1.12);
+ for(const source of sourceRegistry)if(source.kind==='continuous'&&isBuiltinAudioSource(source.id))S[source.id]=blend(Fast[source.id]||0,Context[source.id]||0,1);
 }
 async function selectArchetype(a){
  if(!Number.isInteger(a)||a<0||a>=archetypes.length)return;
@@ -112,11 +109,15 @@ async function selectArchetype(a){
 function resize(){renderer.resize();effects.resize(innerWidth,innerHeight)}
 let t0=performance.now(),last=performance.now();
 function start(){raf=requestAnimationFrame(frame)}
+function updateTempo(now){tempoState=resolveInputTempo(audioTempo,midi.clock.snapshot(now),now);BPM=tempoState.bpm;BPMConfidence=tempoState.confidence;beatAnchorSec=tempoState.anchorSec}
 function frame(now){
  if(disposed)return;
+ updateTempo(now);
+ Object.assign(externalValues,pads.values(now));
  if(renderer.lost){raf=requestAnimationFrame(frame);return}
  resize();
  const dt=Math.max(0,(now-last)/1000);renderFps=renderFps*.95+.05*(1000/Math.max(1,now-last));last=now;
+ for(const source of sourceRegistry)if(!isBuiltinAudioSource(source.id)&&source.group!=='midi-pad'&&source.kind==='event')externalValues[source.id]=(externalValues[source.id]||0)*Math.exp(-dt/0.12);
  if(!archetypes.length){renderer.clear();effects.clear();onRendered();publish(now);raf=requestAnimationFrame(frame);return}
  const Eff=getEffectiveState();
  const routedTargets=computeGlobalMapping(Eff,now);
@@ -126,7 +127,7 @@ function frame(now){
  if(!projectSwitching&&!archetypeSelectionBusy)updateImageSequence(now,Eff,panicActive);
  if(transitioning){let x=Math.min(1,(now-transitionStart)/6500);archMix=smoothstep(x);if(x>=1){current=target;archMix=1;transitioning=false}}
  const lookA=looks[current],lookB=looks[target],visualTime=(now-t0)/1000;
- effects.update({time:visualTime,dt,lookA,lookB,current:archetypes[current]?.id,target:archetypes[target]?.id,FinalG,panicActive,palette:renderer.palette(1,seqStates[target]?.blend>.5?1:0),BPM,latestAnalysis,lastFeatureAt,events:pendingVisualEvents.splice(0).filter(event=>performance.now()-event.receivedAt<500)});
+ effects.update({time:visualTime,dt,lookA,lookB,current:archetypes[current]?.id,target:archetypes[target]?.id,FinalG,panicActive,palette:renderer.palette(1,seqStates[target]?.blend>.5?1:0),BPM,tempo:tempoState,latestAnalysis,lastFeatureAt,events:pendingVisualEvents.splice(0).filter(event=>performance.now()-event.receivedAt<500)});
  const motion=effects.uniforms();
  renderer.draw({lookA,lookB,sequenceA:seqStates[current],sequenceB:seqStates[target],visualTime,motion,motionElapsed:0,breath:motion?.breath||0,FinalG,archMix,transitioning});
  effects.draw(visualTime,dt,lookB,FinalG);onRendered();publish(now,Eff);raf=requestAnimationFrame(frame);
@@ -141,12 +142,13 @@ function publish(now,eff=getEffectiveState(),force=false){
  images:seqStates.map((s,a)=>({id:archetypes[a].id,index:s.transitioning&&s.blend>=.5?s.next:s.current})),
  sequences:seqStates.map((s,a)=>({...sequenceSnapshot(a),loading:s.loading,lastReliableBpm:s.lastReliableBpm})),
  imageTiming:seqStates.map((s,a)=>({tempo:sequenceTempo(a),dwell:imageConfigs[a].images.map((_,i)=>imageDwell(a,i))})),
- finalG:FinalG,eff,raw:Raw,fast:Fast,context:Context,bpm:BPM,bpmConfidence:BPMConfidence,beat:BeatPulse,kick:KickFast,snare:SnareFast,
- analysis:latestAnalysis,transport:input.snapshot(),blackout:blackoutActive,panic:panicActive,liveLock,fps:renderFps,renderer:renderer.diagnostics,outputSettings:renderer.outputSettings
+ sources:getSources(),finalG:FinalG,eff,raw:Raw,fast:Fast,context:Context,bpm:BPM,bpmConfidence:BPMConfidence,beat:BeatPulse,kick:KickFast,snare:SnareFast,
+ tempo:tempoState,midi:midi.snapshot(now),midiPads:pads.snapshot(now),analysis:latestAnalysis,transport:input.snapshot(),blackout:blackoutActive,panic:panicActive,liveLock,fps:renderFps,renderer:renderer.diagnostics,outputSettings:renderer.outputSettings
  }));
 }
 async function loadProject({project,records,cacheName,preferredId,imagePositions=[]}){
  projectSwitching=true;mediaGeneration++;renderer.invalidateLoads();
+ pads.load(project?.id||null,project?.midiSlots);syncMidiSources(pads.slots);
  try{
  await renderer.waitForLoads();if(disposed)return;
  if(cache?.name!==cacheName){await cache?.close();cache=new LocalLibraryRepository(cacheName)}
@@ -186,11 +188,18 @@ function launch(operation){Promise.resolve(operation).catch(error=>emit({type:'e
 async function apply({type,payload:p}){
  if(disposed)throw new Error('Engine disposed');
  switch(type){
-  case 'loadProject':await loadProject(p);break;
+  case 'loadProject':await loadProject(p);if(!audioLocked)launch(midi.initialize());break;
+  case 'setMidiSlots':if(p.projectId===activeProject?.id&&JSON.stringify(p.slots)!==JSON.stringify(pads.slots)){pads.set(p.slots);activeProject.midiSlots=pads.slots;syncMidiSources(pads.slots)}break;
+  case 'learnMidiSlot':if(p.projectId===activeProject?.id)pads.learn(p.slotId);break;
+  case 'confirmMidiBinding':if(p.projectId===activeProject?.id)pads.confirm(p.token,p.accept);break;
   case 'updateArchetype':updateArchetype(p);break;
   case 'selectArchetype':launch(selectArchetype(idToIndex.get(p.id)));break;
   case 'imageStep':{const a=idToIndex.get(p.id);if(a!=null)launch(requestImageChange(a,chooseOrderedImage(a,p.direction),p.trigger||'manual'));break}
   case 'imageGoto':{const a=idToIndex.get(p.id);if(a!=null)launch(requestImageChange(a,p.index,p.trigger||'manual'));break}
+  case 'enumerateMidi':launch(midi.enumerate());break;
+  case 'setMidiInput':launch(midi.select(p.device));break;
+  case 'setSources':replacingSources=true;try{replaceSources([...p.sources.filter(source=>source.group!=='midi-pad'),...midiSourceDefinitions(pads.slots)])}finally{replacingSources=false}break;
+  case 'setSourceValues':for(const [id,value] of Object.entries(p.values)){const source=getSource(id);if(!source||isBuiltinAudioSource(source.id))continue;externalValues[id]=value;if(source.kind==='event'&&value>0&&!panicActive)pendingVisualEvents.push({type:id,intensity:value,timestamp:performance.now()/1000,receivedAt:performance.now()})}break;
   case 'setControls':controls=structuredClone(p.controls);break;
   case 'setTransition':mode=p.mode;break;
   case 'setSafety':if(p.control==='panic')setPanic(p.value);else if(p.control==='blackout')setBlackout(p.value);else liveLock=p.value;break;
@@ -200,14 +209,19 @@ async function apply({type,payload:p}){
   default:launch(input.command(type,p));
  }
 }
+const unsubscribeSources=subscribeSources(sources=>{
+ for(const id of Object.keys(externalValues))if(!getSource(id))delete externalValues[id];
+ if(!projectSwitching)for(let a=0;a<archetypes.length;a++){routingMaps[a]=normalizeRoutingMap(routingMaps[a]);if(!getSource(imageConfigs[a].source))imageConfigs[a].source='none';looks[a]=normalizeLook(looks[a])}
+ if(!replacingSources)emit({type:'sources',sources});
+});
 const receive=createCommandQueue(apply,seq=>{appliedSeq=seq;publish(performance.now(),undefined,true)});
 start();
 return {
  receive:message=>disposed?Promise.reject(new Error('Engine disposed')):receive(message).catch(error=>{if(!disposed)emit({type:'error',message:error.message,seq:message.seq});throw error}),
- unlockAudio:()=>input.unlock(),
- async dispose(){if(disposed)return;disposed=true;mediaGeneration++;projectSwitching=true;cancelAnimationFrame(raf);renderer.dispose();effects.reset();blackoutOverlay.classList.remove('active');
-  const audioClosed=input.dispose();for(const url of new Set(IMAGE_SETS.flat().map(s=>s.url).filter(Boolean)))URL.revokeObjectURL(url);
-  await cache?.close();await audioClosed;
+ unlockAudio:async()=>{await input.unlock();await midi.initialize()},
+ async dispose(){if(disposed)return;disposed=true;unsubscribeSources();mediaGeneration++;projectSwitching=true;cancelAnimationFrame(raf);renderer.dispose();effects.reset();blackoutOverlay.classList.remove('active');
+  const audioClosed=input.dispose(),midiClosed=midi.dispose();for(const url of new Set(IMAGE_SETS.flat().map(s=>s.url).filter(Boolean)))URL.revokeObjectURL(url);
+  await cache?.close();await audioClosed;await midiClosed;
  }
 };
 }

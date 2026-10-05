@@ -21,7 +21,7 @@ const recycle = (processor, message) => {
 };
 function drain(processor, callback = () => {}) { for (const message of processor.messages) { callback(message);recycle(processor, message); }processor.messages.length = 0; }
 
-const feature = () => structuredClone(new AnalysisEngine({ sampleRate: 48000 }).features);
+const feature = () => {const f=structuredClone(new AnalysisEngine({ sampleRate: 48000 }).features);delete f.eventValues;return f;};
 test('event batches preserve all intervening events exactly once in timestamp order', () => {
   const batch = new FeatureBatch(), layers = new MusicalLayers(48000 / 512), f = feature(), expected = [];
   const origin = 36000;
@@ -83,14 +83,14 @@ test('calibration sums every hop, independently of diagnostic visibility and mes
 });
 
 test('Fast and Context retain the original hop-domain formulas and rolling windows', () => {
-  const layers = new MusicalLayers(48000 / 512), f = feature(), history = [], fast = [0, 0, 0, 0, 0, 0, .6], context = [...fast];
-  const fastK = [.30, .22, .26, .30, .18, .13, .10], contextK = [.18, .12, .15, .16, .10, .065, .05], seconds = [3, 6, 4, 4, 6, 12, 15];
+  const layers = new MusicalLayers(48000 / 512), f = feature(), history = [], fast = [0, 0, 0, 0, 0], context = [...fast];
+  const fastK = [.30, .26, .18, .30, .22], contextK = [.18, .15, .10, .15, .12], seconds = [3, 4, 6, 4, 6];
   for (let n = 0; n < 4000; n++) {
     f.timestamp = n * 512 / 48000;
     const values = FEATURE_KEYS.map((key, k) => f.rawValues[k] = (Math.sin(n * .03 + k) + 1) / 2);history.push({ time: f.timestamp, values });
     while (history[0].time < f.timestamp - 20) history.shift();
     layers.push(f);
-    for (let k = 0; k < 7; k++) {
+    for (let k = 0; k < FEATURE_KEYS.length; k++) {
       fast[k] += (values[k] - fast[k]) * fastK[k];let sum = 0, count = 0;
       for (let i = history.length - 1; i >= 0 && history[i].time >= f.timestamp - seconds[k]; i--) { sum += history[i].values[k];count++; }
       context[k] += (sum / count - context[k]) * contextK[k];
@@ -149,9 +149,9 @@ test('mode migrations retain timeline, calibration, tempo and normalizer state',
         if (message.type === 'features') { assert.ok(message.timestamp >= previous);previous = message.timestamp; }
       });
     }
-    assert.equal(processor.mode, mode);assert.ok(processor.engine.normalizers.energy.history.count > 100);
+    assert.equal(processor.mode, mode);assert.ok(processor.engine.normalizers.level.history.count > 100);
     assert.equal(processor.engine.calibration.bins.length, processor.engine.fftSize / 2 + 1);
-    assert.ok(Number.isFinite(processor.latest.raw.energy));
+    assert.ok(Number.isFinite(processor.latest.raw.level));
   }
 });
 
@@ -174,7 +174,7 @@ test('seeking rebases layer history without changing its values or overflowing r
   for (let n = 0; n < 2000; n++) { f.timestamp = n * 512 / 48000;layers.push(f); }
   const before = [...layers.context];layers.rebase();assert.deepEqual([...layers.context], before);
   for (let n = 0; n < 4000; n++) { f.timestamp = n * 512 / 48000;layers.push(f); }
-  for (let i = 0; i < 7; i++) { assert.ok(layers.counts[i] < layers.capacity);assert.ok(Math.abs(layers.context[i] - .5) < 1e-12); }
+  for (let i = 0; i < FEATURE_KEYS.length; i++) { assert.ok(layers.counts[i] < layers.capacity);assert.ok(Math.abs(layers.context[i] - .5) < 1e-12); }
 });
 
 test('overflow is explicitly reported instead of silently losing events', () => {
@@ -196,4 +196,16 @@ test('processor automatically changes modes and reports load under a sustained i
   }
   assert.deepEqual([...modes], [0, 1, 2]);assert.equal(processor.engine.fftSize, 1024);assert.equal(processor.engine.hopSize, 1024);
   assert.equal(processor.monitor.overloaded, true);assert.ok(processor.monitor.averageMs > 1.4);
+});
+
+
+test('event intensities survive the transferable and decay instead of becoming flags',()=>{
+ const f=feature(),layers=new MusicalLayers(48000/512),batch=new FeatureBatch();
+ f.events={kick:.25,snare:.75,beat:1};f.timestamp=1;layers.push(f);batch.add(f);
+ assert.equal(layers.kick,.25);assert.equal(layers.snare,.75);assert.equal(layers.beat,1);
+ f.events={kick:0,snare:0,beat:0};f.timestamp+=512/48000;layers.push(f);
+ assert.ok(layers.kick>0&&layers.kick<.25);assert.ok(layers.snare>0&&layers.snare<.75);assert.ok(layers.beat>0&&layers.beat<1);
+ const payload=new Float32Array(PAYLOAD_SIZE),origin=batch.write(payload,f,layers);
+ const decoded=decodeFeatures({payload,count:batch.count,timestamp:f.timestamp,origin});
+ assert.deepEqual(decoded.eventBatch.map(e=>e.intensity),[.25,.75,1]);assert.equal(decoded.events.kick,.25);
 });

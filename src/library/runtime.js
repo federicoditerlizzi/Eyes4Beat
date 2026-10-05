@@ -1,3 +1,4 @@
+import { migrateSourceMap, migrateSourceId } from '../source-migration.js';
 import { normalizeMusicPresets, normalizeRoutingRecord } from '../routing-presets.js';
 export { normalizeMusicPresets } from '../routing-presets.js';
 import { assignedSource, assignTarget } from '../routing.js';
@@ -17,6 +18,7 @@ export function starterRoutingForOrigin(origin) {
 }
 
 export function normalizeRoutingMap(source, fallback = blankMap()) {
+  source=migrateSourceMap(source);fallback=migrateSourceMap(fallback);
   const map = blankMap();
   for (const src of routeSources) for (const target of routeTargets) {
     const value = Number(source?.[src]?.[target]);
@@ -29,9 +31,9 @@ export function normalizeRoutingMap(source, fallback = blankMap()) {
   return map;
 }
 
-export function defaultImageConfig(count, imageSource = 'boombap') {
+export function defaultImageConfig(count, imageSource = 'level') {
   const transition = (pool, duration = 2.2) => ({ pool, pickOrder: 'cycle', duration, durationBeats: .5, easing: 'linear', wipeDirection: 'left' });
-  return { mode: 'auto', source: imageSource, timeBase: 'seconds', orderMode: 'sequential',
+  return { mode: 'auto', source: migrateSourceId(imageSource), timeBase: 'seconds', orderMode: 'sequential',
     triggers: { timed: transition(['crossfade']), event: transition(['cut'], .05), manual: transition(['crossfade']) }, threshold: .55,
     images: Array.from({ length: count }, (_, index) => ({ enabled: true, duration: [10,10,12,9,11][index % 5], durationBeats: 4, order: index })) };
 }
@@ -47,7 +49,7 @@ export function buildProjectRuntime(project, records, mediaSource = media => med
   const defaultRoutingMaps = ordered.map(item => starterRoutingForOrigin(item.origin));
   const routingMaps = ordered.map((item, index) => normalizeRoutingMap(item.routingMap, defaultRoutingMaps[index]));
   const defaultImageConfigs = ordered.map((item, index) => defaultImageConfig(item.media.length,
-    FACTORY_LOOKS.find(preset => preset.id === item.origin?.presetId)?.starter.imageSource || 'boombap'));
+    FACTORY_LOOKS.find(preset => preset.id === item.origin?.presetId)?.starter.imageSource || 'level'));
   const imageConfigs = normalizeImageConfigStore({ configs: ordered.map(item => item.imageConfig) }, defaultImageConfigs).configs;
   return { ids, idToIndex, archetypes, IMAGE_SETS: imageSets, defaultRoutingMaps, routingMaps,
     defaultImageConfigs, imageConfigs, musicPresets: ordered.map(item => normalizeMusicPresets(item.musicPresets)),

@@ -54,19 +54,28 @@ test('mapped seconds hold has the same minimum and no hidden eight-second cap',(
 });
 
 test('continuous mapping keeps its image positions and uses beat hold with tempo fallback',()=>{
- const {seq,runtime,loads}=fixture(),cfg=runtime.imageConfigs[0];cfg.mode='mapped';cfg.source='energy';cfg.timeBase='beats';cfg.images[0].durationBeats=4;seq.seqStates[0].lastSwitch=0;
+ const {seq,runtime,loads}=fixture(),cfg=runtime.imageConfigs[0];cfg.mode='mapped';cfg.source='level';cfg.timeBase='beats';cfg.images[0].durationBeats=4;seq.seqStates[0].lastSwitch=0;
  assert.equal(seq.imageDwell(0,0).seconds,2,'unknown tempo falls back to 120 BPM');
- seq.updateImageSequence(1999,{energy:.7});assert.equal(loads.length,0);
- seq.updateImageSequence(2000,{energy:.7});assert.deepEqual(loads[0].args,[1,1,0,2]);
+ seq.updateImageSequence(1999,{level:.7});assert.equal(loads.length,0);
+ seq.updateImageSequence(2000,{level:.7});assert.deepEqual(loads[0].args,[1,1,0,2]);
  runtime.BPM=60;runtime.BPMConfidence=1;assert.equal(seq.imageDwell(0,0).seconds,4);
  runtime.BPM=0;runtime.BPMConfidence=0;assert.equal(seq.imageDwell(0,0).seconds,4,'last reliable tempo is retained');
 });
 
 test('continuous mapped navigation is sequential without changing the saved order mode',()=>{
- const {seq,runtime}=fixture(),cfg=runtime.imageConfigs[0];cfg.mode='mapped';cfg.source='energy';cfg.orderMode='ping-pong';
+ const {seq,runtime}=fixture(),cfg=runtime.imageConfigs[0];cfg.mode='mapped';cfg.source='level';cfg.orderMode='ping-pong';
  seq.seqStates[0].current=3;
  assert.equal(seq.chooseOrderedImage(0,1),0,'continuous manual next wraps sequentially');
  seq.seqStates[0].current=0;assert.equal(seq.chooseOrderedImage(0,-1),3,'continuous manual previous wraps sequentially');
  assert.equal(cfg.orderMode,'ping-pong','hidden order is retained');
  cfg.source='kick';seq.seqStates[0].current=3;assert.equal(seq.chooseOrderedImage(0,1),2,'event mode still follows saved order');
+});
+
+test('MIDI mapped events use timestamped hit intensity, not a decayed envelope or callback arrival',async()=>{
+ const {registerSource,unregisterSource}=await import('../src/source-registry.js');const id='midi_pad_test';registerSource({id,label:'MIDI · Test',kind:'event',group:'midi-pad'});
+ try{
+  const {seq,runtime,loads}=fixture(),s=seq.seqStates[0],cfg=runtime.imageConfigs[0];cfg.mode='mapped';cfg.source=id;cfg.images[0].duration=2;s.lastSwitch=0;runtime.sourceValues={[id]:0};
+  runtime.sourceEvents={[id]:{serial:1,timestamp:1.9,intensity:1}};seq.updateImageSequence(2010,{[id]:0});assert.equal(loads.length,0,'hit inside hold ignored even if processed later');
+  runtime.sourceEvents[id]={serial:2,timestamp:2.1,intensity:1};seq.updateImageSequence(2200,{[id]:0});assert.equal(loads.length,1,'first hit after hold advances despite decayed envelope');
+ }finally{unregisterSource(id)}
 });

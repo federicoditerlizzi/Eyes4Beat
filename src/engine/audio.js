@@ -9,7 +9,7 @@ export function createEngineAudio({locked=false,onFeatures,onReset,onError}){
  try{trims=JSON.parse(localStorage.getItem(TRIM_KEY)||'{}')||{};calibrations=JSON.parse(localStorage.getItem(CALIBRATION_KEY)||'{}')||{};selectedDevice=localStorage.getItem(INPUT_DEVICE_KEY)||''}catch{}
  const controller=new AudioInputController(audio,{onFeatures:features=>{
    if(calibrationRun&&performance.now()>=calibrationRun.endsAt&&!calibrationRun.finishing)finishCalibration();
-   onFeatures(features);
+   if(inputMode!=='none')onFeatures(features);
  },onDeviceChange:async()=>{await enumerate();if(inputMode==='live'&&lostDevice&&devices.some(d=>d.deviceId===lostDevice))await activateLive(lostDevice)},
  onTrackEnded:id=>{lostDevice=id;onReset(true);controller.resetAnalysis(true);status='Input lost. Waiting for the same device to reconnect…';info=controller.diagnostics()},
  onCalibration:sample=>{if(calibrationRun){if(sample.count)calibrationRun.samples.push(sample);if(sample.final&&calibrationRun.finishing)finishCalibration()}},
@@ -31,6 +31,7 @@ export function createEngineAudio({locked=false,onFeatures,onReset,onError}){
    await enumerate();status='Live input active · not routed to speakers.';applyTrim();
   }catch(error){status=readableInputError(error);info=controller.diagnostics()}
  }
+ async function activateNone(){inputMode='none';lostDevice='';calibrationRun=null;status='Audio disabled.';warning='';await controller.activateNone();info=null;onReset(true)}
  async function activateFile(){inputMode='file';lostDevice='';reset();
   try{await controller.activateFile();controller.setAnalysisCalibration(calibration());applyTrim();info=controller.diagnostics();status=audio.src?'File mode ready.':'Choose an audio file.'}
   catch(error){status=readableInputError(error)}
@@ -46,21 +47,21 @@ export function createEngineAudio({locked=false,onFeatures,onReset,onError}){
   if(disposed)return;
   switch(type){
    case 'audioRestore':
-    if(p.blob)await apply('audioLoad',{blob:p.blob,name:p.name||'Audio file',autoplay:false});
+    if(p.blob)await apply('audioLoad',{blob:p.blob,name:p.name||'Audio file',autoplay:false,activate:p.mode!=='none'});
     if(disposed)return;
     audio.volume=p.volume;audio.muted=p.muted;
     if(Number.isFinite(audio.duration))audio.currentTime=Math.min(p.currentTime,audio.duration);
-    if(p.mode==='live')await activateLive(p.device);else if(p.blob)await activateFile();
+    if(p.mode==='none')await activateNone();else if(p.mode==='live')await activateLive(p.device);else if(p.blob)await activateFile();
     if(p.trim!=null)setTrim(p.trim);
     if(!disposed&&p.mode==='file'&&!p.paused&&p.blob)try{await audio.play()}catch{status='Press play to resume audio.'}
     break;
-   case 'audioLoad':if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(p.blob);audio.src=url;fileName=p.name.replace(/\.[^.]+$/,'');await metadata();if(disposed)return;await activateFile();if(p.autoplay!==false)try{await audio.play()}catch{status='File loaded. Press play to start.'}break;
+   case 'audioLoad':if(url)URL.revokeObjectURL(url);url=URL.createObjectURL(p.blob);audio.src=url;fileName=p.name.replace(/\.[^.]+$/,'');await metadata();if(disposed)return;if(p.activate!==false)await activateFile();if(p.autoplay!==false)try{await audio.play()}catch{status='File loaded. Press play to start.'}break;
    case 'audioPlay':if(inputMode==='file'){await controller.ensureContext();if(disposed)return;applyTrim();await audio.play()}break;
    case 'audioPause':audio.pause();break;
    case 'audioSeek':if(Number.isFinite(audio.duration))audio.currentTime=p.fraction*audio.duration;break;
    case 'audioVolume':audio.volume=p.value;if(p.value>0)audio.muted=false;break;
    case 'audioMute':audio.muted=p.value;break;
-   case 'setInput':if(p.mode==='file')await activateFile();else await activateLive(p.device);if(p.trim!=null)setTrim(p.trim);break;
+   case 'setInput':if(p.mode==='none')await activateNone();else if(p.mode==='file')await activateFile();else await activateLive(p.device);if(p.trim!=null)setTrim(p.trim);break;
    case 'setTrim':setTrim(p.value);break;
    case 'enumerateInputs':await enumerate();break;
    case 'calibrate':if(!controller.inputActive){status='Start playback or live input before calibrating.';break}calibrationRun={endsAt:performance.now()+3000,samples:[]};controller.setCalibrationCapture(true);break;
@@ -70,7 +71,7 @@ export function createEngineAudio({locked=false,onFeatures,onReset,onError}){
  }
  function setTrim(value){trims[key()]=value;save();controller.setTrimDb(value);if(calibrationRun){calibrationRun=null;controller.setCalibrationCapture(false)}}
  function snapshot(){return {locked,mode:inputMode,loaded:!!audio.src,paused:audio.paused,muted:audio.muted,volume:audio.volume,currentTime:audio.currentTime,duration:Number.isFinite(audio.duration)?audio.duration:0,fileName,
-  trackName:inputMode==='file'?(fileName||'No track loaded'):lostDevice?'LIVE: INPUT LOST':controller.inputActive?'LIVE: '+info?.label:'LIVE INPUT UNAVAILABLE',
+  trackName:inputMode==='none'?'Audio disabled':inputMode==='file'?(fileName||'No track loaded'):lostDevice?'LIVE: INPUT LOST':controller.inputActive?'LIVE: '+info?.label:'LIVE INPUT UNAVAILABLE',
   device:selectedDevice,devices,trim:trim(),diagnostics:info,status,warning,calibrated:!!calibration(),stale:!!calibrations[key()]&&!calibration(),
   calibrating:!!calibrationRun,calibrationRemaining:calibrationRun?Math.max(0,(calibrationRun.endsAt-performance.now())/1000):0,sampleRate:controller.context?.sampleRate||0};}
  function metadata(){if(audio.readyState>=1)return Promise.resolve();return new Promise(resolve=>{
@@ -79,11 +80,11 @@ export function createEngineAudio({locked=false,onFeatures,onReset,onError}){
  })}
  function command(type,p={}){
   if(disposed)return Promise.reject(new Error('Audio disposed'));
-  if(locked&&!['enumerateInputs','setDiagnostics'].includes(type)){deferred.push({type,p});status='Click to start in the output window.';return Promise.resolve()}
+  if(locked&&!['enumerateInputs','setDiagnostics'].includes(type)){if(type==='setInput'||type==='audioRestore')inputMode=p.mode;deferred.push({type,p});status='Click to start in the output window.';return Promise.resolve()}
   const task=queue.then(()=>apply(type,p));queue=task.catch(()=>{});return task;
  }
  async function unlock(){
-  if(disposed)return;await controller.ensureContext();if(disposed)return;locked=false;
+  if(disposed)return;if(inputMode!=='none')await controller.ensureContext();if(disposed)return;locked=false;
   for(const item of deferred.splice(0))await command(item.type,item.p);
  }
  async function dispose(){

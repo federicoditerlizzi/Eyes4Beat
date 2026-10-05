@@ -17,8 +17,8 @@ try{
  for(const color of ['#808080','#ffff40','#4080ff']){const canvas=document.createElement('canvas');canvas.width=96;canvas.height=64;const ctx=canvas.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,96,64);const blob=await new Promise(r=>canvas.toBlob(r)),m=await repo.putMedia(blob);media.push({mediaId:m.id,mime:'image/png',name:color+'.png',size:blob.size})}
  const cfg=defaultImageConfig(media.length);cfg.mode='manual';cfg.triggers.manual.pool=['cut'];
  const records=[];for(const name of ['First','Second'])records.push(await repo.createArchetype(project.id,{name,look:NEUTRAL_LOOK,routingMap:blankMap(),imageConfig:cfg,media}));
- const legacyRouting=blankMap();legacyRouting.energy.pulse=-0.7;
- await repo.updateArchetype(records[0].id,{musicPresets:[{name:'Existing preset',routing:legacyRouting,amounts:{energy:0.31},intensity:{pulse:0.28},reactivity:{pulse:0.6}}]});
+ const legacyRouting=blankMap();legacyRouting.level.pulse=-0.7;
+ await repo.updateArchetype(records[0].id,{musicPresets:[{name:'Existing preset',routing:legacyRouting,amounts:{level:0.31},intensity:{pulse:0.28},reactivity:{pulse:0.6}}]});
  await repo.setActiveProject(project.id);
  let state;
  frame=document.createElement('iframe');frame.width=1280;frame.height=800;frame.src='/';document.body.appendChild(frame);
@@ -54,12 +54,12 @@ try{
  doc.querySelector('.arch[data-a="1"]').click();await until(()=>state.targetId===records[1].id,'second');
  doc.querySelector('.arch[data-a="0"]').click();await until(()=>state.targetId===records[0].id,'first');
  assert($('presetSelect').value===selected,'selection restored after archetype switch');
- change('amt-energy','0.7','input');assert(!$('presetUpdate').disabled,'modified before reload');
+ change('amt-level','0.7','input');assert(!$('presetUpdate').disabled,'modified before reload');
  await wait(2200);await win.EyesForBeatsSync.sync();
  assert((await repo.getArchetype(records[0].id)).activeRoutingPresetId===selected,'stored active before reload');frame.contentWindow.location.reload();await wait(400);await until(()=>frame.contentDocument?.querySelector('#lookBtn')?.disabled===false,'reload');
  doc=frame.contentDocument;win=frame.contentWindow;await until(()=>win.EyesForBeatsEngine,'reloaded engine');state=null;win.EyesForBeatsEngine.subscribe(event=>{if(event.type==='state')state=event.state});await until(()=>state?.targetId===records[0].id&&!state.projectSwitching,'reloaded project');await wait(100);installApi();
  $('routingTab').click();assert($('presetSelect').value===selected,'selection survives reload');
- assert($('amt-energy').value==='0.7'&&!$('presetUpdate').disabled,'modified survives reload');
+ assert($('amt-level').value==='0.7'&&!$('presetUpdate').disabled,'modified survives reload');
  $('presetUpdate').click();assert($('presetUpdate').disabled,'update clears modified');await wait(2200);await win.EyesForBeatsSync.sync();
  const saved=await repo.getArchetype(records[0].id);
  remoteBatch=[{...saved,version:saved.version+10,musicPresets:[...saved.musicPresets,{id:'other',name:'Other'}]}];

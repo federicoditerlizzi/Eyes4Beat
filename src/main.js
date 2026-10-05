@@ -1,3 +1,7 @@
+import {normalizeMidiSlots,syncMidiSources,midiSourceDefinitions} from './midi/pads.js';
+import {createMidiPadsUi} from './ui/midi-pads.js';
+import { isBuiltinAudioSource, getSources, getSource, registerSource, unregisterSource, subscribeSources, replaceSources, withSourceDefinitions } from './source-registry.js';
+import { renderSourceControls } from './ui/source-controls.js';
 import { dimSetting } from './ui/control-relevance.js';
 import { normalizeRoutingRecord, routingPresetModified } from './routing-presets.js';
 import { createPresetBar } from './ui/preset-bar.js';
@@ -78,6 +82,7 @@ async function refreshSyncedRecords(){
  const ordered=project.archetypeOrder.filter(id=>byId.has(id));
  const structural=JSON.stringify(ordered)!==JSON.stringify(archetypes.map(a=>a.id))||archetypes.some(a=>JSON.stringify(a.media)!==JSON.stringify(byId.get(a.id)?.media));
  activeProject=project;
+ syncMidiSources(normalizeMidiSlots(project.midiSlots));fire('setMidiSlots',{projectId:project.id,slots:normalizeMidiSlots(project.midiSlots)});
  if(structural){
   const positions=engineState?.images||[],urls=new Map();
   for(const record of records)for(const media of record.media){if(!urls.has(media.mediaId)){const saved=await repository.getMedia(media.mediaId);urls.set(media.mediaId,saved?URL.createObjectURL(saved.blob):null)}}
@@ -117,6 +122,7 @@ const pendingWrites=new Map(),failedWrites=new Map();
 let writeQueue=Promise.resolve();
 function queueArchetypeWrite(index,changes){
  const id=archetypes[index]?.id;if(!id)return;
+ changes={...changes,origin:{...archetypes[index].origin,...changes.origin,sourceDefinitions:getSources().filter(source=>!isBuiltinAudioSource(source.id))}};
  Object.assign(archetypes[index],structuredClone(changes));
  fire('updateArchetype',{id,patch:changes});
  const pending=pendingWrites.get(id)||{changes:{...failedWrites.get(id)},timer:null};failedWrites.delete(id);
@@ -215,13 +221,13 @@ function refreshRoutingSources(){
   if(!select){
    select=document.createElement('select');select.className='targetSource';select.dataset.targetSource=t;
    select.setAttribute('aria-label','Source for '+targetLabels[t]);
-   select.innerHTML='<option value="">None</option>'+routeSources.map(id=>'<option value="'+id+'">'+sourceLabels[id]+'</option>').join('');
    row.children[0].after(select);
    select.onchange=()=>{
     const map=routingMaps[target],previous=assignedSource(map,t),weight=previous?map[previous][t]:1;
     assignTarget(map,t,select.value,weight);saveRoutingMaps();updateRoutingRelevance();
    };
   }
+  select.replaceChildren(new Option('None',''),...getSources().map(s=>new Option(s.label,s.id)));
   select.value=assignedSource(routingMaps[target],t)||'';
  }
  updateRoutingRelevance();
@@ -241,11 +247,9 @@ document.addEventListener('keydown',e=>{
 document.getElementById('zeroMap').onclick=()=>{routingMaps[target]=blankMap();saveRoutingMaps();refreshRoutingSources();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
 document.getElementById('resetMap').onclick=()=>{routingMaps[target]=normalizeRoutingMap(defaultRoutingMaps[target]);saveRoutingMaps();refreshRoutingSources();if(lookPanel.classList.contains('open'))updateLookRoutingWarning()};
 
-const modState = {
- enabled:{energy:true,density:true,drive:true,boombap:true,tension:true,bright:true,open:true,beat:true,kick:true,snare:true},
- solo:{energy:false,density:false,drive:false,boombap:false,tension:false,bright:false,open:false,beat:false,kick:false,snare:false}
-};
-const sourceKeys=['energy','density','drive','boombap','tension','bright','open','beat','kick','snare'];
+const modState={enabled:{},solo:{}};
+const sourceKeys=routeSources;
+renderSourceControls(modState);
 const globalCtl = {
  pulse:document.getElementById('g-pulse'),
  dist:document.getElementById('g-dist'),
@@ -622,6 +626,8 @@ volumeControl.oninput=()=>fire('audioVolume',{value:+volumeControl.value});
 muteButton.onclick=()=>fire('audioMute',{value:!engineState?.transport.muted});
 document.getElementById('audioInputBtn').onclick=()=>{closeImageManager();closeRouting();creatorPanel.classList.remove('open');document.getElementById('audioInputPanel').classList.add('open');fire('enumerateInputs')};
 document.getElementById('closeAudioInput').onclick=()=>document.getElementById('audioInputPanel').classList.remove('open');
+document.getElementById('noneModeBtn').onclick=()=>fire('setInput',{mode:'none'});
+document.getElementById('midiDevice').onchange=event=>{if(event.target.value==='__request__')fire('enumerateMidi');else fire('setMidiInput',{device:event.target.value})};
 document.getElementById('fileModeBtn').onclick=()=>fire('setInput',{mode:'file'});
 const startLiveInput=()=>fire('setInput',{mode:'live',device:audioDevice.value});
 document.getElementById('liveModeBtn').onclick=startLiveInput;document.getElementById('startLiveInput').onclick=startLiveInput;
@@ -720,10 +726,12 @@ async function openProject(projectId,{preferredId=null,recovery=null}={}){
  if(libraryVersionChanged)throw new Error('Library updated in another tab; reload this page');
  const generation=++projectSwitchGeneration;projectSwitching=true;
  try{
- await flushArchetypeWrites();
+ await flushArchetypeWrites();await padWriteQueue;
  const nextProject=recovery?recovery.project:projectId?await repository.getProject(projectId):null;
  if(projectId&&(!nextProject||nextProject.deletedAt))throw new Error('Project not found');
+ if(recovery&&nextProject){const cached=await repository.getProject(nextProject.id);if(cached&&JSON.stringify(normalizeMidiSlots(cached.midiSlots))!==JSON.stringify(normalizeMidiSlots(nextProject.midiSlots)))await repository.updateProject(nextProject.id,{midiSlots:normalizeMidiSlots(nextProject.midiSlots)})}
  if(!recovery&&nextProject&&repository.online)await repository.hydrateProject(nextProject.id,(done,total)=>{document.getElementById('projectStatus').textContent=`Caching media ${done}/${total}…`}).catch(()=>{});
+ syncMidiSources(nextProject?normalizeMidiSlots(nextProject.midiSlots):[]);renderSourceControls(modState);
  const records=recovery?recovery.records:nextProject?await repository.listArchetypes(nextProject.id):[];
  const mediaRecords=new Map(),missingArchetypes=new Set();
  for(const record of records)for(const media of record.media){if(!mediaRecords.has(media.mediaId)){
@@ -758,6 +766,7 @@ async function setLiveLock(value){await send('setSafety',{control:'liveLock',val
 async function adoptOutput(recovery){
  adoptingOutput=true;
  try{
+  const sources=new Map(recovery.saved).get('setSources');if(sources)replaceSources(sources.sources);
   await openProject(recovery.project.project?.id,{preferredId:recovery.event.state.targetId,recovery:recovery.project});
   const saved=new Map(recovery.saved);applyMusicPreset(saved.get('setControls')?.controls,{viewOnly:true});
   transport.adopt({...recovery,event:transport.transport.latestEvent||recovery.event});
@@ -892,7 +901,7 @@ document.getElementById('exportLegacy').onclick=async event=>exportPackage(await
 document.getElementById('exportBuiltins').onclick=async event=>exportPackage(await collectLegacyLibrary({builtinsOnly:true}),{button:event.currentTarget});
 async function exportProject(project,button){
  try{
-  await flushArchetypeWrites();
+  await flushArchetypeWrites();await padWriteQueue;project=await repository.getProject(project.id);
   const records=new Map((await repository.listArchetypes(project.id)).map(record=>[record.id,record]));
   const snapshot=[];for(const id of project.archetypeOrder){const record=records.get(id);if(!record)continue;
     const media=[];for(const [sourceIndex,ref] of record.media.entries()){const saved=await repository.getMedia(ref.mediaId);if(!saved)throw new Error(`Cannot export ${record.name}: missing media ${ref.name}`);media.push({...ref,sourceIndex,blob:saved.blob})}
@@ -942,13 +951,13 @@ document.getElementById('importPackageFile').onchange=async event=>{
     const preparedEntries=[];
     for(const [index,source] of selected.entries()){
       status.textContent=`Preparing ${index+1} of ${selected.length}: ${source.name}`;
-      const prepared=prepareImportedArchetype(source,manifest.formatVersion);
+      const prepared=prepareImportedArchetype(source,manifest.formatVersion,manifest.project?.midiSlots);
       prepared.media=prepared.media.map(ref=>({name:ref.name,mime:ref.mime,blob:new Blob([files[ref.path]],{type:ref.mime})}));
       preparedEntries.push(prepared);
     }
     status.textContent='Saving package atomically…';
-    const {project}=await repository.importBatch({projectId:destination.value||null,projectName:name.value.trim(),archetypes:preparedEntries,
-      lookPresets:manifest.kind==='project'?manifest.lookPresets.map(preset=>({name:preset.name,look:normalizeLook(preset.look)})):[]});
+    const {project}=await repository.importBatch({projectId:destination.value||null,projectName:name.value.trim(),archetypes:preparedEntries,midiSlots:manifest.project?.midiSlots,
+      lookPresets:manifest.kind==='project'?manifest.lookPresets.map(preset=>({name:preset.name,look:withSourceDefinitions(midiSourceDefinitions(manifest.project?.midiSlots),()=>normalizeLook(preset.look))})):[]});
     imported=true;
     dialog.close();libraryDialog.close();await openProject(project.id);
    }catch(error){console.error('Import failed',error);status.textContent=imported?`Import saved, but opening failed: ${error.message}`:`Import stopped: ${error.message}. No partial import was saved.`;apply.disabled=false}
@@ -1006,7 +1015,7 @@ function sendControls(){
  fire('setControls',{controls});syncPresetActions();
 }
 // Only control actions cross the boundary; editor persistence remains in the UI.
-const controlSelector='[data-on],[data-solo],[data-target-on],[data-target-solo],#ctxPerf,#react,'+sourceKeys.map(k=>'#amt-'+k).join(',')+','+routeTargets.flatMap(k=>['#g-'+k,'#ga-'+k]).join(',');
+const controlSelector='[data-on],[data-solo],[data-target-on],[data-target-solo],#ctxPerf,#react,[data-source-amount],'+routeTargets.flatMap(k=>['#g-'+k,'#ga-'+k]).join(',');
 for(const event of ['input','change','click'])document.addEventListener(event,e=>{if(e.target.closest?.(controlSelector)){sendControls();persistRoutingControls()}});
 const outputSettingsDialog=document.getElementById('outputSettingsDialog');
 document.getElementById('outputSettingsBtn').onclick=()=>outputSettingsDialog.showModal();
@@ -1016,13 +1025,22 @@ document.getElementById('renderScale').oninput=event=>{
  document.getElementById('renderScaleValue').textContent=Math.round(Number(event.target.value)*100)+'%';
  fire('setRenderScale',{value:Number(event.target.value)});
 };
+let padWriteQueue=Promise.resolve();
+const midiPadsUi=createMidiPadsUi((type,payload)=>fire(type,payload));
 transport.subscribe(event=>{
+ if(event.type==='sources'){replaceSources(event.sources);return}
  if(event.type==='error'){document.getElementById(event.source==='renderer'?'bloomDiagnostics':'inputWarning').textContent=event.message;return}
  if(event.type!=='state')return;
  const previousTarget=engineState?.targetId;engineState=event.state;
  blackoutActive=engineState.blackout;panicActive=engineState.panic;updateSafetyUi();
  clipHoldUntil=renderEngineState(engineState,{seeking,clipHoldUntil});
+ midiPadsUi.render(engineState.midiPads,engineState.midi);
  if(engineState.projectId!==activeProject?.id&&!(engineState.projectId===null&&activeProject===null))return;
+ const padState=engineState.midiPads;
+ if(!projectSwitching&&activeProject&&padState?.projectId===activeProject.id&&JSON.stringify(normalizeMidiSlots(activeProject.midiSlots))!==JSON.stringify(padState.slots)){
+  const id=activeProject.id,slots=structuredClone(padState.slots);activeProject.midiSlots=slots;
+  padWriteQueue=padWriteQueue.catch(()=>{}).then(()=>repository.updateProject(id,{midiSlots:slots})).catch(error=>{document.getElementById('midiStatus').textContent='Could not save MIDI bindings: '+error.message;showShortcutToast('MIDI bindings could not be saved; edit again to retry.')});
+ }
  target=engineState.target;mode=engineState.mode;archetypeSelectionBusy=engineState.archetypeSelectionBusy;
  seqStates=engineState.sequences;
  smoothButton.classList.toggle('active',mode==='smooth');cutButton.classList.toggle('active',mode==='cut');
@@ -1053,3 +1071,18 @@ await initializeLibrary(!!recovered);
 // Read-only snapshot subscription for integrations and browser regression tests.
 export const subscribeEngine=listener=>transport.subscribe(listener);
 window.EyesForBeatsEngine={subscribe:subscribeEngine};
+function sourcesChanged(){
+ renderSourceControls(modState);
+ if(adoptingOutput||projectSwitching)return;
+ fire('setSources',{sources:getSources()});
+ for(let a=0;a<archetypes.length;a++){
+  routingMaps[a]=normalizeRoutingMap(routingMaps[a]);musicPresets[a]=normalizeRoutingRecord({musicPresets:musicPresets[a]}).musicPresets;
+  if(!getSource(imageConfigs[a].source))imageConfigs[a].source='none';looks[a]=normalizeLook(looks[a]);
+  queueArchetypeWrite(a,{routingMap:routingMaps[a],musicPresets:musicPresets[a],routingControls:normalizeRoutingRecord(archetypes[a]).routingControls,imageConfig:imageConfigs[a],look:looks[a]});
+ }
+ sendControls();renderPresetControls();
+ if(archetypes.length){refreshRoutingSources();if(lookPanel.classList.contains('open'))renderLookEditor();if(document.getElementById('imagePanel').classList.contains('open'))renderImageManager()}
+}
+subscribeSources(sourcesChanged);
+fire('setSources',{sources:getSources()});
+window.EyesForBeatsSources={register:registerSource,unregister:unregisterSource,list:getSources,publish:values=>send('setSourceValues',{values:structuredClone(values)})};

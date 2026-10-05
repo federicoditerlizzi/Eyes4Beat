@@ -1,3 +1,5 @@
+import {normalizeMidiSlots} from '../../src/midi/pads.js';
+import { withSourceDefinitions, validSourceDefinition } from '../../src/source-registry.js';
 import { normalizeRoutingRecord } from '../../src/routing-presets.js';
 import { blankMap } from '../../src/config.js';
 import { normalizeLook } from '../../src/looks.js';
@@ -26,9 +28,10 @@ const id = value => value == null ? crypto.randomUUID() : UUID.test(value) ? val
 const version = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : fail(400, 'invalid_input', 'if_version must be a positive integer');
 const object = value => value && typeof value === 'object' && !Array.isArray(value) ? value : fail(400, 'invalid_input', 'Expected an object');
 const visibility = value => ['private', 'shared'].includes(value) ? value : fail(400, 'invalid_input', 'Invalid visibility');
+const midiSlots=value=>{try{return normalizeMidiSlots(value)}catch(error){fail(400,'invalid_input',error.message)}};
 const jsonColumn = value => value == null ? null : parse(value);
-function project(row) { return row && { id: row.id, owner_email: row.owner_email, name: row.name, visibility: row.visibility, archetypeOrder: parse(row.archetype_order), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
-function archetype(row) { return row && { id: row.id, projectId: row.project_id, name: row.name, origin: jsonColumn(row.origin), look: jsonColumn(row.look), routingMap: jsonColumn(row.routing_map), imageConfig: jsonColumn(row.image_config), ...normalizeRoutingRecord({musicPresets:jsonColumn(row.music_presets),activeRoutingPresetId:row.active_routing_preset_id,routingControls:jsonColumn(row.routing_controls)}), media: jsonColumn(row.media), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
+function project(row) { return row && { id: row.id, owner_email: row.owner_email, name: row.name, visibility: row.visibility, archetypeOrder: parse(row.archetype_order), midiSlots:normalizeMidiSlots(jsonColumn(row.midi_slots)), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
+function archetype(row) { return row && withSourceDefinitions(jsonColumn(row.origin)?.sourceDefinitions,()=>({ id: row.id, projectId: row.project_id, name: row.name, origin: jsonColumn(row.origin), look: jsonColumn(row.look), routingMap: jsonColumn(row.routing_map), imageConfig: jsonColumn(row.image_config), ...normalizeRoutingRecord({musicPresets:jsonColumn(row.music_presets),activeRoutingPresetId:row.active_routing_preset_id,routingControls:jsonColumn(row.routing_controls)}), media: jsonColumn(row.media), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by })); }
 function preset(row) { return row && { id: row.id, projectId: row.project_id, name: row.name, look: jsonColumn(row.look), created_at: row.created_at, updated_at: row.updated_at, version: row.version, deleted_at: row.deleted_at, updated_by: row.updated_by }; }
 const canRead = (row, email) => row && !row.deleted_at && (row.owner_email === email || row.visibility === 'shared');
 async function readable(db, projectId, email) {
@@ -87,7 +90,14 @@ async function checkMedia(db, refs, email) {
   }
 }
 const mediaLinks = (db, archetypeId, refs) => [stmt(db, 'DELETE FROM archetype_media WHERE archetype_id = ?', archetypeId), ...new Set(refs.map(ref => ref.mediaId)).values()].map((value, index) => index ? stmt(db, 'INSERT INTO archetype_media(archetype_id,media_id) VALUES (?,?)', archetypeId, value) : value);
+function normalizeWithSources(definitions, normalize) {
+  if(definitions!=null&&(!Array.isArray(definitions)||!definitions.every(validSourceDefinition)))fail(400,'invalid_input','Invalid source definitions');
+  return withSourceDefinitions(definitions,normalize);
+}
 function normalizedArchetype(data) {
+ return normalizeWithSources(data.origin?.sourceDefinitions,()=>normalizeArchetypeFields(data));
+}
+function normalizeArchetypeFields(data) {
   const refs = mediaRefs(data.media);
   const fallback = defaultImageConfig(refs.length);
   const config = normalizeImageConfigStore({ configs: [data.imageConfig] }, [fallback]).configs[0];
@@ -124,7 +134,7 @@ async function route(request, db, bucket, user) {
   }
   if (at('projects', 2) && method === 'POST') {
     const data = await body(request), projectId = id(data.id), date = now(), name = nonempty(data.name, 'name'), access = visibility(data.visibility ?? 'private');
-    await stmt(db, 'INSERT INTO projects(id,owner_email,name,visibility,archetype_order,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)', projectId, email, name, access, '[]', date, date, 1, null, email).run();
+    await stmt(db, 'INSERT INTO projects(id,owner_email,name,visibility,archetype_order,midi_slots,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', projectId, email, name, access, '[]', json(midiSlots(data.midiSlots)), date, date, 1, null, email).run();
     return answer(project(await first(db, 'SELECT * FROM projects WHERE id=?', projectId)), 201);
   }
   if (segments[1] === 'projects' && segments.length >= 3) return projectRoute(request, db, segments, url, email);
@@ -157,7 +167,7 @@ async function projectRoute(request, db, segments, url, email) {
     if (order.length !== oldOrder.length || order.some(value => !oldOrder.includes(value))) fail(400, 'invalid_input', 'archetypeOrder must contain exactly the existing ids');
     const date = now(), statements = [
       guard(db, '(SELECT version FROM projects WHERE id=?)=?', [projectId, source.version])[0],
-      stmt(db, 'UPDATE projects SET name=?,visibility=?,archetype_order=?,version=version+1,updated_at=?,updated_by=? WHERE id=?', name, access, json(order), date, email, projectId),
+      stmt(db, 'UPDATE projects SET name=?,visibility=?,archetype_order=?,midi_slots=?,version=version+1,updated_at=?,updated_by=? WHERE id=?', name, access, json(order), json(midiSlots(data.midiSlots===undefined?jsonColumn(source.midi_slots):data.midiSlots)), date, email, projectId),
     ];
     if (access !== source.visibility) statements.push(stmt(db, 'INSERT INTO visibility_events(project_id,changed_at,from_visibility,to_visibility) VALUES (?,?,?,?)', projectId, date, source.visibility, access));
     await batch(db, statements);
@@ -188,7 +198,7 @@ async function projectRoute(request, db, segments, url, email) {
     });
     await batch(db, [
       guard(db, "EXISTS(SELECT 1 FROM projects WHERE id=? AND deleted_at IS NULL AND (owner_email=? OR visibility='shared'))", [projectId, email])[0],
-      stmt(db, 'INSERT INTO projects(id,owner_email,name,visibility,archetype_order,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)', newId, email, name, 'private', json(copied.map(item => item.id)), date, date, 1, null, email),
+      stmt(db, 'INSERT INTO projects(id,owner_email,name,visibility,archetype_order,midi_slots,created_at,updated_at,version,deleted_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', newId, email, name, 'private', json(copied.map(item => item.id)), json(normalizeMidiSlots(jsonColumn(source.midi_slots))), date, date, 1, null, email),
       ...presets.map(row => insertPreset(db, { ...preset(row), id: presetIds.get(row.id), projectId: newId, created_at: date, updated_at: date, version: 1, deleted_at: null, updated_by: email })),
       ...copied.flatMap(item => [insertArchetype(db, item), ...mediaLinks(db, item.id, item.media).slice(1)]),
     ]);
@@ -208,7 +218,7 @@ async function projectRoute(request, db, segments, url, email) {
   }
   if (segments.length === 4 && segments[3] === 'look-presets' && method === 'POST') {
     const data = await body(request), date = now(), itemId = id(data.id), name = nonempty(data.name, 'name');
-    const row = { id: itemId, projectId, name, look: normalizeLook(data.look), created_at: date, updated_at: date, version: 1, deleted_at: null, updated_by: email };
+    const row = { id: itemId, projectId, name, look: normalizeWithSources(data.sourceDefinitions,()=>normalizeLook(data.look)), created_at: date, updated_at: date, version: 1, deleted_at: null, updated_by: email };
     await batch(db, [guard(db, "EXISTS(SELECT 1 FROM projects WHERE id=? AND deleted_at IS NULL AND (owner_email=? OR visibility='shared'))", [projectId, email])[0], insertPreset(db, row)]);
     return answer(row, 201);
   }
@@ -265,7 +275,7 @@ async function presetRoute(request, db, segments, url, email) {
   if (method === 'PATCH') {
     const data = await body(request); await currentVersion(db, 'look_presets', itemId, data.if_version, preset);
     const name = data.name === undefined ? source.name : nonempty(data.name, 'name');
-    const look = data.look === undefined ? jsonColumn(source.look) : normalizeLook(data.look);
+    const look = data.look === undefined ? jsonColumn(source.look) : normalizeWithSources(data.sourceDefinitions,()=>normalizeLook(data.look));
     const date = now();
     await batch(db, [guard(db, "EXISTS(SELECT 1 FROM look_presets lp JOIN projects p ON p.id=lp.project_id WHERE lp.id=? AND lp.version=? AND lp.deleted_at IS NULL AND p.deleted_at IS NULL AND (p.owner_email=? OR p.visibility='shared'))", [itemId, source.version, email])[0], stmt(db, 'UPDATE look_presets SET name=?,look=?,updated_at=?,updated_by=?,version=version+1 WHERE id=?', name, json(look), date, email, itemId)]);
     return answer(preset(await first(db, 'SELECT * FROM look_presets WHERE id=?', itemId)));

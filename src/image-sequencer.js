@@ -1,3 +1,5 @@
+import { eventSourceIds } from './source-registry.js';
+import { migrateSourceId } from './source-migration.js';
 import { EASINGS, TRANSITIONS, WIPE_DIRECTIONS } from './transitions.js';
 
 export const IMAGE_CONFIG_SCHEMA_VERSION = 3;
@@ -34,9 +36,9 @@ export function transitionRunsAsCut(transitionId, effectiveDuration) {
   return transitionId === 'cut' || effectiveDuration < TRANSITION_CUT_THRESHOLD_SECONDS;
 }
 
-export function classifyImageTrigger({ manual = false, mode = 'auto', source = 'energy' } = {}) {
+export function classifyImageTrigger({ manual = false, mode = 'auto', source = 'level' } = {}) {
   if (manual) return 'manual';
-  return mode === 'mapped' && ['beat', 'kick', 'snare'].includes(source) ? 'event' : 'timed';
+  return mode === 'mapped' && eventSourceIds().includes(source) ? 'event' : 'timed';
 }
 
 export function pickTransitionFromPool(config, state = {}, random = Math.random) {
@@ -165,7 +167,7 @@ export function normalizeImageConfig(config, defaults, imageCount) {
   const source = config && typeof config === 'object' ? config : {};
   const base = JSON.parse(JSON.stringify(defaults));
   base.mode = ['auto', 'manual', 'mapped'].includes(source.mode) ? source.mode : base.mode;
-  base.source = source.source || base.source;
+  base.source = migrateSourceId(source.source ?? base.source);
   base.timeBase = source.timeBase === 'beats' ? 'beats' : 'seconds';
   base.orderMode = orderModes.has(source.orderMode) ? source.orderMode : 'sequential';
   base.threshold = clamp(numberOr(source.threshold, base.threshold ?? 0.55), 0.05, 0.95);

@@ -1,3 +1,4 @@
+import {normalizeMidiSlots} from './midi/pads.js';
 import { unzipSync, zipSync } from 'fflate';
 
 export const PACKAGE_FORMAT = 'eyes4beat-package';
@@ -46,7 +47,7 @@ export async function buildLibraryPackage({ archetypes, localStorage = {}, appVe
     entries.push({ ...archetype, media });
   }
   const manifest = { format: PACKAGE_FORMAT, formatVersion: kind === 'project' ? 3 : PACKAGE_VERSION, kind,
-    exportedAt, appVersion, userAgent, ...(kind === 'project' ? { project: { name: project?.name || 'Untitled project' }, lookPresets } : {}), archetypes: entries };
+    exportedAt, appVersion, userAgent, ...(kind === 'project' ? { project: { name: project?.name || 'Untitled project', midiSlots:normalizeMidiSlots(project?.midiSlots) }, lookPresets } : {}), archetypes: entries };
   files['manifest.json'] = encoder.encode(JSON.stringify(manifest, null, 2));
   files['raw/local-storage.json'] = encoder.encode(JSON.stringify(localStorage, null, 2));
   return { manifest, zip: zipSync(files, { level: 6 }), uniqueMediaCount: pathsByHash.size,
@@ -69,6 +70,7 @@ export async function verifyLibraryPackage(zipBytes) {
   const { manifest, files } = readPackage(zipBytes);
   const supported = manifest.kind === 'project' ? manifest.formatVersion === 3 : [1, 2].includes(manifest.formatVersion);
   const missingFiles = [], checksumMismatches = [], invalidEntries = [];
+  if(manifest.kind==='project')try{normalizeMidiSlots(manifest.project?.midiSlots)}catch{invalidEntries.push('MIDI slots')}
   if (manifest.kind === 'project' && (typeof manifest.project?.name !== 'string' || !Array.isArray(manifest.lookPresets))) invalidEntries.push('project metadata');
   const checked = new Set();
   for (const archetype of manifest.archetypes) {

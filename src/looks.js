@@ -1,3 +1,4 @@
+import { migrateSourceId, migrateSourceMap } from './source-migration.js';
 import { ROTATION_DEFAULTS, PULSE_DEFAULTS, BURST_DEFAULTS } from './motion-effects.js';
 import { blankMap, eventSourceIds } from './config.js';
 import { BLOOM_DEFAULTS } from './bloom.js';
@@ -68,9 +69,9 @@ export const FACTORY_LOOKS = names.map((name, index) => {
 
 function starterMap(entries) {
   const map = blankMap();
-  for (const [source, target, weight] of entries) map[source][target] = weight;
-  map.energy.rotate = .45; map.drive.spiral = .55; map.kick.tiles = .7;
-  return map;
+  for (const [source, target, weight] of entries) (map[source]??={})[target] = weight;
+  (map.energy??={}).rotate = .45; (map.drive??={}).spiral = .55; map.kick.tiles = .7;
+  return migrateSourceMap(map);
 }
 const starterRoutes = [
   [['energy','luma',.55],['bright','glow',.70],['open','luma',.38],['open','glow',.28],['open','zoom',-.25],['tension','dist',.38],['density','parts',.42],['kick','pulse',.28],['snare','glow',.34]],
@@ -81,7 +82,7 @@ const starterRoutes = [
   [['energy','pulse',.72],['energy','glow',.44],['energy','luma',.28],['density','parts',.36],['boombap','sat',.32],['boombap','zoom',.18],['tension','dist',.40],['bright','glow',.62],['open','zoom',-.12],['kick','pulse',1.10],['snare','glow',.52]],
 ];
 FACTORY_LOOKS.forEach((preset, index) => {
-  preset.starter = { routingMap: starterMap(starterRoutes[index]), imageSource: ['open','drive','bright','energy','boombap','boombap'][index] };
+  preset.starter = { routingMap: starterMap(starterRoutes[index]), imageSource: migrateSourceId(['open','drive','bright','energy','boombap','boombap'][index]) };
 });
 
 const clampNumber = (value, fallback, limits) => Number.isFinite(Number(value)) && value !== null && value !== ''

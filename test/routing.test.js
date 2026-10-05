@@ -23,16 +23,16 @@ test('returns a fully neutral image with no routed sources', () => {
   assert.deepEqual(compute(), NEUTRAL_TARGETS);
 });
 
-test('positive energy routing drives zoom above neutral', () => {
+test('positive level routing drives zoom above neutral', () => {
   const map = blankMap();
-  map.energy.zoom = 0.5;
-  assert.ok(compute({ map, sources: { energy: 0.8 }, activeSources: { energy: true } }).zoom > 1);
+  map.level.zoom = 0.5;
+  assert.ok(compute({ map, sources: { level: 0.8 }, activeSources: { level: true } }).zoom > 1);
 });
 
 test('disabled sources never affect a target', () => {
   const map = blankMap();
-  map.energy.dist = 1;
-  assert.equal(compute({ map, sources: { energy: 1 }, activeSources: { energy: false } }).dist, 0);
+  map.level.dist = 1;
+  assert.equal(compute({ map, sources: { level: 1 }, activeSources: { level: false } }).dist, 0);
 });
 
 test('target intensity zero disables that target', () => {
@@ -44,8 +44,8 @@ test('target intensity zero disables that target', () => {
 
 test('inactive targets return to their own neutral value without affecting other targets', () => {
   const map = blankMap();
-  map.energy.pulse = 1;map.energy.zoom = 1;
-  const state=compute({map,sources:{energy:1},activeSources:{energy:true},activeTargets:{pulse:false,zoom:true}});
+  map.level.pulse = 1;map.level.zoom = 1;
+  const state=compute({map,sources:{level:1},activeSources:{level:true},activeTargets:{pulse:false,zoom:true}});
   assert.equal(state.pulse,NEUTRAL_TARGETS.pulse);
   assert.ok(state.zoom>NEUTRAL_TARGETS.zoom);
 });
@@ -63,32 +63,32 @@ test('target solos isolate selected effects without changing their On settings',
 });
 
 test('rotation, spiral and tile shuffle respond independently and return to zero', () => {
-  const map=blankMap();map.energy.rotate=.5;map.energy.spiral=.6;map.energy.tiles=.7;
-  const live=compute({map,sources:{energy:1},activeSources:{energy:true}});
+  const map=blankMap();map.level.rotate=.5;map.level.spiral=.6;map.level.tiles=.7;
+  const live=compute({map,sources:{level:1},activeSources:{level:true}});
   for(const key of ['rotate','spiral','tiles'])assert.ok(live[key]>0);
-  const off=compute({map,sources:{energy:1},activeSources:{energy:false}});
+  const off=compute({map,sources:{level:1},activeSources:{level:false}});
   for(const key of ['rotate','spiral','tiles'])assert.equal(off[key],0);
-  const muted=compute({map,sources:{energy:1},activeSources:{energy:true},activeTargets:{rotate:false,spiral:false,tiles:false}});
+  const muted=compute({map,sources:{level:1},activeSources:{level:true},activeTargets:{rotate:false,spiral:false,tiles:false}});
   for(const key of ['rotate','spiral','tiles'])assert.equal(muted[key],0);
 });
 
 test('legacy maps keep only the strongest assignment per target, including negative weights', async () => {
   const { normalizeRoutingMap } = await import('../src/library/runtime.js');
-  const map=blankMap();map.energy.zoom=.4;map.drive.zoom=-.8;map.kick.zoom=.8;
+  const map=blankMap();map.level.zoom=.4;map.low.zoom=-.8;map.kick.zoom=.8;
   const normalized=normalizeRoutingMap(map);
-  assert.equal(normalized.drive.zoom,-.8);
-  assert.equal(normalized.energy.zoom,0);
+  assert.equal(normalized.low.zoom,-.8);
+  assert.equal(normalized.level.zoom,0);
   assert.equal(normalized.kick.zoom,0);
   assert.deepEqual(normalizeRoutingMap(normalized),normalized);
-  assert.equal(map.energy.zoom,.4);
-  assert.equal(compute({map,sources:{energy:1,kick:1},activeSources:{energy:true,kick:true}}).zoom,1);
+  assert.equal(map.level.zoom,.4);
+  assert.equal(compute({map,sources:{level:1,kick:1},activeSources:{level:true,kick:true}}).zoom,1);
 });
 
 test('reassigning a target clears its previous source without affecting other targets', async () => {
   const { assignTarget } = await import('../src/routing.js');
-  const map=blankMap();map.energy.zoom=.5;map.energy.pulse=.6;
+  const map=blankMap();map.level.zoom=.5;map.level.pulse=.6;
   assignTarget(map,'zoom','kick',-.7);
-  assert.equal(map.energy.zoom,0);assert.equal(map.kick.zoom,-.7);assert.equal(map.energy.pulse,.6);
+  assert.equal(map.level.zoom,0);assert.equal(map.kick.zoom,-.7);assert.equal(map.level.pulse,.6);
   assignTarget(map,'zoom','');
   assert.equal(map.kick.zoom,0);
 });

@@ -47,7 +47,8 @@ test('local transport clones both directions and ignores stale snapshots',async(
 test('every runtime UI command is registered; UI has no renderer, audio graph or sequencer access',async()=>{
  const ui=await readFile(new URL('../src/main.js',import.meta.url),'utf8');
  const session=await readFile(new URL('../src/engine/engine-session.js',import.meta.url),'utf8');
- const calls=[...ui.matchAll(/(?:fire|send)\('([^']+)'/g)].map(m=>m[1]);
+ const uiActions=ui+await readFile(new URL('../src/ui/midi-pads.js',import.meta.url),'utf8');
+ const calls=[...uiActions.matchAll(/(?:fire|send)\('([^']+)'/g)].map(m=>m[1]);
  for(const type of calls)assert.ok(COMMANDS[type],type);
  for(const type of Object.keys(COMMANDS))assert.ok(calls.includes(type)||['audioPlay','audioPause'].includes(type)||session.includes("send('"+type+"'"),'UI command missing: '+type);
  assert.doesNotMatch(ui,/\.getContext\(|new AudioInputController|\.setTrimDb\(|requestAnimationFrame\(frame\)|\.trackedMediaLoad\(|\.engine\b/);
@@ -57,4 +58,26 @@ test('every runtime UI command is registered; UI has no renderer, audio graph or
   assert.doesNotMatch(text,/document\.(getElementById|querySelector)|\.textContent\b/,file+' reads UI');
  }
  const queueAt=ui.indexOf("fire('updateArchetype',{id,patch:changes})");const debounceAt=ui.indexOf('pending.timer=setTimeout');assert.ok(queueAt>0&&queueAt<debounceAt,'edits reach engine before save debounce');
+});
+
+
+test('source commands validate metadata, uniqueness and normalized intensity',()=>{
+ const pad={id:'pad',label:'Pad',kind:'event',group:'midi'};
+ assert.equal(command(1,'setSources',{sources:[pad]}).type,'setSources');
+ for(const sources of [[pad,pad],[{...pad,id:'none'}],[{...pad,label:''}],[{...pad,kind:'binary'}]])assert.throws(()=>command(1,'setSources',{sources}));
+ for(const value of [-.1,1.1,NaN])assert.throws(()=>command(1,'setSourceValues',{values:{pad:value}}));
+ assert.equal(command(1,'setSourceValues',{values:{pad:.7}}).payload.values.pad,.7);
+});
+
+test('MIDI commands and audio NONE are serializable protocol actions',()=>{
+ assert.equal(command(1,'setInput',{mode:'none'}).payload.mode,'none');
+ assert.equal(command(2,'setMidiInput',{device:'mpc'}).payload.device,'mpc');
+ assert.equal(command(3,'enumerateMidi').type,'enumerateMidi');
+ assert.throws(()=>command(4,'setMidiInput',{device:{open(){}}}));
+});
+
+test('MIDI slot commands reject malformed project bindings before engine mutation',()=>{
+ const bad=[{id:'midi_pad_kick',name:'KICK',bindings:[{note:200,channel:1}]}];
+ assert.throws(()=>command(1,'setMidiSlots',{projectId:'p',slots:bad}));
+ assert.throws(()=>command(1,'loadProject',{project:{id:'p',archetypeOrder:[],midiSlots:bad},records:[],cacheName:'cache'}));
 });

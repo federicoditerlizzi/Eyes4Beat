@@ -1,0 +1,60 @@
+<!doctype html><meta charset="utf-8"><pre id="result">RUNNING</pre>
+<script type="module">
+import {LocalLibraryRepository} from '../src/library/local-repository.js';
+import {cacheUserKey} from '../src/library/sync-logic.js';
+import {NEUTRAL_LOOK} from '../src/looks.js';
+const result=document.querySelector('#result'),wait=ms=>new Promise(r=>setTimeout(r,ms));
+const assert=(v,m)=>{if(!v)throw Error(m)};
+async function until(fn,msg){for(let i=0;i<150;i++){if(fn())return;await wait(100)}throw Error(msg)}
+let frame,outputWindow;
+try{
+ assert(location.hostname==='127.0.0.1','Isolated localhost only');
+ localStorage.removeItem('eyes4beat_midi_input');
+ const user='pads-'+Date.now()+'@example.invalid';localStorage.setItem('eyes4beat_last_sync_user',user);
+ const repo=new LocalLibraryRepository('eyes4beat-cache-'+cacheUserKey(user)),project=await repo.createProject('MPC pads');
+ const arch=await repo.createArchetype(project.id,{name:'Pad scene',look:NEUTRAL_LOOK,routingMap:{midi_pad_kick:{pulse:1}},imageConfig:{mode:'manual',images:[]},media:[]});await repo.setActiveProject(project.id);
+
+ const setup=`<script>
+ const port={id:'mpc',name:'MPC Test',manufacturer:'Akai',state:'connected',open:async()=>{},close:async()=>{}};
+ const access={inputs:new Map([['mpc',port]]),onstatechange:null};
+ Object.defineProperty(navigator,'requestMIDIAccess',{value:async()=>access});
+ window.testMidi={port,access};
+ <\/script>`;
+ const html=await (await fetch('/')).text();frame=document.createElement('iframe');frame.width=1280;frame.height=900;
+ frame.src='/';document.body.append(frame);
+ await until(()=>frame.contentWindow.EyesForBeatsEngine,'engine');
+ const win=frame.contentWindow,doc=frame.contentDocument,$=id=>doc.getElementById(id);
+ const port={id:'mpc',name:'MPC Test',manufacturer:'Akai',state:'connected',open:async()=>{},close:async()=>{}},access={inputs:new Map([['mpc',port]])};Object.defineProperty(win.navigator,'requestMIDIAccess',{value:async()=>access,configurable:true});win.testMidi={port,access};let state,peak=0;
+ win.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state'){state=e.state;peak=Math.max(peak,state.eff.midi_pad_kick||0)}});await until(()=>state?.midi,'MIDI snapshot');
+ const change=value=>{$('midiDevice').value=value;$('midiDevice').dispatchEvent(new win.Event('change',{bubbles:true}))};
+ change('__request__');await until(()=>state.midi.access,'MIDI permission');change('mpc');await until(()=>state.midi.connected,'selected input');
+ await until(()=>state.midiPads?.projectId===project.id,'project pads');
+ const send=(data,timeStamp)=>win.testMidi.port.onmidimessage({data,timeStamp});
+ const now=win.performance.now();send([250],now-1000);for(let n=0;n<=48;n++)send([248],now-1000+n*1000/48);
+ send([144,60,101],now);send([176,7,87],now);send([192,4],now);
+ await until(()=>state.tempo.source==='midi','MIDI tempo');assert(Math.abs(state.bpm-120)<.1,'clock BPM');
+ assert($('midiActivity').textContent.includes('velocity 101'),'note velocity');assert($('midiActivity').textContent.includes('CC 7 · 87'),'CC value');
+ $('noneModeBtn').click();await until(()=>state.transport.mode==='none','NONE mode');
+ assert([...doc.querySelectorAll('[data-audio-enabled]')].every(e=>e.hidden),'audio indicators hidden');
+ assert(Object.values(state.eff).every(v=>typeof v!=='number'||v===0),'idle sources');
+ const learn=async(slot,note)=>{doc.querySelector('[data-slot="'+slot+'"] button').click();await until(()=>state.midiPads.learning===slot,'learn armed');send([153,note,100],win.performance.now());await until(()=>!state.midiPads.learning,'learn done')};
+ await learn('midi_pad_kick',36);await learn('midi_pad_snare',38);await learn('midi_pad_snare',40);
+ assert(state.midiPads.slots[1].bindings.length===2,'two SNARE notes');
+ await learn('midi_pad_snare',36);await until(()=>state.midiPads.pending,'move prompt');assert(state.midiPads.slots[0].bindings.length===1,'not moved without confirmation');
+ [...$('midiPads').querySelectorAll('button')].find(b=>b.textContent==='CANCEL').click();await until(()=>!state.midiPads.pending,'move cancelled');
+ peak=0;send([153,36,127],win.performance.now());await until(()=>peak>0,'MIDI source routes with AUDIO NONE');
+ $('routingTab').click();await until(()=>doc.querySelector('.targetSource option[value="midi_pad_kick"]'),'routing option');
+ await wait(300);assert((await repo.getProject(project.id)).midiSlots[1].bindings.length===2,'bindings persisted');
+ win.testMidi.port.state='disconnected';win.testMidi.access.onstatechange();await until(()=>!state.midi.connected,'unplug');
+ win.testMidi.port.state='connected';win.testMidi.access.onstatechange();await until(()=>state.midi.connected,'replug');
+ change('');await until(()=>!state.midi.selected,'OFF');assert(!win.testMidi.port.onmidimessage,'closed handler');
+ const nativeOpen=win.open.bind(win);win.open=(...args)=>outputWindow=nativeOpen(...args);$('outputBtn').click();await until(()=>doc.body.classList.contains('remoteControl'),'remote engine');await until(()=>outputWindow.document.querySelector('#outputStart')?.disabled===false,'output start');
+ const outputPort={id:'mpc-output',name:'Output MPC',manufacturer:'Akai',state:'connected',open:async()=>{},close:async()=>{}},outputAccess={inputs:new Map([['mpc-output',outputPort]])};
+ Object.defineProperty(outputWindow.navigator,'requestMIDIAccess',{value:async()=>outputAccess,configurable:true});outputWindow.document.querySelector('#outputStart').click();await until(()=>!state.transport.locked,'unlocked');
+ await until(()=>$('midiDevice').querySelector('option[value="__request__"]'),'output fresh MIDI options');change('__request__');await until(()=>state.midi.devices.some(d=>d.id==='mpc-output'),'output MIDI access');change('mpc-output');await until(()=>state.midi.connected,'output MIDI device');
+ doc.querySelector('[data-slot="midi_pad_hat"] button').click();await until(()=>state.midiPads.learning==='midi_pad_hat','remote Learn');outputPort.onmidimessage({data:[153,42,88],timeStamp:outputWindow.performance.now()});await until(()=>state.midiPads.slots[2].bindings.length===1,'output-owned Learn');assert(!win.testMidi.port.onmidimessage,'controller does not receive MIDI notes');
+ change('');await until(()=>!state.midi.selected,'output MIDI off');outputWindow.close();await until(()=>!$('useLocalOutput').hidden,'disconnected');$('useLocalOutput').click();await until(()=>!doc.body.classList.contains('remoteControl'),'local takeover');await wait(300);
+ frame.src='/';await wait(500);await until(()=>frame.contentWindow.EyesForBeatsEngine,'reloaded engine');let reloaded;frame.contentWindow.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state')reloaded=e.state});await until(()=>reloaded?.midiPads?.projectId===project.id,'reloaded pads');assert(reloaded.midiPads.slots[1].bindings.length===2,'reload preserves SNARE bindings');
+ result.textContent='PASS MIDI Learn, multiple bindings, move confirmation, live routing without audio, persistence, clock and hotplug';
+}catch(e){result.textContent='FAIL '+e.stack+' '+frame?.contentDocument?.getElementById('midiStatus')?.textContent+' '+frame?.contentDocument?.getElementById('midiDevice')?.innerHTML}finally{outputWindow?.close();frame?.remove()}
+</script>
