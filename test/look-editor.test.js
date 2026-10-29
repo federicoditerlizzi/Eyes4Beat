@@ -6,7 +6,7 @@ const memory=()=>{const data=new Map();return {getItem:k=>data.get(k)??null,setI
 test('LOOK editor exposes every model leaf exactly once in the requested groups',()=>{
  assert.deepEqual(LOOK_GROUPS.map(g=>g[0]),['kaleido','feedback','color','distortion','particles','bloom','pulse','rotation','frame']);
  const paths=LOOK_GROUPS.flatMap(([group,,,primary,fields])=>{
-  assert.ok(fields.filter(([key,,fieldGroup=group])=>fieldGroup===group&&primary.includes(key)).length<=3);
+  assert.ok(fields.filter(([key,,fieldGroup=group])=>(fieldGroup===group&&primary.includes(key))||primary.includes(fieldGroup+'.'+key)).length<=3);
   return fields.map(([key,,fieldGroup=group])=>fieldGroup+'.'+key);
  });
  const leaves=(object,path='')=>Object.entries(object).flatMap(([key,value])=>typeof value==='object'?leaves(value,path+key+'.'):[path+key]);

@@ -47,7 +47,7 @@ test('old and imported looks default off; factories retain exact normalized sett
 test('post look settings clamp, segments stay discrete, invalid enums fall back',()=>{
  const look=normalizeLook({kaleido:{segments:1,rotationSpeed:999,centerX:-1,centerY:2,mirror:false},feedback:{amount:1,zoom:-1,rotate:999,driftX:1,driftY:-1,hueShift:1,blend:'bad'}});
  assert.deepEqual(look.kaleido,{segments:2,mix:0,rotationSpeed:360,centerX:0,centerY:1,mirror:false});
- assert.deepEqual(look.feedback,{amount:.98,zoom:-.01,rotate:3,driftX:.01,driftY:-.01,hueShift:.01,blend:'mix'});
+ assert.deepEqual(look.feedback,{flow:NEUTRAL_LOOK.feedback.flow,amount:.98,zoom:-.01,rotate:3,driftX:.01,driftY:-.01,hueShift:.01,blend:'mix'});
  assert.equal(normalizeLook({kaleido:{segments:9.4}}).kaleido.segments,9);
  const a=normalizeLook({kaleido:{segments:6},feedback:{amount:.5}}),b=normalizeLook({kaleido:{segments:8},feedback:{amount:.9,blend:'mix'}});
  const post=blendPost(a,b,.25);assert.equal(post.kaleido.segments,6);near(post.feedback.amount,.6);
@@ -100,7 +100,7 @@ test('feedback migration defaults to mix while preserving explicit max',()=>{
  assert.equal(normalizeLook({feedback:{blend:'max'}}).feedback.blend,'max');
  const legacy=normalizeLook({kaleido:{mix:5},feedback:{zoom:.05,rotate:-180,driftX:-.05,driftY:.05,hueShift:.1}});
  assert.equal(legacy.kaleido.mix,1);
- assert.deepEqual(legacy.feedback,{amount:0,blend:'mix',zoom:.01,rotate:-3,driftX:-.01,driftY:.01,hueShift:.01});
+ assert.deepEqual(legacy.feedback,{flow:NEUTRAL_LOOK.feedback.flow,amount:0,blend:'mix',zoom:.01,rotate:-3,driftX:-.01,driftY:.01,hueShift:.01});
 });
 test('feedback mirror reference folds both edges and repeated excursions continuously',()=>{
  for(const [uv,expected] of [ [[-.2,1.2],[.2,.8]], [[2.3,-2.3],[.3,.3]], [[0,1],[0,1]], [[2,-1],[0,1]], [[.3,.7],[.3,.7]] ])mirrorFeedbackUV(uv).forEach((v,i)=>near(v,expected[i]));

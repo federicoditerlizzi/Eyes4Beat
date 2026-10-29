@@ -19,8 +19,10 @@ export function effectivePost(post,targets={},enabled=true){
  };
 }
 export function blendPost(a,b,mix){
- const blend=(x,y)=>Object.fromEntries(Object.keys(x).map(k=>[k,typeof x[k]==='number'?x[k]+(y[k]-x[k])*mix:(mix<.5?x[k]:y[k])]));
+ const blend=(x,y)=>Object.fromEntries(Object.keys(x).map(k=>[k,typeof x[k]==='number'?x[k]+(y[k]-x[k])*mix:x[k]&&typeof x[k]==='object'?blend(x[k],y[k]):(mix<.5?x[k]:y[k])]));
  // Swap discrete shape settings only at zero wet mix, including routed modulation.
  const kaleido=(mix<.5?a:b).kaleido;
- return {kaleido,kaleidoFade:Math.abs(2*mix-1)*(kaleido.structuralDip??1),feedback:blend(a.feedback,b.feedback)};
+ const feedback=blend(a.feedback,b.feedback);
+ feedback.flow.octaves=(mix<.5?a:b).feedback.flow.octaves;
+ return {kaleido,kaleidoFade:Math.abs(2*mix-1)*(kaleido.structuralDip??1),feedback};
 }

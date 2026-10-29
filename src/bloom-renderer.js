@@ -1,3 +1,4 @@
+import { FLOW_GLSL, effectiveFlowStrength } from './flow-field.js';
 import { feedbackDecay, effectivePost } from './post-effects.js';
 import { bloomMipSizes, normalizeBloomQuality } from './bloom.js';
 import { TONE_KNEE, COLOR_SAFETY_MAX } from './tone.js';
@@ -68,12 +69,14 @@ void main(){
  vec2 uv=uCenter+length(p)*vec2(cos(a)/aspect,sin(a));
  fragColor=vec4(mix(texture(uInput,vUv).rgb,texture(uInput,uv).rgb,uEffectMix),1.);
 }`;
-const feedback = header + `
+const feedback = (flowEnabled=false) => header + `
 uniform float uDecay,uZoom,uAngle,uHue,uBlend;uniform vec2 uDrift,uRes;
+${flowEnabled?FLOW_GLSL:''}
 void main(){
  float aspect=uRes.x/uRes.y;vec2 p=(vUv-.5)*vec2(aspect,1.);
  float c=cos(uAngle),s=sin(uAngle);p=mat2(c,-s,s,c)*p/uZoom;
  vec2 uv=p/vec2(aspect,1.)+.5-uDrift;
+ ${flowEnabled?'uv-=feedbackFlow(uv,aspect)*uFlow.x*uFlow.z;':''}
  uv=1.-abs(mod(uv,2.)-1.);
  vec3 prev=texture(uDetail,uv).rgb;
  // Rotation about the gray axis preserves neutral colors.
@@ -91,7 +94,7 @@ export class BloomRenderer {
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.timer = gl.getExtension('EXT_disjoint_timer_query_webgl2');
     this.vao = gl.createVertexArray();
-    this.programs = [down, up, composite, kaleido, feedback].map(source => this.program(source));
+    this.programs = [down, up, composite, kaleido, feedback(), feedback(true)].map(source => this.program(source));
   }
   program(source) {
     const gl = this.gl, program = gl.createProgram();
@@ -103,7 +106,7 @@ export class BloomRenderer {
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     const uniforms = {};
-    for (const name of ['uInput','uDetail','uStep','uBright','uThreshold','uKnee','uRadius','uIntensity','uTint','uRes','uVignetteA','uVignetteB','uMix','uSegments','uAngle','uMirror','uEffectMix','uCenter','uDecay','uZoom','uHue','uBlend','uDrift']) uniforms[name] = gl.getUniformLocation(program, name);
+    for (const name of ['uInput','uDetail','uStep','uBright','uThreshold','uKnee','uRadius','uIntensity','uTint','uRes','uVignetteA','uVignetteB','uMix','uSegments','uAngle','uMirror','uEffectMix','uCenter','uDecay','uZoom','uHue','uBlend','uDrift','uFlow','uFlowTime','uFlowSource']) uniforms[name] = gl.getUniformLocation(program, name);
     return { program, uniforms };
   }
   target(width, height) {
@@ -174,7 +177,12 @@ export class BloomRenderer {
       const decay=this.historyValid?feedbackDecay(amount,dt):0;
       // A long RAF pause has already erased history; avoid overflowing transforms.
       const frames=decay>1e-6?Math.max(0,dt)*60:0;
-      const u=this.use(4,this.history[1],scene,prev);
+      const flowStrength=frames>0?effectiveFlowStrength(f.flow,targets.flow||0,passesEnabled):0;
+      const u=this.use(flowStrength>0?5:4,this.history[1],scene,prev);
+      if(flowStrength>0){
+       gl.uniform4f(u.uFlow,flowStrength,f.flow.scale,frames,f.flow.octaves);
+       gl.uniform1f(u.uFlowTime,time*f.flow.speed);gl.uniform1i(u.uFlowSource,f.flow.source==='image'?1:0);
+      }
       gl.uniform1f(u.uDecay,decay);
       gl.uniform1f(u.uZoom,Math.pow(1+f.zoom,frames));gl.uniform1f(u.uAngle,f.rotate*frames*Math.PI/180);
       gl.uniform2f(u.uDrift,f.driftX*frames,f.driftY*frames);gl.uniform1f(u.uHue,f.hueShift*frames);

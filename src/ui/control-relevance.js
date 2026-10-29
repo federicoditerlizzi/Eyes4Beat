@@ -10,6 +10,7 @@ export function dimSetting(root,reason=''){
 }
 export function lookFieldRelevant(look,path){
  if(path.startsWith('kaleido.')&&path!=='kaleido.segments')return look.kaleido.segments>0;
+ if(['feedback.flow.speed','feedback.flow.octaves'].includes(path)&&look.feedback.flow.source==='image')return false;
  if(path.startsWith('feedback.')&&path!=='feedback.amount')return look.feedback.amount>0;
  if(path==='rotation.maxAngle')return look.rotation.mode==='angle';
  if(['rotation.maxSpeed','rotation.direction','rotation.returnToRest'].includes(path))return look.rotation.mode==='spin';
