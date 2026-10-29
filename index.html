@@ -84,6 +84,7 @@
   <dialog id="outputSettingsDialog" class="presetDialog outputSettingsDialog">
     <div class="packageDialogHead"><h2>OUTPUT SETTINGS</h2><button id="closeOutputSettings" class="iconAction closeAction" aria-label="Close output settings" data-tooltip="Close output settings"><i data-lucide="x"></i></button></div>
     <p>Saved on this rendering device.</p>
+    <div class="outputSettingRow"><label for="feedbackEnabled">FEEDBACK</label><input id="feedbackEnabled" type="checkbox" checked></div>
     <div class="outputSettingRow"><label for="bloomQuality">BLOOM QUALITY</label><select id="bloomQuality" title="Device-local bloom quality"><option value="off">Off</option><option value="low">Low</option><option value="high" selected>High</option></select></div>
     <div class="outputSettingRow"><label for="renderScale">RENDER RESOLUTION</label><div class="outputScaleControl"><input id="renderScale" type="range" min="0.5" max="1" step="0.01" value="0.78" title="Render resolution scale"><output id="renderScaleValue" for="renderScale">78%</output></div></div>
   </dialog>
@@ -130,6 +131,8 @@
       <div class="gRow"><span>Rotation</span><input class="onCheck" type="checkbox" data-target-on="rotate" checked aria-label="Enable Rotation"><input type="range" id="g-rotate" min="0" max="1.5" step="0.01" value="0"><input type="range" id="ga-rotate" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-target-solo="rotate" title="Solo Rotation" aria-pressed="false">S</button><span id="gf-rotate">0.00</span></div>
       <div class="gRow"><span>Spiral</span><input class="onCheck" type="checkbox" data-target-on="spiral" checked aria-label="Enable Spiral"><input type="range" id="g-spiral" min="0" max="1.5" step="0.01" value="0"><input type="range" id="ga-spiral" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-target-solo="spiral" title="Solo Spiral" aria-pressed="false">S</button><span id="gf-spiral">0.00</span></div>
       <div class="gRow"><span>Tile Shuffle</span><input class="onCheck" type="checkbox" data-target-on="tiles" checked aria-label="Enable Tile Shuffle"><input type="range" id="g-tiles" min="0" max="1.5" step="0.01" value="0"><input type="range" id="ga-tiles" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-target-solo="tiles" title="Solo Tile Shuffle" aria-pressed="false">S</button><span id="gf-tiles">0.00</span></div>
+      <div class="gRow"><span>Trails</span><input class="onCheck" type="checkbox" data-target-on="trails" checked aria-label="Enable Trails"><input type="range" id="g-trails" min="0" max="1.5" step="0.01" value="1"><input type="range" id="ga-trails" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-target-solo="trails" title="Solo Trails" aria-pressed="false">S</button><span id="gf-trails">0.00</span></div>
+      <div class="gRow"><span>Kaleido</span><input class="onCheck" type="checkbox" data-target-on="kaleido" checked aria-label="Enable Kaleido"><input type="range" id="g-kaleido" min="0" max="1.5" step="0.01" value="1"><input type="range" id="ga-kaleido" min="0" max="1.5" step="0.01" value="1.00"><button class="soloBtn" data-target-solo="kaleido" title="Solo Kaleido" aria-pressed="false">S</button><span id="gf-kaleido">0.00</span></div>
       </div>
     </details>
   </div>

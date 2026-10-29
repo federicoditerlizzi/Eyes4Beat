@@ -1,4 +1,5 @@
-import { readOutputSettings, saveOutputSetting, RENDER_SCALE_KEY, normalizeRenderScale } from '../output-settings.js';
+import { blendPost } from '../post-effects.js';
+import { readOutputSettings, saveOutputSetting, FEEDBACK_KEY, RENDER_SCALE_KEY, normalizeRenderScale } from '../output-settings.js';
 import { BLOOM_QUALITY_KEY, normalizeBloomQuality } from '../bloom.js';
 import { BloomRenderer } from '../bloom-renderer.js';
 import { blendBloom } from '../bloom.js';
@@ -38,7 +39,7 @@ function initializeRenderer(){
 }
 initializeRenderer();
 const settings=readOutputSettings(globalThis.localStorage);
-let bloomQuality=settings.quality,renderScale=settings.renderScale;
+let bloomQuality=settings.quality,renderScale=settings.renderScale,feedbackEnabled=settings.feedback;
 const onLost=event=>{event.preventDefault();contextLost=true;onError('WebGL context lost — waiting for restore')};
 canvas.addEventListener('webglcontextlost',onLost);
 const onRestored=()=>{
@@ -149,7 +150,7 @@ function applyMotionUniforms(role,look,state,waves,elapsed=0,time=0){
  gl.uniform3f(U['uPulseShape'+role],pulse.mode==='shockwave'?1:0,pulse.width,pulse.chromatic);
  gl.uniform2fv(U['uWaves'+role+'[0]'],waveUniforms(waves||[]));
 }
-function draw({lookA,lookB,sequenceA,sequenceB,visualTime,motion,motionElapsed,breath,FinalG,archMix,transitioning}){
+function draw({dt,panicActive,lookA,lookB,sequenceA,sequenceB,visualTime,motion,motionElapsed,breath,FinalG,archMix,transitioning}){
  bloomRenderer.beginScene(canvas.width,canvas.height,bloomQuality);
  gl.bindVertexArray(sceneVao);gl.useProgram(prog);
  for(let role=0;role<2;role++)for(let slot=0;slot<2;slot++)bindTextureSlot(role,slot);
@@ -176,15 +177,18 @@ function draw({lookA,lookB,sequenceA,sequenceB,visualTime,motion,motionElapsed,b
  gl.uniform4f(U.uAspect,texAspects[0][0],texAspects[0][1],texAspects[1][0],texAspects[1][1]);
  gl.drawArrays(gl.TRIANGLES,0,3);
  const visualMix=transitioning?archMix:1;
- bloomRenderer.render(blendBloom(lookA.bloom,lookB.bloom,visualMix,FinalG.glow),uniformsA.vignette,uniformsB.vignette,visualMix);
+ const post=blendPost(lookA,lookB,visualMix);
+ const scene=bloomRenderer.postProcess(post,dt,visualTime,panicActive?{}:FinalG,feedbackEnabled&&!panicActive);
+ bloomRenderer.render(blendBloom(lookA.bloom,lookB.bloom,visualMix,FinalG.glow),uniformsA.vignette,uniformsB.vignette,visualMix,scene);
 }
-return { draw, dispose, prepareRole, invalidateLoads, trackedMediaLoad, swapTextureSlots, releaseTextureMedia,
+return { draw, dispose, clearFeedback:()=>{if(!contextLost)bloomRenderer.clearFeedback()},
+ setFeedback:value=>{feedbackEnabled=!!value;bloomRenderer.clearFeedback();saveOutputSetting(globalThis.localStorage,FEEDBACK_KEY,feedbackEnabled)}, prepareRole, invalidateLoads, trackedMediaLoad, swapTextureSlots, releaseTextureMedia,
  waitForLoads:()=>Promise.all([...pendingMediaLoads]), clearPalette:()=>paletteCache.clear(),
  palette:(role,slot)=>texPalettes[role][slot], setQuality:value=>{bloomQuality=normalizeBloomQuality(value);saveOutputSetting(globalThis.localStorage,BLOOM_QUALITY_KEY,bloomQuality)},
  setRenderScale:value=>{renderScale=normalizeRenderScale(value);saveOutputSetting(globalThis.localStorage,RENDER_SCALE_KEY,renderScale)},
- get outputSettings(){return {quality:bloomQuality,renderScale}},
+ get outputSettings(){return {quality:bloomQuality,renderScale,feedback:feedbackEnabled}},
  get lost(){return contextLost}, get diagnostics(){return bloomRenderer.diagnostics},
  clear(){gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT)},
- resize(){const w=Math.max(1,Math.floor(innerWidth*renderScale)),h=Math.max(1,Math.floor(innerHeight*renderScale));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}
+ resize(){const w=Math.max(1,Math.floor(innerWidth*renderScale)),h=Math.max(1,Math.floor(innerHeight*renderScale));if(canvas.width!==w||canvas.height!==h){bloomRenderer.clearFeedback();canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}
 };
 }

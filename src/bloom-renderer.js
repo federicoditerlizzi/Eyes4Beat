@@ -1,3 +1,4 @@
+import { feedbackDecay } from './post-effects.js';
 import { bloomMipSizes, normalizeBloomQuality } from './bloom.js';
 import { TONE_KNEE, COLOR_SAFETY_MAX } from './tone.js';
 
@@ -55,6 +56,33 @@ void main(){
  fragColor=vec4(c,1.);
 }`;
 
+
+const kaleido = header + `
+uniform float uSegments,uAngle,uMirror,uEffectMix;uniform vec2 uCenter,uRes;
+void main(){
+ float aspect=uRes.x/uRes.y;vec2 p=(vUv-uCenter)*vec2(aspect,1.);
+ float width=6.28318530718/uSegments;
+ float a=mod(atan(p.y,p.x)-uAngle,width);
+ if(uMirror>0.)a=min(a,width-a);
+ a+=uAngle;
+ vec2 uv=uCenter+length(p)*vec2(cos(a)/aspect,sin(a));
+ fragColor=vec4(mix(texture(uInput,vUv).rgb,texture(uInput,uv).rgb,uEffectMix),1.);
+}`;
+const feedback = header + `
+uniform float uDecay,uZoom,uAngle,uHue,uBlend;uniform vec2 uDrift,uRes;
+void main(){
+ float aspect=uRes.x/uRes.y;vec2 p=(vUv-.5)*vec2(aspect,1.);
+ float c=cos(uAngle),s=sin(uAngle);p=mat2(c,-s,s,c)*p/uZoom;
+ vec2 uv=p/vec2(aspect,1.)+.5-uDrift;
+ vec3 prev=texture(uDetail,uv).rgb;
+ if(any(lessThan(uv,vec2(0.)))||any(greaterThan(uv,vec2(1.))))prev=vec3(0.);
+ // Rotation about the gray axis preserves neutral colors.
+ vec3 axis=vec3(.577350269);float h=uHue*6.28318530718;
+ prev=max(vec3(0.),prev*cos(h)+cross(axis,prev)*sin(h)+axis*dot(axis,prev)*(1.-cos(h)));
+ vec3 scene=texture(uInput,vUv).rgb;
+ fragColor=vec4(uBlend>0.?mix(scene,prev,uDecay):max(scene,prev*uDecay),1.);
+}`;
+
 /** Owns only post-processing GL resources; the scene renderer owns its media slots. */
 export class BloomRenderer {
   constructor(gl) {
@@ -63,7 +91,7 @@ export class BloomRenderer {
     this.hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.timer = gl.getExtension('EXT_disjoint_timer_query_webgl2');
     this.vao = gl.createVertexArray();
-    this.programs = [down, up, composite].map(source => this.program(source));
+    this.programs = [down, up, composite, kaleido, feedback].map(source => this.program(source));
   }
   program(source) {
     const gl = this.gl, program = gl.createProgram();
@@ -75,7 +103,7 @@ export class BloomRenderer {
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     const uniforms = {};
-    for (const name of ['uInput','uDetail','uStep','uBright','uThreshold','uKnee','uRadius','uIntensity','uTint','uRes','uVignetteA','uVignetteB','uMix']) uniforms[name] = gl.getUniformLocation(program, name);
+    for (const name of ['uInput','uDetail','uStep','uBright','uThreshold','uKnee','uRadius','uIntensity','uTint','uRes','uVignetteA','uVignetteB','uMix','uSegments','uAngle','uMirror','uEffectMix','uCenter','uDecay','uZoom','uHue','uBlend','uDrift']) uniforms[name] = gl.getUniformLocation(program, name);
     return { program, uniforms };
   }
   target(width, height) {
@@ -92,7 +120,7 @@ export class BloomRenderer {
   }
   releaseTargets() {
     for (const t of this.targets) { this.gl.deleteFramebuffer(t.framebuffer); this.gl.deleteTexture(t.texture); }
-    this.targets = []; this.down = []; this.up = [];
+    this.targets = []; this.down = []; this.up = []; this.kaleidoTarget = null; this.history = null; this.historyValid = false;
   }
   resize(width, height, quality) {
     quality = normalizeBloomQuality(quality);
@@ -118,13 +146,49 @@ export class BloomRenderer {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, detail.texture);
     gl.uniform1i(u.uInput, 0); gl.uniform1i(u.uDetail, 1); return u;
   }
-  render(settings, vignetteA, vignetteB, mix) {
+  clearFeedback() {
+    const gl=this.gl;
+    if(this.history){
+      for(const target of this.history){gl.bindFramebuffer(gl.FRAMEBUFFER,target.framebuffer);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT)}
+    }
+    this.historyValid=false;
+  }
+  postProcess(post, dt, time, targets, enabled) {
+    const gl=this.gl;let scene=this.scene;
+    const k=post.kaleido,f=post.feedback;
+    const kaleidoMix=Math.max(0,Math.min(1,targets.kaleido||0));
+    if(k.segments>0 && kaleidoMix>0){
+      this.kaleidoTarget??=this.target(this.width,this.height);
+      const u=this.use(3,this.kaleidoTarget,scene);
+      gl.uniform1f(u.uSegments,k.segments);gl.uniform1f(u.uAngle,time*k.rotationSpeed*Math.PI/180);
+      gl.uniform1f(u.uMirror,k.mirror?1:0);gl.uniform1f(u.uEffectMix,kaleidoMix);
+      gl.uniform2f(u.uCenter,k.centerX,k.centerY);gl.uniform2f(u.uRes,this.width,this.height);
+      gl.drawArrays(gl.TRIANGLES,0,3);scene=this.kaleidoTarget;
+    }
+    const amount=enabled?Math.min(.98,f.amount*Math.max(0,targets.trails||0)):0;
+    if(amount>0){
+      this.history??=[this.target(this.width,this.height),this.target(this.width,this.height)];
+      // Seed from this frame, never from stale history after a bypass or reset.
+      const prev=this.historyValid?this.history[0]:scene;
+      const decay=this.historyValid?feedbackDecay(amount,dt):0;
+      // A long RAF pause has already erased history; avoid overflowing transforms.
+      const frames=decay>1e-6?Math.max(0,dt)*60:0;
+      const u=this.use(4,this.history[1],scene,prev);
+      gl.uniform1f(u.uDecay,decay);
+      gl.uniform1f(u.uZoom,Math.pow(1+f.zoom,frames));gl.uniform1f(u.uAngle,f.rotate*frames*Math.PI/180);
+      gl.uniform2f(u.uDrift,f.driftX*frames,f.driftY*frames);gl.uniform1f(u.uHue,f.hueShift*frames);
+      gl.uniform1f(u.uBlend,f.blend==='mix'?1:0);gl.uniform2f(u.uRes,this.width,this.height);
+      gl.drawArrays(gl.TRIANGLES,0,3);this.history.reverse();scene=this.history[0];this.historyValid=true;
+    }else this.historyValid=false;
+    return scene;
+  }
+  render(settings, vignetteA, vignetteB, mix, scene = this.scene) {
     const gl = this.gl, intensity = this.quality === 'off' ? 0 : settings.intensity;
     if (this.query && gl.getQueryParameter(this.query, gl.QUERY_RESULT_AVAILABLE)) {
       if (!gl.getParameter(this.timer.GPU_DISJOINT_EXT)) this.gpuMs = gl.getQueryParameter(this.query, gl.QUERY_RESULT) / 1e6;
       gl.deleteQuery(this.query); this.query = null;
     }
-    let result = this.scene, measuring = false;
+    let result = scene, measuring = false;
     if (intensity > 0) {
       if (!this.down.length) {
         const sizes = bloomMipSizes(this.width, this.height, this.quality);
@@ -146,7 +210,7 @@ export class BloomRenderer {
       }
       if (measuring) gl.endQuery(this.timer.TIME_ELAPSED_EXT);
     }
-    const u = this.use(2, null, this.scene, result);
+    const u = this.use(2, null, scene, result);
     gl.uniform1f(u.uIntensity, intensity); gl.uniform3fv(u.uTint, settings.tint);
     gl.uniform2f(u.uRes, this.width, this.height); gl.uniform2fv(u.uVignetteA, vignetteA); gl.uniform2fv(u.uVignetteB, vignetteB); gl.uniform1f(u.uMix, mix);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

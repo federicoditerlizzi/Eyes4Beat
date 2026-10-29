@@ -34,6 +34,7 @@ export const COMMANDS={
  enumerateMidi:()=>true,setMidiInput:p=>typeof p.device==='string',
  setTrim:p=>range(p.value,-60,24),enumerateInputs:()=>true,calibrate:()=>true,clearCalibration:()=>true,
  setSafety:p=>['blackout','panic','liveLock'].includes(p.control)&&typeof p.value==='boolean',
+ setFeedback:p=>typeof p.value==='boolean',
  setRenderScale:p=>range(p.value,.5,1),
  setQuality:p=>['off','low','high'].includes(p.value),setDiagnostics:p=>typeof p.enabled==='boolean',
  audioRestore:p=>['none','file','live'].includes(p.mode)&&(p.blob===undefined||p.blob instanceof Blob)&&number(p.currentTime)&&p.currentTime>=0&&typeof p.paused==='boolean'&&range(p.volume,0,1)&&typeof p.muted==='boolean',

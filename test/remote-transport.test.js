@@ -69,8 +69,10 @@ test('replay does not replace saved safety with the destination default snapshot
 test('failed output connection reconstructs a local engine and remains usable',async()=>{
  const log=[];let created=0;const session=new EngineSession(()=>{created++;return fakeTransport('local',log)});
  await session.send('setQuality',{value:'low'});
+ await session.send('setFeedback',{value:false});
  await assert.rejects(session.switchTo(()=>{throw new Error('connection failed')}),/connection failed/);
  assert.equal(created,2);await session.send('audioPause');assert.equal(log.at(-1).type,'audioPause');assert.equal(log.filter(e=>e.type==='setQuality').length,2);
+ assert.deepEqual(log.filter(e=>e.type==='setFeedback').map(e=>e.payload.value),[false,false]);
 });
 
 test('control reload reattaches to the same host and adopts authoritative edits without replay',async()=>{

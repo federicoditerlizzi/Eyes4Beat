@@ -3,6 +3,7 @@ import { updateBloomRelevance } from './control-relevance.js';
 // UI reads full engine snapshots; no AudioNodes, textures or runtime state are shared.
 export function renderEngineState(state,{seeking=false,clipHoldUntil=0}={}){
  if(state.outputSettings){
+  document.getElementById('feedbackEnabled').checked=state.outputSettings.feedback!==false;
   const {quality,renderScale}=state.outputSettings;
   document.getElementById('bloomQuality').value=quality;
   const fields=document.getElementById('lookFields');if(fields.dataset.bloomQuality!==quality)updateBloomRelevance(fields,quality);

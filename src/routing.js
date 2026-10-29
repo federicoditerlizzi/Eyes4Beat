@@ -1,6 +1,6 @@
 import { routeSources, routeTargets } from './config.js';
 
-const UNIPOLAR_TARGETS = new Set(['pulse', 'dist', 'glow', 'parts', 'rotate', 'spiral', 'tiles']);
+const UNIPOLAR_TARGETS = new Set(['pulse', 'dist', 'glow', 'parts', 'rotate', 'spiral', 'tiles', 'trails', 'kaleido']);
 
 export const NEUTRAL_TARGETS = Object.freeze({
   pulse: 0,
@@ -13,6 +13,8 @@ export const NEUTRAL_TARGETS = Object.freeze({
   rotate: 0,
   spiral: 0,
   tiles: 0,
+  trails: 0,
+  kaleido: 0,
 });
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -83,6 +85,8 @@ export function computeTargetState({
     zoom: clamp(1 + driven('zoom') * modulation.zoom * 0.20, 0.78, 1.28),
     rotate: clamp(driven('rotate') * Math.max(0, modulation.rotate), 0, 1.5),
     spiral: clamp(driven('spiral') * Math.max(0, modulation.spiral), 0, 1.5),
+    trails: clamp(driven('trails') * Math.max(0, modulation.trails), 0, 1),
+    kaleido: clamp(driven('kaleido') * Math.max(0, modulation.kaleido), 0, 1),
     tiles: clamp(driven('tiles') * Math.max(0, modulation.tiles), 0, 1.5),
   };
 }

@@ -4,6 +4,8 @@ import { eventSourceIds, sourceLabels } from '../config.js';
 import { assignedSource } from '../routing.js';
 
 export const LOOK_GROUPS=[
+ ['kaleido','KALEIDO','kaleido',['segments'],[['segments','Segments (0 = off)'],['rotationSpeed','Rotation (deg/s)'],['centerX','Center X'],['centerY','Center Y'],['mirror','Mirror']]],
+ ['feedback','FEEDBACK','trails',['amount','zoom'],[['amount','Amount'],['zoom','Zoom / frame'],['blend','Blend'],['rotate','Rotation (deg/frame)'],['driftX','Drift X'],['driftY','Drift Y'],['hueShift','Hue shift']]],
  ['color','COLOR',null,['gain','tint','tintAmount'],[['gain','Gain'],['tint','Tint'],['tintAmount','Tint amount'],['amount','Vignette amount','vignette'],['softness','Vignette softness','vignette']]],
  ['distortion','DISTORTION','dist',['amplitude','speed','mode'],[['amplitude','Amplitude'],['speed','Speed'],['mode','Mode'],['angle','Angle (degrees)'],['directionStrength','Direction strength']]],
  ['particles','PARTICLES','parts',['density','speed','style'],[['density','Density'],['speed','Speed'],['style','Style'],['motion','Motion'],['color','Color'],['colorMode','Color mode'],['motionFactor','Motion factor'],['waveAmount','Wave amount'],['jitterAmount','Jitter amount'],['depthOffset','Depth offset'],['streakSlant','Streak slant'],['trigger','Burst trigger','particles.burst'],['amount','Burst amount','particles.burst'],['speed','Burst speed','particles.burst'],['spread','Burst spread','particles.burst'],['origin','Burst origin','particles.burst']]],
@@ -53,7 +55,7 @@ export function renderLookControls({root,getLook,onChange,start,storage=localSto
    const row=create('div','lookField');row.dataset.field=key;row.dataset.path=fieldGroup+'.'+key;row.append(create('span','lookFieldCaption',label));
    const aria=title.toLowerCase()+' '+label.toLowerCase();
    const choices=key==='mode'?(group==='rotation'?['angle','spin']:group==='pulse'?['breath','shockwave']:['directional','radial']):
-    ({direction:['cw','ccw','flip-on-beat'],colorMode:['fixed','palette'],trigger:['none',...eventSourceIds()],origin:['center','random'],fit:['cover','contain','stretch'],edge:['mirror','clamp'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']})[key];
+    ({blend:['max','mix'],direction:['cw','ccw','flip-on-beat'],colorMode:['fixed','palette'],trigger:['none',...eventSourceIds()],origin:['center','random'],fit:['cover','contain','stretch'],edge:['mirror','clamp'],style:['dots','rings','streaks'],motion:['rise','wave-flow','radial','jitter-flow','depth-flow']})[key];
    const apply=value=>{const next=structuredClone(getLook());path.reduce((v,p)=>v[p],next)[key]=value;onChange(normalizeLook(next));updateLookRelevance(root,getLook());return read(getLook())};
    if(LOOK_FIELDS[fieldGroup]?.[key]){
     const [min,max,step]=LOOK_FIELDS[fieldGroup][key],control=create('div','lookSliderControl'),slider=create('input','lookSlider'),display=create('button','lookValue'),editor=create('input','lookValueEditor');

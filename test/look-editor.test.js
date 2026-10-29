@@ -4,7 +4,7 @@ import { LOOK_GROUPS, resetLookGroup, startingLook, readGroupState } from '../sr
 import { NEUTRAL_LOOK, FACTORY_LOOKS } from '../src/looks.js';
 const memory=()=>{const data=new Map();return {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)}};
 test('LOOK editor exposes every model leaf exactly once in the requested groups',()=>{
- assert.deepEqual(LOOK_GROUPS.map(g=>g[0]),['color','distortion','particles','bloom','pulse','rotation','frame']);
+ assert.deepEqual(LOOK_GROUPS.map(g=>g[0]),['kaleido','feedback','color','distortion','particles','bloom','pulse','rotation','frame']);
  const paths=LOOK_GROUPS.flatMap(([group,,,primary,fields])=>{
   assert.ok(fields.filter(([key,,fieldGroup=group])=>fieldGroup===group&&primary.includes(key)).length<=3);
   return fields.map(([key,,fieldGroup=group])=>fieldGroup+'.'+key);

@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><title>Post effects GPU regression</title>
+<canvas id="canvas" width="64" height="64"></canvas><pre id="result">Running…</pre>
+<script type="module">
+import { BloomRenderer } from '../src/bloom-renderer.js';
+import { normalizeLook } from '../src/looks.js';
+const result=document.querySelector('#result');
+try {
+ const gl=document.querySelector('canvas').getContext('webgl2',{preserveDrawingBuffer:true});
+ const r=new BloomRenderer(gl),off=normalizeLook(),on=normalizeLook({feedback:{amount:.9},kaleido:{segments:6}});
+ const assert=(value,message)=>{if(!value)throw Error(message)};
+ const pixel=(target,x=32,y=32)=>{gl.bindFramebuffer(gl.FRAMEBUFFER,target?.framebuffer||null);const p=new Uint8Array(4);if(target&&r.hdr){const f=new Float32Array(4);gl.readPixels(x,y,1,1,gl.RGBA,gl.FLOAT,f);return Array.from(f).map(v=>Math.round(v*255))}gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);return [...p]};
+ const scene=color=>{r.beginScene(64,64,'off');gl.clearColor(...color,1);gl.clear(gl.COLOR_BUFFER_BIT)};
+ const bloom={intensity:0,tint:[1,1,1],threshold:1,knee:.5,radius:.5,stretch:0};
+ scene([.4,.2,.1]);const base=r.postProcess(off,1/60,0,{trails:1,kaleido:1},true);
+ assert(base===r.scene,'off passes must return original scene');assert(!r.history&&!r.kaleidoTarget,'off allocates no pass targets');
+ r.render(bloom,[0,.75],[0,.75],1,base);const baseline=pixel();
+ scene([.4,.2,.1]);const same=r.postProcess(off,1/60,1,{},true);r.render(bloom,[0,.75],[0,.75],1,same);
+ assert(JSON.stringify(pixel())===JSON.stringify(baseline),'default output changed');
+ scene([0,0,0]);gl.enable(gl.SCISSOR_TEST);gl.scissor(32,0,32,64);gl.clearColor(.8,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.disable(gl.SCISSOR_TEST);
+ const folded=r.postProcess(on,1/60,0,{kaleido:1},false);assert(pixel(r.scene,16,48)[0]===0&&pixel(folded,16,48)[0]>190,'kaleido did not fold scene across center');
+ scene([.8,.2,.1]);let output=r.postProcess(on,1/60,0,{trails:1,kaleido:1},true);
+ assert(output===r.history[0]&&r.kaleidoTarget,'kaleido and feedback not rendered');
+ const seeded=pixel(output);scene([0,0,0]);output=r.postProcess(on,1/60,0,{trails:1,kaleido:1},true);
+ assert(Math.abs(pixel(output)[0]-seeded[0]*.9)<2,'feedback decay mismatch');
+ r.clearFeedback();scene([0,0,0]);output=r.postProcess(on,1/60,0,{trails:1,kaleido:1},true);assert(pixel(output)[0]===0,'clear left trails');
+ scene([.8,0,0]);r.postProcess(on,1/60,0,{trails:1,kaleido:1},true);scene([0,0,0]);output=r.postProcess(on,1/60,0,{trails:1,kaleido:1},false);assert(output===r.kaleidoTarget,'device switch must bypass only feedback');
+ const mix=normalizeLook({feedback:{amount:.9,blend:'mix',zoom:.02,rotate:1,driftX:.001,hueShift:.01}});
+ output=r.postProcess(mix,1/30,1,{trails:1},true);r.beginScene(64,64,'high');gl.clearColor(.4,.2,.1,1);gl.clear(gl.COLOR_BUFFER_BIT);output=r.postProcess(mix,1/30,1,{trails:1},true);r.render({...bloom,intensity:.5},[0,.75],[0,.75],1,output);
+ r.postProcess(normalizeLook({feedback:{amount:.98,zoom:.05,rotate:180}}),3600,1,{trails:1},true);
+ r.resize(32,32,'high');assert(!r.history&&!r.historyValid,'resize retained history');
+ assert(gl.getError()===gl.NO_ERROR,'WebGL error');r.dispose();
+ const ldr=new BloomRenderer(gl);ldr.hdr=false;ldr.beginScene(16,16,'off');gl.clearColor(.5,.2,.1,1);gl.clear(gl.COLOR_BUFFER_BIT);const ldrScene=ldr.postProcess(on,1/60,0,{trails:1,kaleido:1},true);ldr.render(bloom,[0,.75],[0,.75],1,ldrScene);assert(gl.getError()===gl.NO_ERROR,'RGBA8 fallback error');ldr.dispose();
+ result.textContent='PASS: shader compile; default pixel identity; lazy allocation; kaleido + feedback; decay; clear; device bypass; mix transform; bloom; resize; RGBA8 fallback; GL errors.';
+} catch(error){result.textContent='FAIL: '+error.stack}
+</script>

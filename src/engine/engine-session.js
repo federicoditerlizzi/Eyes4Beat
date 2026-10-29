@@ -32,7 +32,7 @@ export class EngineSession{
   else if(type==='audioMute')this.pendingAudio.muted=p.value;
   else if(type==='setTrim')this.pendingAudio.trim=p.value;
   else if(type==='setInput'){this.pendingAudio.mode=p.mode;if(p.device)this.pendingAudio.device=p.device} 
-  else if(['setMidiInput','setSources','setControls','setTransition','setQuality','setRenderScale','setDiagnostics'].includes(type))this.saved.set(type,structuredClone(p));
+  else if(['setMidiInput','setSources','setControls','setTransition','setQuality','setFeedback','setRenderScale','setDiagnostics'].includes(type))this.saved.set(type,structuredClone(p));
   else if(type==='setSafety'){this.pendingSafety.set(p.control,p.value);this.saved.set('safety:'+p.control,structuredClone(p))}
  }
  send(type,payload={}){

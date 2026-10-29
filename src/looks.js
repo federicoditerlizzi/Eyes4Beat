@@ -6,6 +6,8 @@ import { BLOOM_DEFAULTS } from './bloom.js';
 export const LOOK_STORAGE_KEY = 'arv_v047_looks';
 
 export const LOOK_FIELDS = {
+  kaleido: { segments: [0,16,1], rotationSpeed: [-360,360,1], centerX: [0,1,.01], centerY: [0,1,.01] },
+  feedback: { amount: [0,.98,.01], zoom: [-.05,.05,.001], rotate: [-180,180,.1], driftX: [-.05,.05,.001], driftY: [-.05,.05,.001], hueShift: [0,.1,.001] },
   rotation: { fill: [0, 1, .01], maxAngle: [0, 180, 1], maxSpeed: [0, 360, 1] },
   pulse: { centerX: [0, 1, .01], centerY: [0, 1, .01], strength: [0, 3, .01], speed: [.1, 3, .01], width: [.01, .5, .01], chromatic: [0, 1, .01] },
   'particles.burst': { amount: [0, 200, 1], speed: [0, 1000, 1], spread: [0, 1, .01] },
@@ -18,6 +20,8 @@ export const LOOK_FIELDS = {
 };
 
 export const NEUTRAL_LOOK = {
+  kaleido: { segments: 0, rotationSpeed: 0, centerX: .5, centerY: .5, mirror: true },
+  feedback: { amount: 0, blend: 'max', zoom: 0, rotate: 0, driftX: 0, driftY: 0, hueShift: 0 },
   rotation: { ...ROTATION_DEFAULTS },
   pulse: { ...PULSE_DEFAULTS },
   bloom: { ...BLOOM_DEFAULTS },
@@ -54,6 +58,8 @@ export const FACTORY_LOOKS = names.map((name, index) => {
   const [gain, tint, tintAmount] = grading[index];
   const [density, style, motion, motionFactor, waveAmount, jitterAmount, depthOffset, streakSlant] = particleProfiles[index];
   return { id: ids[index], name, subtitle: subtitle[index], look: {
+    kaleido: { ...NEUTRAL_LOOK.kaleido },
+    feedback: { ...NEUTRAL_LOOK.feedback },
     rotation: { ...ROTATION_DEFAULTS },
     pulse: { ...PULSE_DEFAULTS },
     bloom: { ...BLOOM_DEFAULTS, threshold: [.85,.7,.65,.9,.75,.8][index], radius: [.85,.45,.8,.35,.6,.7][index],
@@ -101,6 +107,9 @@ export function normalizeLook(source) {
       target[key] = clampNumber(value?.[key], target[key], limits);
     }
   }
+  output.kaleido.segments = output.kaleido.segments < 1 ? 0 : Math.max(2, Math.round(output.kaleido.segments));
+  output.kaleido.mirror = typeof source?.kaleido?.mirror === 'boolean' ? source.kaleido.mirror : true;
+  output.feedback.blend = source?.feedback?.blend === 'mix' ? 'mix' : 'max';
   output.rotation.mode = ['angle', 'spin'].includes(source?.rotation?.mode) ? source.rotation.mode : output.rotation.mode;
   output.rotation.direction = ['cw', 'ccw', 'flip-on-beat'].includes(source?.rotation?.direction) ? source.rotation.direction : output.rotation.direction;
   output.rotation.returnToRest = typeof source?.rotation?.returnToRest === 'boolean' ? source.rotation.returnToRest : output.rotation.returnToRest;

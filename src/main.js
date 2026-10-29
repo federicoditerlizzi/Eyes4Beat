@@ -260,7 +260,8 @@ const globalCtl = {
  zoom:document.getElementById('g-zoom'),
  rotate:document.getElementById('g-rotate'),
  spiral:document.getElementById('g-spiral'),
- tiles:document.getElementById('g-tiles')
+ tiles:document.getElementById('g-tiles'),
+ trails:document.getElementById('g-trails'),kaleido:document.getElementById('g-kaleido')
 };
 const globalAuto = {
  pulse:document.getElementById('ga-pulse'),
@@ -272,7 +273,8 @@ const globalAuto = {
  zoom:document.getElementById('ga-zoom'),
  rotate:document.getElementById('ga-rotate'),
  spiral:document.getElementById('ga-spiral'),
- tiles:document.getElementById('ga-tiles')
+ tiles:document.getElementById('ga-tiles'),
+ trails:document.getElementById('ga-trails'),kaleido:document.getElementById('ga-kaleido')
 };
 const targetState={enabled:Object.fromEntries(routeTargets.map(key=>[key,true])),solo:Object.fromEntries(routeTargets.map(key=>[key,false]))};
 document.querySelectorAll('[data-target-on]').forEach(input=>input.onchange=()=>{targetState.enabled[input.dataset.targetOn]=input.checked});
@@ -316,8 +318,8 @@ function applyMusicPreset(p,{viewOnly=false}={}){
     const on=document.querySelector('[data-on="'+k+'"]'),solo=document.querySelector('[data-solo="'+k+'"]');on.checked=modState.enabled[k];solo.classList.toggle('active',modState.solo[k]);
   });
   routeTargets.forEach(k=>{
-    if(p.intensity?.[k]!=null)globalCtl[k].value=p.intensity[k];else if(addedTargetKeys.has(k))globalCtl[k].value=0;
-    if(p.reactivity?.[k]!=null)globalAuto[k].value=p.reactivity[k];else if(addedTargetKeys.has(k))globalAuto[k].value=1;
+    if(p.intensity?.[k]!=null)globalCtl[k].value=p.intensity[k];else if(['trails','kaleido'].includes(k))globalCtl[k].value=1;else if(addedTargetKeys.has(k))globalCtl[k].value=0;
+    if(p.reactivity?.[k]!=null)globalAuto[k].value=p.reactivity[k];else if(addedTargetKeys.has(k)||['trails','kaleido'].includes(k))globalAuto[k].value=1;
     targetState.enabled[k]=p.targetEnabled?.[k]!==false;targetState.solo[k]=!!p.targetSolo?.[k];
     document.querySelector('[data-target-on="'+k+'"]').checked=targetState.enabled[k];
     const solo=document.querySelector('[data-target-solo="'+k+'"]');solo.classList.toggle('active',targetState.solo[k]);solo.setAttribute('aria-pressed',String(targetState.solo[k]));
@@ -1020,6 +1022,7 @@ for(const event of ['input','change','click'])document.addEventListener(event,e=
 const outputSettingsDialog=document.getElementById('outputSettingsDialog');
 document.getElementById('outputSettingsBtn').onclick=()=>outputSettingsDialog.showModal();
 document.getElementById('closeOutputSettings').onclick=()=>outputSettingsDialog.close();
+document.getElementById('feedbackEnabled').onchange=event=>fire('setFeedback',{value:event.target.checked});
 document.getElementById('bloomQuality').onchange=event=>fire('setQuality',{value:event.target.value});
 document.getElementById('renderScale').oninput=event=>{
  document.getElementById('renderScaleValue').textContent=Math.round(Number(event.target.value)*100)+'%';

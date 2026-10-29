@@ -78,7 +78,7 @@ function smoothstep(x){return x*x*(3-2*x)}
 function setPanic(value){
  const next=!!value;if(next===panicActive)return panicActive;
  panicActive=next;
- if(panicActive){resetVisualEffects();panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
+ if(panicActive){renderer.clearFeedback();resetVisualEffects();panicReleaseStartedAt=null;current=target;archMix=1;transitioning=false}
  else{panicReleaseStartedAt=performance.now();if(seqStates[target]){seqStates[target].lastSwitch=performance.now();seqStates[target].nextAutoAt=null}}
 return panicActive;
 }
@@ -147,7 +147,7 @@ function frame(now){
  const lookA=looks[current],lookB=looks[target],visualTime=(now-t0)/1000;
  effects.update({time:visualTime,dt,lookA,lookB,current:archetypes[current]?.id,target:archetypes[target]?.id,FinalG,panicActive,palette:renderer.palette(1,seqStates[target]?.blend>.5?1:0),BPM,tempo:tempoState,latestAnalysis,lastFeatureAt,events:pendingVisualEvents.splice(0).filter(event=>performance.now()-event.receivedAt<500)});
  const motion=effects.uniforms();
- renderer.draw({lookA,lookB,sequenceA:seqStates[current],sequenceB:seqStates[target],visualTime,motion,motionElapsed:0,breath:motion?.breath||0,FinalG,archMix,transitioning});
+ renderer.draw({dt,panicActive,lookA,lookB,sequenceA:seqStates[current],sequenceB:seqStates[target],visualTime,motion,motionElapsed:0,breath:motion?.breath||0,FinalG,archMix,transitioning});
  effects.draw(visualTime,dt,lookB,FinalG);onRendered();publish(now,Eff);raf=requestAnimationFrame(frame);
 }
 
@@ -165,7 +165,7 @@ function publish(now,eff=getEffectiveState(),force=false){
  }));
 }
 async function loadProject({project,records,cacheName,preferredId,imagePositions=[]}){
- projectSwitching=true;mediaGeneration++;renderer.invalidateLoads();
+ projectSwitching=true;mediaGeneration++;renderer.clearFeedback();renderer.invalidateLoads();
  pads.load(project?.id||null,project?.midiSlots);syncMidiSources(pads.slots);
  try{
  await renderer.waitForLoads();if(disposed)return;
@@ -221,6 +221,7 @@ async function apply({type,payload:p}){
   case 'setControls':controls=structuredClone(p.controls);break;
   case 'setTransition':mode=p.mode;break;
   case 'setSafety':if(p.control==='panic')setPanic(p.value);else if(p.control==='blackout')setBlackout(p.value);else liveLock=p.value;break;
+  case 'setFeedback':renderer.setFeedback(p.value);break;
   case 'setQuality':renderer.setQuality(p.value);break;
   case 'setRenderScale':renderer.setRenderScale(p.value);resize();break;
   case 'audioRestore':await input.command(type,p);break;
