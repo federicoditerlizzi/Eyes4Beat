@@ -5,15 +5,18 @@ Both effects run in the active engine, including the output window, and leave th
 Canvas2D particles unchanged. Zero effective values bypass their draw calls and
 allocate no new render targets. Factory and older imported looks default to off.
 
-Enable segments / amount in LOOK, assign sources to Kaleido / Trails in ROUTING,
-and raise their target intensity and reactivity. Trails multiplies the look amount
-(capped at .98); Kaleido controls the wet mix while segment counts remain integers.
-New targets have no automatic routing assignments. Negative weights use the same
-unipolar inversion as the other effects. An inactive source leaves them neutral.
+Enable segments and Mix / Amount in LOOK to see effects without routing.
+Kaleido uses `clamp(look.mix + routedKaleido, 0, 1)`; Trails adds to the base
+amount through `clamp(base + routedTrails * (.98 - base), 0, .98)`.
+New targets have no automatic routing assignments. During archetype transitions,
+A's complete kaleido shape fades out over the first half, then B's fades in over
+the second half. Discrete settings switch only at zero wet mix, even with routing.
 
 Feedback retains `amount ** (dt * 60)` of the prior frame. Zoom, rotation, drift
 and hue shift are specified per 60 Hz frame and scaled by elapsed time. `max`
-keeps bright accents; `mix` blends the current scene with transformed history.
+keeps bright accents; `mix` (the default when unspecified) blends the current scene with transformed history.
+Rotation is bounded to ±3 degrees/frame, zoom and drift to ±.01/frame, and hue
+shift to 0–.01/frame. Feedback UVs mirror at every edge rather than filling black.
 The first enabled frame seeds history directly from the scene. A bypass invalidates
 history so re-enabling cannot resurrect old imagery. History textures use the same
 RGBA16F / RGBA8 capability choice as bloom.
@@ -36,8 +39,11 @@ history. BLACKOUT still uses its independent overlay.
 Manual show-laptop checklist (still required):
 
 - Compare all factory looks with defaults; images and transitions stay unchanged.
-- Route kick to Pulse and Trails, enable feedback, and check the decay of accents.
-- Try tunnel feedback with zoom and rotation, then the mix blend and drift/hue.
+- With no routing, set six kaleido segments and Mix 1; check visible folding.
+- With no routing, set feedback Amount above zero and blend mix on images.
+- Route kick to Pulse and Trails and check the added response.
+- Try tunnel feedback with zoom .005 and rotation .5 deg/frame.
+- Transition between archetypes with different segment counts; no visible shape snap.
 - Try six kaleido segments on images, videos, media and archetype transitions.
 - PANIC removes trails immediately and both effects stay off until released.
 - Resize, change render scale, switch project and restore a lost WebGL context;

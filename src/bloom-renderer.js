@@ -1,4 +1,4 @@
-import { feedbackDecay } from './post-effects.js';
+import { feedbackDecay, effectivePost } from './post-effects.js';
 import { bloomMipSizes, normalizeBloomQuality } from './bloom.js';
 import { TONE_KNEE, COLOR_SAFETY_MAX } from './tone.js';
 
@@ -74,8 +74,8 @@ void main(){
  float aspect=uRes.x/uRes.y;vec2 p=(vUv-.5)*vec2(aspect,1.);
  float c=cos(uAngle),s=sin(uAngle);p=mat2(c,-s,s,c)*p/uZoom;
  vec2 uv=p/vec2(aspect,1.)+.5-uDrift;
+ uv=1.-abs(mod(uv,2.)-1.);
  vec3 prev=texture(uDetail,uv).rgb;
- if(any(lessThan(uv,vec2(0.)))||any(greaterThan(uv,vec2(1.))))prev=vec3(0.);
  // Rotation about the gray axis preserves neutral colors.
  vec3 axis=vec3(.577350269);float h=uHue*6.28318530718;
  prev=max(vec3(0.),prev*cos(h)+cross(axis,prev)*sin(h)+axis*dot(axis,prev)*(1.-cos(h)));
@@ -153,10 +153,11 @@ export class BloomRenderer {
     }
     this.historyValid=false;
   }
-  postProcess(post, dt, time, targets, enabled) {
+  postProcess(post, dt, time, targets, enabled, passesEnabled = true) {
     const gl=this.gl;let scene=this.scene;
     const k=post.kaleido,f=post.feedback;
-    const kaleidoMix=Math.max(0,Math.min(1,targets.kaleido||0));
+    const effective=effectivePost(post,targets,passesEnabled);
+    const kaleidoMix=effective.kaleido;
     if(k.segments>0 && kaleidoMix>0){
       this.kaleidoTarget??=this.target(this.width,this.height);
       const u=this.use(3,this.kaleidoTarget,scene);
@@ -165,7 +166,7 @@ export class BloomRenderer {
       gl.uniform2f(u.uCenter,k.centerX,k.centerY);gl.uniform2f(u.uRes,this.width,this.height);
       gl.drawArrays(gl.TRIANGLES,0,3);scene=this.kaleidoTarget;
     }
-    const amount=enabled?Math.min(.98,f.amount*Math.max(0,targets.trails||0)):0;
+    const amount=enabled?effective.feedback:0;
     if(amount>0){
       this.history??=[this.target(this.width,this.height),this.target(this.width,this.height)];
       // Seed from this frame, never from stale history after a bypass or reset.

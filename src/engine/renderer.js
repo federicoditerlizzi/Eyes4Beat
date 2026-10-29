@@ -178,7 +178,7 @@ function draw({dt,panicActive,lookA,lookB,sequenceA,sequenceB,visualTime,motion,
  gl.drawArrays(gl.TRIANGLES,0,3);
  const visualMix=transitioning?archMix:1;
  const post=blendPost(lookA,lookB,visualMix);
- const scene=bloomRenderer.postProcess(post,dt,visualTime,panicActive?{}:FinalG,feedbackEnabled&&!panicActive);
+ const scene=bloomRenderer.postProcess(post,dt,visualTime,FinalG,feedbackEnabled,!panicActive);
  bloomRenderer.render(blendBloom(lookA.bloom,lookB.bloom,visualMix,FinalG.glow),uniformsA.vignette,uniformsB.vignette,visualMix,scene);
 }
 return { draw, dispose, clearFeedback:()=>{if(!contextLost)bloomRenderer.clearFeedback()},

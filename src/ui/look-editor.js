@@ -4,7 +4,7 @@ import { eventSourceIds, sourceLabels } from '../config.js';
 import { assignedSource } from '../routing.js';
 
 export const LOOK_GROUPS=[
- ['kaleido','KALEIDO','kaleido',['segments'],[['segments','Segments (0 = off)'],['rotationSpeed','Rotation (deg/s)'],['centerX','Center X'],['centerY','Center Y'],['mirror','Mirror']]],
+ ['kaleido','KALEIDO','kaleido',['segments','mix'],[['mix','Mix'],['segments','Segments (0 = off)'],['rotationSpeed','Rotation (deg/s)'],['centerX','Center X'],['centerY','Center Y'],['mirror','Mirror']]],
  ['feedback','FEEDBACK','trails',['amount','zoom'],[['amount','Amount'],['zoom','Zoom / frame'],['blend','Blend'],['rotate','Rotation (deg/frame)'],['driftX','Drift X'],['driftY','Drift Y'],['hueShift','Hue shift']]],
  ['color','COLOR',null,['gain','tint','tintAmount'],[['gain','Gain'],['tint','Tint'],['tintAmount','Tint amount'],['amount','Vignette amount','vignette'],['softness','Vignette softness','vignette']]],
  ['distortion','DISTORTION','dist',['amplitude','speed','mode'],[['amplitude','Amplitude'],['speed','Speed'],['mode','Mode'],['angle','Angle (degrees)'],['directionStrength','Direction strength']]],
