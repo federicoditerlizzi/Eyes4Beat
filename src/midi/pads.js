@@ -16,7 +16,7 @@ export function normalizeMidiSlots(value){
  });
 }
 export const midiSourceDefinitions=slots=>normalizeMidiSlots(slots).map(s=>({id:s.id,label:'MIDI · '+s.name,kind:'event',group:'midi-pad'}));
-export function syncMidiSources(slots){replaceSources([...getSources().filter(s=>s.group!=='midi-pad'),...midiSourceDefinitions(slots)])}
+export function syncMidiSources(slots){replaceSources([...getSources().filter(s=>s.group!=='midi-pad'&&s.group!=='accent'),...midiSourceDefinitions(slots)])}
 export function mergeMidiSlots(existing,incoming){
  if(incoming===undefined)return normalizeMidiSlots(existing);
  const result=normalizeMidiSlots(existing),added=normalizeMidiSlots(incoming);

@@ -161,7 +161,7 @@ export class BloomRenderer {
     if(k.segments>0 && kaleidoMix>0){
       this.kaleidoTarget??=this.target(this.width,this.height);
       const u=this.use(3,this.kaleidoTarget,scene);
-      gl.uniform1f(u.uSegments,k.segments);gl.uniform1f(u.uAngle,time*k.rotationSpeed*Math.PI/180);
+      gl.uniform1f(u.uSegments,k.segments);gl.uniform1f(u.uAngle,(time*k.rotationSpeed+(k.angleOffset||0))*Math.PI/180);
       gl.uniform1f(u.uMirror,k.mirror?1:0);gl.uniform1f(u.uEffectMix,kaleidoMix);
       gl.uniform2f(u.uCenter,k.centerX,k.centerY);gl.uniform2f(u.uRes,this.width,this.height);
       gl.drawArrays(gl.TRIANGLES,0,3);scene=this.kaleidoTarget;

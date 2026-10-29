@@ -3,6 +3,9 @@ import {createMidiPadsUi} from './ui/midi-pads.js';
 import { isBuiltinAudioSource, getSources, getSource, registerSource, unregisterSource, subscribeSources, replaceSources, withSourceDefinitions } from './source-registry.js';
 import { renderSourceControls } from './ui/source-controls.js';
 import { dimSetting } from './ui/control-relevance.js';
+import { createStructureEditor } from './ui/structure-editor.js';
+import { normalizeStructures } from './structure.js';
+import { normalizeAccentSettings } from './accents.js';
 import { normalizeRoutingRecord, routingPresetModified } from './routing-presets.js';
 import { createPresetBar } from './ui/preset-bar.js';
 import { createProjectUi } from './ui/project-ui.js';
@@ -210,7 +213,7 @@ let routingMaps=[];
 const addedTargetKeys=new Set(['rotate','spiral','tiles']);
 function saveRoutingMaps(){queueArchetypeWrite(target,{routingMap:routingMaps[target]});syncPresetActions()}
 function updateRoutingRelevance(){
- const used=new Set(routeTargets.map(t=>assignedSource(routingMaps[target],t)).filter(Boolean));
+ const used=new Set([...routeTargets.map(t=>assignedSource(routingMaps[target],t)).filter(Boolean),...(archetypes[target]?.routingControls?.structure||[]).map(r=>r.trigger)]);
  for(const source of routeSources)dimSetting(document.querySelector('[data-p="'+source+'"]'),used.has(source)?'':'No target uses this source. Assign it to a target to give these settings an effect.');
  for(const t of routeTargets)for(const prefix of ['g-','ga-'])dimSetting(document.getElementById(prefix+t),assignedSource(routingMaps[target],t)?'':'This target has no source. Assign a source to give intensity and reactivity an effect.');
 }
@@ -230,7 +233,7 @@ function refreshRoutingSources(){
   select.replaceChildren(new Option('None',''),...getSources().map(s=>new Option(s.label,s.id)));
   select.value=assignedSource(routingMaps[target],t)||'';
  }
- updateRoutingRelevance();
+ structureRows=normalizeStructures(structureRows);structureEditor.render();updateRoutingRelevance();
 }
 function closeRouting(){document.getElementById('routingPanel').classList.remove('open')}
 document.getElementById('routingTab').onclick=()=>{closeImageManager();closeLookEditor();refreshRoutingSources();document.getElementById('routingPanel').classList.add('open')};
@@ -300,18 +303,24 @@ document.querySelectorAll('[data-solo]').forEach(btn=>btn.onclick=()=>{
   btn.classList.toggle('active',modState.solo[k]);
 });
 
+let structureRows=[],accentSettings=normalizeAccentSettings();
+const structureEditor=createStructureEditor({root:document.getElementById('structureFields'),getValue:()=>({structure:structureRows,accent:accentSettings}),onChange:value=>{
+ structureRows=value.structure;accentSettings=value.accent;sendControls();persistRoutingControls();updateRoutingRelevance();
+}});
+structureEditor.render();
 let musicPresets=[];
 function activeRoutingPreset(){return musicPresets[target]?.find(p=>p.id===archetypes[target]?.activeRoutingPresetId)}
 function routingModified(){const preset=activeRoutingPreset();return routingPresetModified(captureMusicPreset(''),preset?{...preset,routing:preset.routing?normalizeRoutingMap(preset.routing,defaultRoutingMaps[target]):undefined}:null)}
-function restoreRoutingControls(){const controls=archetypes[target]?.routingControls;if(controls){applyMusicPreset(controls,{viewOnly:true});sendControls()}}
+function restoreRoutingControls(){const controls=archetypes[target]?.routingControls;if(controls){applyMusicPreset(controls,{viewOnly:true});sendControls()}else{structureRows=[];accentSettings=normalizeAccentSettings();structureEditor.render();sendControls()}}
 function saveMusicPresets(){queueArchetypeWrite(target,{musicPresets:musicPresets[target]})}
 function captureMusicPreset(name){
   const amounts={};sourceKeys.forEach(k=>amounts[k]=+document.getElementById('amt-'+k).value);
   const intensity={},reactivity={};routeTargets.forEach(k=>{intensity[k]=+globalCtl[k].value;reactivity[k]=+globalAuto[k].value});
-  return {name,enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,targetEnabled:{...targetState.enabled},targetSolo:{...targetState.solo},ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:structuredClone(routingMaps[target]||blankMap())};
+  return {name,structure:normalizeStructures(structureRows),accent:normalizeAccentSettings(accentSettings),enabled:{...modState.enabled},solo:{...modState.solo},amounts,intensity,reactivity,targetEnabled:{...targetState.enabled},targetSolo:{...targetState.solo},ctxPerf:+ctxPerf.value,globalReact:+document.getElementById('react').value,routing:structuredClone(routingMaps[target]||blankMap())};
 }
 function applyMusicPreset(p,{viewOnly=false}={}){
   if(!p)return;
+  structureRows=normalizeStructures(p.structure);accentSettings=normalizeAccentSettings(p.accent);structureEditor.render();
   sourceKeys.forEach(k=>{
     modState.enabled[k]=p.enabled?.[k]!==false;modState.solo[k]=!!p.solo?.[k];
     const amt=document.getElementById('amt-'+k);if(p.amounts?.[k]!=null)amt.value=p.amounts[k];document.getElementById('show-'+k).textContent=(+amt.value).toFixed(2);

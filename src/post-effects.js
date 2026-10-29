@@ -22,5 +22,5 @@ export function blendPost(a,b,mix){
  const blend=(x,y)=>Object.fromEntries(Object.keys(x).map(k=>[k,typeof x[k]==='number'?x[k]+(y[k]-x[k])*mix:(mix<.5?x[k]:y[k])]));
  // Swap discrete shape settings only at zero wet mix, including routed modulation.
  const kaleido=(mix<.5?a:b).kaleido;
- return {kaleido,kaleidoFade:Math.abs(2*mix-1),feedback:blend(a.feedback,b.feedback)};
+ return {kaleido,kaleidoFade:Math.abs(2*mix-1)*(kaleido.structuralDip??1),feedback:blend(a.feedback,b.feedback)};
 }

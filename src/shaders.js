@@ -13,6 +13,7 @@ uniform vec2 uRes;
 uniform vec4 uAspect;
 uniform vec3 uFrameA,uFrameB;
 uniform vec2 uRotationA,uRotationB;
+uniform vec3 uStructureA,uStructureB;
 uniform vec4 uPulseA,uPulseB;
 uniform vec3 uPulseShapeA,uPulseShapeB;
 uniform vec2 uWavesA[4],uWavesB[4];
@@ -47,16 +48,17 @@ vec2 parallax(vec2 uv){
  vec2 q=c/max(.72,uZoomAmt);
  return q+.5;
 }
-vec2 imageEffectsUV(vec2 uv,vec2 rotation){
+vec2 imageEffectsUV(vec2 uv,vec2 rotation,vec3 structure){
  float aspect=uRes.x/max(1.,uRes.y);
  if(rotation.y>1.||abs(rotation.x)>.000001){
    float c=cos(rotation.x),s=sin(rotation.x);
    vec2 p=(uv-.5)*vec2(aspect,1.);
    uv=vec2(c*p.x-s*p.y,s*p.x+c*p.y)/vec2(aspect,1.)/max(1.,rotation.y)+.5;
  }
- if(uSpiralAmt>.001){
+ float spiral=clamp(uSpiralAmt+structure.x,0.,1.5)*structure.y;
+ if(abs(spiral)>.001){
    vec2 p=(uv-.5)*vec2(aspect,1.);
-   float angle=uSpiralAmt*2.3*(1.-smoothstep(.05,.65,length(p)));
+   float angle=spiral*2.3*(1.-smoothstep(.05,.65,length(p)));
    float c=cos(angle),s=sin(angle);
    uv=vec2(c*p.x-s*p.y,s*p.x+c*p.y)/vec2(aspect,1.)+.5;
  }
@@ -64,7 +66,7 @@ vec2 imageEffectsUV(vec2 uv,vec2 rotation){
    vec2 grid=vec2(12.,8.),position=clamp(uv,vec2(0.),vec2(.999999))*grid;
    vec2 tile=floor(position);
    float index=tile.y*grid.x+tile.x;
-   float shuffled=mod(index*37.+17.,96.);
+   float shuffled=mod(index*37.+17.+floor(structure.z),96.);
    vec2 sourceTile=vec2(mod(shuffled,grid.x),floor(shuffled/grid.x));
    vec2 shuffledUv=(sourceTile+fract(position))/grid;
    uv=mix(uv,shuffledUv,step(hash(tile+vec2(13.,71.)),clamp(uTilesAmt/1.5,0.,1.)));
@@ -155,7 +157,7 @@ vec4 getPair(int slot,vec4 warp,vec2 direction,vec2 uv,float progress,int transi
    uv+=radial*.065*ring;split=shape.z*.02*ring;
  }
  vec2 rotation=slot==0?uRotationA:uRotationB;
- vec2 q=imageEffectsUV(parallax(warpUV(uv,warp,direction)),rotation);
+ vec2 q=imageEffectsUV(parallax(warpUV(uv,warp,direction)),rotation,slot==0?uStructureA:uStructureB);
  vec4 center=transitionPair(slot,q,progress,transitionType,seed,param);
  if(split>.00001){
    center.r=transitionPair(slot,q+radial*split,progress,transitionType,seed,param).r;

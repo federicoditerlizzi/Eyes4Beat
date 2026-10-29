@@ -27,8 +27,16 @@ function refreshViews() {
   for (const key of Object.keys(sourceLabels)) delete sourceLabels[key];
   for (const source of sourceRegistry) sourceLabels[source.id] = source.label;
 }
+export const accentSourceId=id=>id+'_accent';
+export const accentParentId=id=>getSource(id)?.group==='accent'?id.slice(0,-7):null;
+function deriveAccents(){
+ const bases=sourceRegistry.filter(source=>source.group!=='accent');
+ const derived=bases.filter(source=>source.kind==='event').map(source=>definition({id:accentSourceId(source.id),label:source.label+' · accent',kind:'event',group:'accent'}));
+ if(derived.some(source=>bases.some(base=>base.id===source.id)))throw new Error('Reserved accent source id');
+ sourceRegistry.splice(0,sourceRegistry.length,...bases,...derived);
+}
 function changed() {
-  refreshViews();
+  deriveAccents();refreshViews();
   for (const listener of listeners) listener(getSources());
 }
 export function getSources() { return sourceRegistry.map(source => ({ ...source })); }
@@ -37,12 +45,14 @@ export const extensionDefinitions = () => getSources().filter(source => !isBuilt
 export function registerSource(source) {
   const item = definition(source);
   if (getSource(item.id)) throw new Error('Source already registered: ' + item.id);
+  if(item.group==='accent'||item.id.endsWith('_accent')||getSource(accentSourceId(item.id)))throw new Error('Reserved accent source id');
   sourceRegistry.push(item);changed();
   return () => unregisterSource(item.id);
 }
 export function unregisterSource(id) {
   const index = sourceRegistry.findIndex(source => source.id === id);
   if (index < 0) return false;
+  if(sourceRegistry[index].group==='accent')return false;
   sourceRegistry.splice(index, 1);changed();return true;
 }
 export function subscribeSources(listener) { listeners.add(listener);return () => listeners.delete(listener); }
@@ -50,8 +60,10 @@ export function eventSourceIds() { return sourceRegistry.filter(source => source
 export function replaceSources(sources) {
   const next = sources.map(definition);
   if (new Set(next.map(source => source.id)).size !== next.length) throw new Error('Duplicate source');
-  if (JSON.stringify(next) === JSON.stringify(getSources())) return;
-  sourceRegistry.splice(0, sourceRegistry.length, ...next);changed();
+  const prior=sourceRegistry.slice();sourceRegistry.splice(0,sourceRegistry.length,...next);
+  try{deriveAccents()}catch(error){sourceRegistry.splice(0,sourceRegistry.length,...prior);throw error}
+  if(JSON.stringify(sourceRegistry)===JSON.stringify(prior))return;
+  changed();
 }
 
 // Server normalization is synchronous and scoped to a record: extension metadata
@@ -60,7 +72,7 @@ export function withSourceDefinitions(definitions, normalize) {
   const extra = (definitions || []).map(definition), prior = sourceRegistry.slice();
   try {
     for (const source of extra) if (!getSource(source.id)) sourceRegistry.push(source);
-    refreshViews();return normalize();
+    deriveAccents();refreshViews();return normalize();
   } finally { sourceRegistry.splice(0, sourceRegistry.length, ...prior);refreshViews(); }
 }
 replaceSources(AUDIO_SOURCES);

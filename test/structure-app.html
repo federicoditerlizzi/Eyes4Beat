@@ -1,0 +1,52 @@
+<!doctype html><meta charset="utf-8"><title>Structure engine + editor regression</title>
+<pre id="result">RUNNING</pre>
+<script type="module">
+import {createVisualEngine} from '../src/engine/engine.js';
+import {command} from '../src/engine/protocol.js';
+import {LocalLibraryRepository} from '../src/library/local-repository.js';
+import {normalizeLook} from '../src/looks.js';
+import {normalizeStructures} from '../src/structure.js';
+import {getSources} from '../src/source-registry.js';
+import {blankMap} from '../src/config.js';
+import {defaultImageConfig} from '../src/library/runtime.js';
+import {createStructureEditor} from '../src/ui/structure-editor.js';
+const result=document.querySelector('#result'),assert=(v,s)=>{if(!v)throw Error(s)};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(fn,label){for(let n=0;n<100;n++){if(fn())return;await wait(30)}throw Error('Timed out: '+label)}
+let engine,repo;
+try{
+ assert(['localhost','127.0.0.1'].includes(location.hostname),'Run only on localhost');
+ const canvas=document.createElement('canvas'),particles=document.createElement('canvas'),blackout=document.createElement('div');document.body.append(canvas,particles,blackout);
+ const name='structure-test-'+Date.now();repo=new LocalLibraryRepository(name);const project=await repo.createProject('Structure test');
+ const image=document.createElement('canvas');image.width=64;image.height=64;const ctx=image.getContext('2d');ctx.fillStyle='#ff6040';ctx.fillRect(0,0,64,64);const media=await repo.putMedia(await new Promise(resolve=>image.toBlob(resolve)));
+ const base=normalizeLook({kaleido:{segments:6,mix:1},distortion:{amplitude:.04}});
+ const rows=normalizeStructures([{id:'segments',trigger:'kick_accent',parameter:'kaleido.segments',min:6,max:8,mode:'cycle',values:[8,6],durationMs:300}]);
+ const a=await repo.createArchetype(project.id,{name:'A',look:base,routingMap:blankMap(),media:[{mediaId:media.id,mime:'image/png',name:'test.png'}],imageConfig:defaultImageConfig(1),routingControls:{structure:rows}});
+ const b=await repo.createArchetype(project.id,{name:'B',look:base,routingMap:blankMap(),media:[{mediaId:media.id,mime:'image/png',name:'test.png'}],imageConfig:defaultImageConfig(1)});
+ const opened=await repo.getProject(project.id);let state,errors=[],seq=0;
+ engine=createVisualEngine({canvas,particleCanvas:particles,blackoutOverlay:blackout,emit:e=>{if(e.type==='state')state=e.state;if(e.type==='error')errors.push(e.message)}});
+ const send=(type,payload={})=>engine.receive(command(++seq,type,payload));
+ await send('loadProject',{project:opened,records:[a,b],cacheName:name,preferredId:a.id});
+ await send('setSources',{sources:[...getSources(),{id:'testHit',label:'Test hit',kind:'event',group:'test'}]});
+ const structures=rows.map(r=>({...r,trigger:'testHit_accent'}));
+ const controls={enabled:{},solo:{},amounts:{},intensity:Object.fromEntries(Object.keys(state.finalG).map(k=>[k,1])),reactivity:Object.fromEntries(Object.keys(state.finalG).map(k=>[k,1])),targetEnabled:{},targetSolo:{},ctxPerf:0,globalReact:1,structure:structures,accent:{ratio:1.35,gapBeats:2}};
+ await send('setControls',{controls});await send('updateArchetype',{id:a.id,patch:{routingControls:controls}});
+ await send('setSourceValues',{values:{testHit:.4}});await until(()=>state.structure[0]?.value===8,'accent changes segments');
+ assert(state.sources.some(s=>s.id==='testHit_accent'),'accent missing in snapshot');
+ await send('setSourceValues',{values:{testHit:.4}});await wait(350);assert(state.structure[0].value===8,'normal hit changed structure');
+ await send('setSourceValues',{values:{testHit:.9}});await until(()=>state.structure[0]?.value===6,'ratio accent');
+ await send('setSafety',{control:'panic',value:true});assert(state.structure[0].value===6&&state.structure[0].dip===1,'PANIC did not reset');
+ await send('setSafety',{control:'panic',value:false});
+ await send('setSourceValues',{values:{testHit:.9}});await until(()=>state.structure[0]?.value===8,'post-PANIC accent');
+ await send('setTransition',{mode:'cut'});await send('selectArchetype',{id:b.id});await until(()=>state.targetId===b.id,'switch B');
+ await wait(350);await send('selectArchetype',{id:a.id});await until(()=>state.targetId===a.id,'switch A');assert(state.structure[0].value===6,'switch retained offsets');
+ const root=document.createElement('div');document.body.append(root);let value={structure:structures,accent:controls.accent};
+ const editor=createStructureEditor({root,getValue:()=>value,onChange:v=>value=v});editor.render();
+ assert(root.querySelectorAll('.structureRow').length===1,'row not rendered');
+ const mode=root.querySelector('[aria-label="Mode"]');mode.value='random-walk';mode.dispatchEvent(new Event('change'));
+ assert(!root.querySelector('[aria-label="Step size"]').closest('label').hidden,'step field hidden');assert(root.querySelector('[aria-label="Cycle values"]').closest('label').hidden,'cycle field visible');
+ const add=root.querySelector('#addStructure');add.click();assert(value.structure.length===2,'add row');
+ assert(errors.length===0,'Engine errors: '+errors.join(', '));
+ result.textContent='PASS: active engine accent ingestion and routing snapshots; normal vs accent triggers; kaleido segment cycle; PANIC; archetype release; STRUCTURE editor and relevance.';
+}catch(error){result.textContent='FAIL: '+error.stack}finally{await engine?.dispose();await repo?.close()}
+</script>

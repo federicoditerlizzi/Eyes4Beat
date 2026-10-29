@@ -393,3 +393,12 @@
 .midiActivity{max-height:150px;overflow:auto;padding:8px 10px;background:rgba(255,255,255,.035);border-radius:8px;font-size:11px;line-height:1.7;font-variant-numeric:tabular-nums}
 .midiPads{display:grid;gap:8px;margin:12px 0}.midiPad{padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:8px}.midiPadHeader{display:flex;align-items:center;gap:8px}.midiPadHeader input{min-width:0;flex:1}.midiPadFlash{width:9px;height:9px;flex:none;border-radius:50%;background:#62dfa0;box-shadow:0 0 8px #62dfa0;opacity:.15}.midiBindings{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:10px;color:var(--muted)}.midiBindings>span{display:inline-flex;align-items:center;gap:3px}.midiBindings .iconAction{width:22px;height:22px}.midiBindings .iconAction svg{width:12px;height:12px}.midiPads .inspectorBanner button{margin-left:8px}
 .midiPadSettings{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:14px;margin-top:8px}.midiPadSettings label{display:flex;align-items:center;gap:7px;font-size:9px;color:var(--muted)}.midiPadSettings input{min-width:0;flex:1;padding:0}.midiPadSettings output{white-space:nowrap;min-width:40px;text-align:right}.midiPadSettings select{min-width:0;width:85px;font-size:10px}
+
+/* Structural routing rows remain editable while the engine performs. */
+.structureRow{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 0;border-top:1px solid var(--line,#30343e)}
+.structureHeading{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.structureField{display:flex;flex-direction:column;gap:4px;font-size:10px;min-width:0}
+.structureField input,.structureField select{width:100%;min-width:0;box-sizing:border-box}
+.structureField[hidden]{display:none}
+.structureAccentSettings{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+#addStructure{margin-top:10px;width:100%}

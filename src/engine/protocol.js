@@ -1,3 +1,4 @@
+import { STRUCTURE_PARAMETERS, STRUCTURE_CURVES } from '../structure.js';
 import {normalizeMidiSlots} from '../midi/pads.js';
 import { validSourceDefinition } from '../source-registry.js';
 // The wire accepts only data. No callbacks, DOM objects, handles or shared references.
@@ -8,7 +9,8 @@ const id=v=>typeof v==='string'&&v.length>0;
 const range=(v,a,b)=>number(v)&&v>=a&&v<=b;
 const flags=v=>object(v)&&Object.values(v).every(x=>typeof x==='boolean');
 const values=v=>object(v)&&Object.values(v).every(number);
-const controls=v=>object(v)&&['enabled','solo','targetEnabled','targetSolo'].every(k=>flags(v[k]))&&['amounts','intensity','reactivity'].every(k=>values(v[k]))&&range(v.ctxPerf,0,1)&&number(v.globalReact);
+const structural=v=>(v.structure===undefined||(Array.isArray(v.structure)&&v.structure.length<=8&&v.structure.every(r=>object(r)&&id(r.id)&&id(r.trigger)&&Object.hasOwn(STRUCTURE_PARAMETERS,r.parameter)&&number(r.min)&&number(r.max)&&['random-walk','random','cycle'].includes(r.mode)&&number(r.step)&&Array.isArray(r.values)&&r.values.length<=32&&r.values.every(number)&&range(r.durationMs,50,2000)&&STRUCTURE_CURVES.includes(r.curve))))&&(v.accent===undefined||(object(v.accent)&&range(v.accent.ratio,1,4)&&range(v.accent.gapBeats,.25,16)));
+const controls=v=>object(v)&&['enabled','solo','targetEnabled','targetSolo'].every(k=>flags(v[k]))&&['amounts','intensity','reactivity'].every(k=>values(v[k]))&&range(v.ctxPerf,0,1)&&number(v.globalReact)&&structural(v);
 const media=v=>object(v)&&id(v.mediaId)&&typeof v.mime==='string';
 const record=v=>object(v)&&id(v.id)&&id(v.projectId)&&Array.isArray(v.media)&&v.media.every(media);
 const project=v=>v===null||(object(v)&&id(v.id)&&Array.isArray(v.archetypeOrder)&&v.archetypeOrder.every(id)&&(v.midiSlots===undefined||slots(v.midiSlots)));

@@ -23,7 +23,7 @@ function sh(type,src){
 const requiredTextureUnits=4;
 if(gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)<requiredTextureUnits)throw new Error(`Eyes4Beat requires ${requiredTextureUnits} fragment texture units`);
 let prog,sceneVao,sceneBuffer,bloomRenderer,contextLost=false,disposed=false;
-const names=['uRotationA','uRotationB','uPulseA','uPulseB','uPulseShapeA','uPulseShapeB','uWavesA[0]','uWavesB[0]','uBreathPhase','uAspect','uFrameA','uFrameB','uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uWarpA','uWarpB','uWarpDirA','uWarpDirB','uGradeA','uGradeB','uArchMix','uMapPulse','uDistAmt','uLumAmt','uSatAmt','uZoomAmt','uSpiralAmt','uTilesAmt'];
+const names=['uStructureA','uStructureB','uRotationA','uRotationB','uPulseA','uPulseB','uPulseShapeA','uPulseShapeB','uWavesA[0]','uWavesB[0]','uBreathPhase','uAspect','uFrameA','uFrameB','uRes','uTime','uMorphA','uMorphB','uTransA','uTransB','uSeedA','uSeedB','uParamA','uParamB','uWarpA','uWarpB','uWarpDirA','uWarpDirB','uGradeA','uGradeB','uArchMix','uMapPulse','uDistAmt','uLumAmt','uSatAmt','uZoomAmt','uSpiralAmt','uTilesAmt'];
 const U={};
 function initializeRenderer(){
  const vertexShader=sh(gl.VERTEX_SHADER,vertexShaderSource),fragmentShader=sh(gl.FRAGMENT_SHADER,fragmentShaderSource);
@@ -144,6 +144,7 @@ function refreshVideoTextures(){
  }
 }
 function applyMotionUniforms(role,look,state,waves,elapsed=0,time=0){
+ gl.uniform3f(U['uStructure'+role],look.structure?.spiralAmount||0,look.structure?.spiralDirection??1,look.structure?.tileSeed||0);
  const rotation=look.rotation||NEUTRAL_LOOK.rotation,pulse=look.pulse||NEUTRAL_LOOK.pulse;
  gl.uniform2f(U['uRotation'+role],(state?.angle||0)*Math.PI/180,rotationCoverAt(state,rotation,canvas.width/canvas.height,time));
  gl.uniform4f(U['uPulse'+role],pulse.centerX,pulse.centerY,pulse.strength,pulse.speed);

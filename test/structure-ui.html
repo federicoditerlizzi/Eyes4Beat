@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8"><title>Structure routing preset UI regression</title><pre id="result">RUNNING</pre>
+<script type="module">
+import {LocalLibraryRepository} from '../src/library/local-repository.js';
+import {cacheUserKey} from '../src/library/sync-logic.js';
+import {normalizeLook} from '../src/looks.js';
+import {normalizeStructures} from '../src/structure.js';
+import {blankMap} from '../src/config.js';
+import {defaultImageConfig} from '../src/library/runtime.js';
+const result=document.querySelector('#result'),assert=(v,s)=>{if(!v)throw Error(s)},wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(check,label){for(let n=0;n<120;n++){if(check())return;await wait(50)}throw Error('Timed out: '+label)}
+const prior=localStorage.getItem('eyes4beat_last_sync_user');let frame,repo;
+try{
+ assert(['localhost','127.0.0.1'].includes(location.hostname),'Localhost only');
+ const user='structure-ui-'+Date.now()+'@example.invalid';localStorage.setItem('eyes4beat_last_sync_user',user);
+ repo=new LocalLibraryRepository('eyes4beat-cache-'+cacheUserKey(user));const p=await repo.createProject('Structure UI');
+ const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;const ctx=canvas.getContext('2d');ctx.fillStyle='orange';ctx.fillRect(0,0,64,64);const m=await repo.putMedia(await new Promise(r=>canvas.toBlob(r)));
+ const first=normalizeStructures([{id:'a',trigger:'snare',parameter:'distortion.angle',min:-90,max:90,values:[-90,90],mode:'cycle'}]);
+ const second=normalizeStructures([{id:'b',trigger:'kick_accent',parameter:'kaleido.segments',min:6,max:8,values:[6,8],mode:'cycle'}]);
+ const a=await repo.createArchetype(p.id,{name:'A',look:normalizeLook({kaleido:{segments:6,mix:1}}),media:[{mediaId:m.id,mime:'image/png',name:'fixture.png'}],imageConfig:defaultImageConfig(1),routingMap:blankMap(),musicPresets:[{id:'first',name:'First',structure:first},{id:'second',name:'Second',structure:second}],activeRoutingPresetId:'first',routingControls:{structure:first}});
+ await repo.setActiveProject(p.id);
+ frame=document.createElement('iframe');frame.width=1280;frame.height=900;frame.src='/';document.body.append(frame);
+ await until(()=>frame.contentDocument?.querySelector('#lookBtn')?.disabled===false,'project load');let doc=frame.contentDocument,win=frame.contentWindow,state;
+ await until(()=>win.EyesForBeatsEngine,'engine subscription');win.EyesForBeatsEngine.subscribe(e=>{if(e.type==='state')state=e.state});await until(()=>state?.targetId===a.id,'snapshot');
+ doc.querySelector('#routingTab').click();assert(doc.querySelector('#structureSection'),'section missing');
+ const parameter=()=>doc.querySelector('#structureFields [aria-label="Parameter"]');
+ assert(parameter().value==='distortion.angle','initial rows not restored');
+ const select=doc.querySelector('#presetSelect');select.value='second';select.dispatchEvent(new win.Event('change',{bubbles:true}));
+ await until(()=>state.activeRoutingPresetId==='second','second preset');assert(parameter().value==='kaleido.segments','second preset restored old rows');
+ await wait(700);assert((await repo.getArchetype(a.id)).routingControls.structure[0].id==='b','second preset list not persisted');
+ select.value='first';select.dispatchEvent(new win.Event('change',{bubbles:true}));await until(()=>state.activeRoutingPresetId==='first','first preset');assert(parameter().value==='distortion.angle','first preset recall');
+ const duration=doc.querySelector('#structureFields [aria-label="Easing (ms)"]');duration.focus();await wait(250);assert(doc.activeElement===duration&&duration.isConnected,'snapshots replaced focused structure field');
+ const mode=doc.querySelector('#structureFields [aria-label="Mode"]');mode.value='random-walk';mode.dispatchEvent(new win.Event('change',{bubbles:true}));
+ assert(!doc.querySelector('#structureFields [aria-label="Step size"]').closest('label').hidden,'step relevance');
+ result.textContent='PASS: main ROUTING STRUCTURE section; two preset recalls and IndexedDB persistence; source selectors; relevance; snapshot focus retention.';
+}catch(error){result.textContent='FAIL: '+error.stack}finally{frame?.remove();await repo?.close();if(prior===null)localStorage.removeItem('eyes4beat_last_sync_user');else localStorage.setItem('eyes4beat_last_sync_user',prior)}
+</script>
